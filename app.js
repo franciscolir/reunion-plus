@@ -16,7 +16,7 @@ const state = {
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const WEEK_TYPES = {
   normal:      { label: 'Normal',              icon: 'calendar_today' },
-  supervisor:  { label: 'Visita del Supervisor',icon: 'verified' },
+  supervisor:  { label: 'Visita Superintendente',icon: 'verified' },
   assembly:    { label: 'Asamblea',             icon: 'event_busy' },
   commemoration:{ label: 'Conmemoración',       icon: 'stars' },
 };
@@ -559,7 +559,7 @@ function bindTalkPicker(root) {
 
 function weekCard(w, i, conflicts) {
   const date = new Date(w.date + 'T00:00:00');
-  const dateLabel = `${capitalize(date.toLocaleDateString('es', { weekday: 'long' }))} ${date.getDate()}`;
+  const fullDate = capitalize(date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }));
   const typeOpts = Object.entries(WEEK_TYPES).map(([k, v]) =>
     `<option value="${k}" ${w.type === k ? 'selected' : ''}>${v.label}</option>`
   ).join('');
@@ -567,14 +567,13 @@ function weekCard(w, i, conflicts) {
   return `<section class="week-card-accent bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 md:p-8 border ${w.type !== 'normal' ? 'border-primary' : 'border-outline-variant'} hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow">
     <div class="flex flex-col lg:flex-row gap-8">
       <div class="lg:w-1/4">
+        <h3 class="font-headline-md text-headline-md text-primary mb-1">Semana ${i + 1}</h3>
         <div class="mb-2 flex items-center gap-1 text-secondary font-bold text-[10px] uppercase">
           <span class="material-symbols-outlined text-[14px]">${WEEK_TYPES[w.type].icon}</span> ${WEEK_TYPES[w.type].label}
         </div>
-        <div class="inline-block px-3 py-1 bg-primary text-on-primary font-label-md text-label-md rounded mb-3">${dateLabel}</div>
-        <h3 class="font-headline-md text-headline-md text-primary mb-1">Semana ${i + 1}</h3>
-        <p class="text-on-surface-variant font-caption text-caption uppercase tracking-wider">${date.toLocaleDateString('es', { day: 'numeric', month: 'long' })}</p>
+        <div class="inline-block px-3 py-1 bg-primary text-on-primary font-label-md text-label-md rounded">${fullDate}</div>
         <div class="mt-4 space-y-2">
-          <label class="font-label-md text-label-md text-on-surface-variant">Tipo de Evento</label>
+          <label class="font-label-md text-label-md text-on-surface-variant">Tipo de Reunion</label>
           <select data-field="type" data-idx="${i}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${typeOpts}</select>
         </div>
       </div>
