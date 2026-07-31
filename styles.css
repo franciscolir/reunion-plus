@@ -1,0 +1,51 @@
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+.week-card-accent { border-left: 4px solid #032121; }
+
+.conflict-dot { animation: pulse-error 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes pulse-error {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
+
+.editorial-line {
+  height: 1px;
+  background: linear-gradient(to right, #727878 0%, transparent 100%);
+}
+
+.week-card { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+.week-card:hover { transform: translateY(-4px); box-shadow: 0px 8px 30px rgba(0,0,0,0.06); }
+
+.editorial-shadow { box-shadow: 0px 4px 20px rgba(0,0,0,0.04); }
+.table-row-hover:hover { background-color: #f3f3f3; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #f9f9f9; }
+::-webkit-scrollbar-thumb { background: #c1c8c7; border-radius: 4px; }
+
+/* Programa imprimible: oculta UI cromada */
+@media print {
+  header, aside, #sideNav, #actionBar, #toastRoot, #modalRoot, #topNav, #navToggle,
+  #onlineBtn, #settingsBtn, #sideAbout, #sideNewMonth, .no-print { display: none !important; }
+  main { margin-left: 0 !important; padding: 0 !important; max-width: none !important; }
+  body { background: #fff !important; }
+  .print-only { display: block !important; }
+}
+.print-only { display: none; }
+
+/* Animación entrada modal */
+.modal-enter { animation: modalIn .18s ease-out; }
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Toast */
+.toast-enter { animation: toastIn .25s ease-out; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}

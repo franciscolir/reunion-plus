@@ -1,0 +1,19 @@
+# Archivo temporal/local del servidor de pruebas
+servidor.ps1
+
+# Material con copyright "Solo para uso de la congregación"
+S-99_S.pdf
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependencias (no aplica: app sin build)
+node_modules/

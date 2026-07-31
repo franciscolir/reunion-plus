@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+
+<html class="light" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Chronicle Bulletin - Vista Final</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Playfair+Display:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config Verbatim -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-fixed-variant": "#304b4b",
+                    "on-secondary-container": "#736041",
+                    "error-container": "#ffdad6",
+                    "on-primary": "#ffffff",
+                    "primary-fixed-dim": "#aecccc",
+                    "on-secondary-fixed-variant": "#554427",
+                    "surface-container-lowest": "#ffffff",
+                    "primary-fixed": "#cae8e8",
+                    "tertiary": "#0d2113",
+                    "tertiary-fixed-dim": "#b5cdb7",
+                    "secondary-fixed": "#f9dfb8",
+                    "on-tertiary-container": "#899f8b",
+                    "primary": "#032121",
+                    "on-background": "#1a1c1c",
+                    "error": "#ba1a1a",
+                    "inverse-primary": "#aecccc",
+                    "on-tertiary-fixed-variant": "#374c3b",
+                    "secondary": "#6f5b3d",
+                    "primary-container": "#1a3636",
+                    "inverse-surface": "#2f3131",
+                    "surface-container-highest": "#e2e2e2",
+                    "on-tertiary": "#ffffff",
+                    "on-secondary": "#ffffff",
+                    "outline-variant": "#c1c8c7",
+                    "background": "#f9f9f9",
+                    "on-error": "#ffffff",
+                    "surface-bright": "#f9f9f9",
+                    "on-primary-container": "#829f9f",
+                    "on-surface-variant": "#414848",
+                    "tertiary-container": "#223627",
+                    "surface-variant": "#e2e2e2",
+                    "surface-tint": "#476363",
+                    "surface-container": "#eeeeee",
+                    "surface-container-low": "#f3f3f3",
+                    "tertiary-fixed": "#d1e9d2",
+                    "on-surface": "#1a1c1c",
+                    "outline": "#727878",
+                    "surface": "#f9f9f9",
+                    "surface-dim": "#dadada",
+                    "inverse-on-surface": "#f1f1f1",
+                    "on-primary-fixed": "#022020",
+                    "on-error-container": "#93000a",
+                    "on-secondary-fixed": "#261903",
+                    "secondary-fixed-dim": "#dcc39e",
+                    "surface-container-high": "#e8e8e8",
+                    "on-tertiary-fixed": "#0c2012",
+                    "secondary-container": "#f6dcb5"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "margin-desktop": "40px",
+                    "container-max-width": "1200px",
+                    "margin-mobile": "16px",
+                    "unit": "8px",
+                    "gutter": "24px"
+            },
+            "fontFamily": {
+                    "caption": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-lg-mobile": ["Playfair Display"],
+                    "headline-md": ["Playfair Display"],
+                    "headline-lg": ["Playfair Display"],
+                    "body-md": ["Inter"],
+                    "display-lg": ["Playfair Display"]
+            },
+            "fontSize": {
+                    "caption": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "fontWeight": "700"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "fontWeight": "700"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .editorial-line {
+            height: 1px;
+            background: linear-gradient(to right, #727878 0%, transparent 100%);
+        }
+        .week-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .week-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0px 8px 30px rgba(0,0,0,0.06);
+        }
+        body {
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body class="font-body-md text-on-surface selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- TopAppBar from JSON -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop h-16 bg-surface border-b border-outline-variant shadow-none">
+<div class="font-headline-md text-headline-md font-bold text-primary">Chronicle Bulletin</div>
+<nav class="hidden md:flex gap-8 items-center h-full">
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors py-2" href="#">Edit</a>
+<a class="font-label-md text-label-md text-primary border-b-2 border-primary pb-1 py-2" href="#">Preview</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-primary scale-95 active:opacity-80 transition-transform" data-icon="account_circle">account_circle</button>
+</div>
+</header>
+<div class="flex min-h-screen pt-16 pb-24">
+<!-- SideNavBar from JSON (Semantic: Hidden as this is a 'Preview/Final' focus state) -->
+<!-- Note: According to 'Shell Visibility & Relevance', we suppress nav for focused tasks, but we keep it here as a subtle desktop sidebar if needed. However, the prompt asks for a "Preview/Final View" which implies a focused task. We will render a minimal version. -->
+<main class="flex-1 max-w-container-max-width mx-auto px-margin-mobile md:px-margin-desktop py-12">
+<!-- Header Section -->
+<div class="mb-12 text-center md:text-left">
+<div class="flex items-center gap-3 mb-2 justify-center md:justify-start">
+<span class="editorial-line w-12 hidden md:block"></span>
+<p class="font-label-md text-label-md text-secondary uppercase tracking-widest">Programación Mensual</p>
+</div>
+<h1 class="font-display-lg text-display-lg text-primary mb-4 leading-tight">JULIO 2026 - Programa de Reuniones</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">Visualización final lista para su distribución y publicación editorial. Este documento refleja la asignación oficial de responsabilidades.</p>
+</div>
+<!-- Bento Grid / Weekly Timeline -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Week 1 -->
+<div class="week-card bg-surface-container-low border-l-4 border-primary p-8 rounded-lg bg-primary-fixed/30"><div class="flex justify-between items-start mb-6"><div><div class="flex gap-2 items-center mb-3"><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 1</span><span class="font-label-md text-label-md text-on-primary bg-primary px-3 py-1 rounded-full uppercase">Visita Especial</span></div><h2 class="font-headline-lg text-headline-lg text-primary">5 JULIO</h2></div><div class="material-symbols-outlined text-primary text-4xl" data-icon="verified">verified</div></div><div class="mb-8 p-4 bg-white/50 rounded-lg border border-primary/20"><h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2"><span class="material-symbols-outlined text-secondary" data-icon="mic_external_on">mic_external_on</span>Discurso: "La Fe Verdadera"</h3></div><div class="space-y-4"><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span><span class="font-label-md text-label-md text-on-surface-variant">Presidente</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Juan Pérez</span></div><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span><span class="font-label-md text-label-md text-on-surface-variant">Discurso Supervisor</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Carlos Soto</span></div><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span><span class="font-label-md text-label-md text-on-surface-variant">Estudio (sin lectura)</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Pedro Rojas</span></div><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="record_voice_over">record_voice_over</span><span class="font-label-md text-label-md text-on-surface-variant">Segundo Discurso Supervisor</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Visitante</span></div><div class="flex items-center justify-between py-2"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span><span class="font-label-md text-label-md text-on-surface-variant">Departamento Semanero</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Departamento Norte</span></div></div></div>
+<!-- Week 2 -->
+<div class="week-card bg-surface-container-low border-l-4 border-primary p-8 rounded-lg">
+<div class="flex justify-between items-start mb-6">
+<div>
+<span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 2</span>
+<h2 class="font-headline-lg text-headline-lg text-primary mt-3">12 JULIO</h2>
+</div>
+<div class="material-symbols-outlined text-outline-variant text-4xl" data-icon="calendar_today">calendar_today</div>
+</div>
+<div class="mb-8 p-4 bg-white/50 rounded-lg border border-outline-variant/30">
+<h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary" data-icon="mic_external_on">mic_external_on</span>
+                            Discurso: "Justicia para Todos"
+                        </h3>
+</div>
+<div class="space-y-4">
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Presidente</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Marta Giménez</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Orador</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Roberto Valle</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Estudio</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Elena Sorondo</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="library_books">library_books</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Lector</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Ignacio Ruiz</span>
+</div>
+<div class="flex items-center justify-between py-2">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Atención</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Departamento Sur</span>
+</div>
+</div>
+</div>
+<!-- Week 3 -->
+<div class="week-card bg-surface-container-low border-l-4 border-primary p-8 rounded-lg">
+<div class="flex justify-between items-start mb-6">
+<div>
+<span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 3</span>
+<h2 class="font-headline-lg text-headline-lg text-primary mt-3">19 JULIO</h2>
+</div>
+<div class="material-symbols-outlined text-outline-variant text-4xl" data-icon="stars">stars</div>
+</div>
+<div class="mb-8 p-4 bg-white/50 rounded-lg border border-outline-variant/30">
+<h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary" data-icon="mic_external_on">mic_external_on</span>
+                            Discurso: "Esperanza en Tiempos Modernos"
+                        </h3>
+</div>
+<div class="space-y-4">
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Presidente</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Fernando Torres</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Orador</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Andrés Bello</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Estudio</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Sara Mendez</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="library_books">library_books</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Lector</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Lucas Pratto</span>
+</div>
+<div class="flex items-center justify-between py-2">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Atención</span>
+</div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">Departamento Este</span>
+</div>
+</div>
+</div>
+<!-- Week 4 -->
+<div class="week-card bg-surface-container-low border-l-4 p-8 rounded-lg bg-surface-dim"><div class="flex justify-between items-start mb-6"><div><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 4</span><h2 class="font-headline-lg text-headline-lg text-primary mt-3">26 JULIO</h2></div><div class="material-symbols-outlined text-outline-variant text-4xl" data-icon="event_busy">event_busy</div></div><div class="flex flex-col items-center justify-center py-12 text-center space-y-4 bg-white/30 rounded-lg border border-dashed border-outline-variant"><span class="material-symbols-outlined text-primary text-6xl" data-icon="groups">groups</span><h3 class="font-display-lg text-headline-lg text-primary uppercase tracking-widest">ASAMBLEA</h3><p class="font-body-md text-body-md text-on-surface-variant max-w-[200px]">No hay reunión local programada para esta semana.</p></div></div>
+</div>
+</main>
+</div>
+<!-- Bottom Action Bar (Contextual) -->
+<div class="fixed bottom-0 left-0 w-full bg-surface border-t border-outline-variant px-margin-desktop py-4 z-50">
+<div class="max-w-container-max-width mx-auto flex flex-wrap justify-center md:justify-end gap-gutter">
+<button class="flex items-center gap-2 px-6 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+                📄 Exportar PDF
+            </button>
+<button class="flex items-center gap-2 px-6 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+<span class="material-symbols-outlined" data-icon="print">print</span>
+                🖨 Imprimir
+            </button>
+<button class="flex items-center gap-2 px-6 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+<span class="material-symbols-outlined" data-icon="ios_share">ios_share</span>
+                📤 Compartir
+            </button>
+<button class="flex items-center gap-2 px-8 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95 shadow-md">
+<span class="material-symbols-outlined" data-icon="edit">edit</span>
+                ✏ Editar
+            </button>
+</div>
+</div>
+<!-- Footer from JSON -->
+<footer class="w-full py-6 px-margin-desktop flex justify-between items-center max-w-container-max-width mx-auto mb-24 border-t border-outline-variant">
+<div class="font-label-md text-label-md font-bold text-primary">© 2024 Chronicle Bulletin Editorial</div>
+<div class="flex gap-8">
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors" href="#">Print</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors" href="#">PDF</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors" href="#">Share</a>
+</div>
+</footer>
+<script>
+        // Micro-interaction for buttons
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                console.log('Action triggered:', btn.innerText.trim());
+                // Visual feedback
+                btn.classList.add('ring-2', 'ring-primary/20');
+                setTimeout(() => btn.classList.remove('ring-2', 'ring-primary/20'), 300);
+            });
+        });
+    </script>
+</body></html>
