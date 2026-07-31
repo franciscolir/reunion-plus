@@ -416,7 +416,7 @@ function renderOutingsBar() {
           <span class="material-symbols-outlined">campaign</span> Datos de Salida
         </h2>
         <button id="addCongBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed/60 transition-colors">
-          <span class="material-symbols-outlined text-[18px]">add</span> Agregar congregación
+          <span class="material-symbols-outlined text-[18px]">add</span> Agregar
         </button>
       </div>
       <div id="congList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
@@ -446,7 +446,6 @@ function congCard(c, i) {
       <button data-cong-del="${i}" class="text-error" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
     </div>
     <div>
-      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Nombre de la congregación</label>
       <input type="text" data-cong-field="nombre" data-cong-idx="${i}" value="${escapeAttr(c.nombre || '')}" placeholder="Ej. Centro" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
     </div>
     <div class="grid grid-cols-2 gap-3">
@@ -640,14 +639,19 @@ function outingRow(o, weekIdx, outIdx, conflicts) {
 
 function computeOutingConflicts(month, i) {
   const w = month.weeks[i];
-  const outs = (Array.isArray(w.outings) ? w.outings : []);
-  const seen = {};
+  const pool = collectWeekPersons(w);
+  const byValue = {};
+  pool.forEach(item => { (byValue[item.value] ||= []).push(item.key); });
   const duplicates = [];
-  outs.forEach((o, j) => {
-    const v = o.oradorSalida;
-    if (!v) return;
-    if (seen[v] === undefined) seen[v] = j;
-    else duplicates.push(j);
+  Object.entries(byValue).forEach(([, keys]) => {
+    if (keys.length > 1) {
+      keys.forEach(k => {
+        if (k.startsWith('salida_')) {
+          const j = parseInt(k.slice(7), 10);
+          if (!duplicates.includes(j)) duplicates.push(j);
+        }
+      });
+    }
   });
   return { duplicates };
 }
@@ -766,9 +770,9 @@ function fieldsFor(w, i, conflicts) {
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       ${peopleSelect('presidente', i, w.presidente, 'Presidente', conflicts)}
       ${textInput('orador', i, w.orador || '', 'Nombre del orador (a mano)', conflicts)}
-      ${peopleSelect('conductor', i, w.conductor, 'Conductor del estudio grupal', conflicts)}
+      ${peopleSelect('conductor', i, w.conductor, 'Conductor Atalaya', conflicts)}
       ${peopleSelect('lector', i, w.lector, 'Lector', conflicts)}
-      ${deptSelect('departamento', i, w.departamento, 'Grupo de atención', conflicts)}
+      ${deptSelect('departamento', i, w.departamento, 'Aseo y Hospitalidad', conflicts)}
     </div>`;
 }
 
@@ -811,10 +815,9 @@ function peopleSelect(name, idx, val, label, conflicts) {
     <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between">${label} ${badge}</label>
     <div class="flex gap-2">
       <select data-field="${name}" data-idx="${idx}" data-people ${roleHint} class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
-        <option value="">— Sin asignar —</option>
+        <option value="">--2</option>
       </select>
-      <button type="button" data-add-person class="px-2 rounded-lg border border-outline-variant hover:bg-surface-container transition-colors" title="Nueva persona"><span class="material-symbols-outlined text-[18px]">person_add</span></button>
-    </div>
+   </div>
   </div>`;
 }
 
@@ -825,9 +828,8 @@ function deptSelect(name, idx, val, label, conflicts) {
     <label class="font-label-md text-label-md text-on-surface-variant">${label}</label>
     <div class="flex gap-2">
       <select data-field="${name}" data-idx="${idx}" data-dept class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
-        <option value="">— Sin asignar —</option>
+        <option value="">--3</option>
       </select>
-      <button type="button" data-add-dept class="px-2 rounded-lg border border-outline-variant hover:bg-surface-container transition-colors" title="Nuevo grupo"><span class="material-symbols-outlined text-[18px]">create_new_folder</span></button>
     </div>
   </div>`;
 }
@@ -842,7 +844,7 @@ function fillPeople(sel) {
   const list = role
     ? state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role))
     : state.people;
-  sel.innerHTML = `<option value="">— Sin asignar —</option>` +
+  sel.innerHTML = `<option value="">--</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
 
@@ -855,14 +857,14 @@ function fillOutingPeople(sel) {
   const val = outing ? outing.oradorSalida : '';
   const role = sel.dataset.role || 'orador';
   const list = state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role));
-  sel.innerHTML = `<option value="">— Sin asignar —</option>` +
+  sel.innerHTML = `<option value="">--</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
 function fillDepartments(sel) {
   const current = parseInt(sel.dataset.idx, 10);
   const field = sel.dataset.field;
   const val = state.month.weeks[current][field];
-  sel.innerHTML = `<option value="">— Sin asignar —</option>` +
+  sel.innerHTML = `<option value="">elegir grupo</option>` +
     state.departments.map(d => `<option value="${d.id}" ${String(d.id) === String(val) ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
 }
 function refreshPeopleSelects() {
@@ -919,22 +921,47 @@ async function duplicatePrev() {
 }
 
 /* ---------- Validación ---------- */
+// Recoge todas las asignaciones de PERSONA (por ID) de una semana:
+// roles de la reunión principal + oradores de salidas. Devuelve
+// [{ value: '<id>', key: 'presidente' | 'conductor' | 'lector' | 'estudioSinLectura' | 'salida_0' | ... }]
+// 'orador' (texto libre) NO se incluye porque no es un ID de persona.
+function collectWeekPersons(w) {
+  const out = [];
+  const mainFields = [];
+  if (w.type === 'normal') mainFields.push('presidente', 'conductor', 'lector');
+  else if (w.type === 'supervisor') mainFields.push('presidente', 'estudioSinLectura');
+  else if (w.type === 'commemoration') mainFields.push('presidente');
+  for (const f of mainFields) {
+    const v = w[f];
+    if (v) out.push({ value: String(v), key: f });
+  }
+  if (Array.isArray(w.outings)) {
+    w.outings.forEach((o, j) => {
+      const v = o.oradorSalida;
+      if (v) out.push({ value: String(v), key: `salida_${j}` });
+    });
+  }
+  return out;
+}
+
+// Etiqueta legible de un "key" de asignación (para mensajes de error).
+function labelOfKey(key) {
+  if (key.startsWith('salida_')) return `orador de salida ${parseInt(key.slice(7), 10) + 1}`;
+  return labelOf(key);
+}
+
 function computeConflicts(month) {
-  const perWeek = month.weeks.map(() => ({ duplicates: [], missing: [] }));
+  const perWeek = month.weeks.map(() => ({ duplicates: [], missing: [], outingDuplicates: [] }));
   const errors = [];
   month.weeks.forEach((w, i) => {
     // campos requeridos por tipo
     let required = [];
-    let personFields = [];
     if (w.type === 'normal') {
       required = ['presidente', 'tituloDiscurso', 'orador', 'conductor', 'lector', 'departamento'];
-      personFields = ['presidente', 'conductor', 'lector'];
     } else if (w.type === 'supervisor') {
       required = ['presidente', 'nombreSupervisor', 'discursoSupervisor1', 'estudioSinLectura'];
-      personFields = ['presidente', 'estudioSinLectura'];
     } else if (w.type === 'commemoration') {
       required = ['presidente', 'tituloDiscurso', 'orador'];
-      personFields = ['presidente'];
     }
     required.forEach(f => {
       const v = w[f];
@@ -943,24 +970,43 @@ function computeConflicts(month) {
         errors.push(`Semana ${i + 1}: falta ${labelOf(f)}`);
       }
     });
-    // duplicados en misma reunión
-    const seen = {};
-    personFields.forEach(f => {
-      const v = w[f];
-      if (!v) return;
-      if (seen[v]) {
-        perWeek[i].duplicates.push(f);
-        if (!perWeek[i].duplicates.includes(seen[v])) perWeek[i].duplicates.push(seen[v]);
-        errors.push(`Semana ${i + 1}: ${labelOf(f)} y ${labelOf(seen[v])} asignados a la misma persona`);
-      } else seen[v] = f;
+    // duplicados en la misma semana (reunión principal + salidas)
+    const pool = collectWeekPersons(w);
+    const byValue = {};
+    pool.forEach(item => { (byValue[item.value] ||= []).push(item.key); });
+    const dupKeys = new Set();
+    Object.entries(byValue).forEach(([val, keys]) => {
+      if (keys.length > 1) keys.forEach(k => dupKeys.add(k));
     });
+    if (dupKeys.size) {
+      // Marcar campos principales duplicados (para badges en peopleSelect)
+      pool.forEach(item => {
+        if (dupKeys.has(item.key) && !perWeek[i].duplicates.includes(item.key)) {
+          perWeek[i].duplicates.push(item.key);
+        }
+      });
+      // Índices de salidas duplicadas
+      dupKeys.forEach(k => {
+        if (k.startsWith('salida_')) {
+          const j = parseInt(k.slice(7), 10);
+          if (!perWeek[i].outingDuplicates.includes(j)) perWeek[i].outingDuplicates.push(j);
+        }
+      });
+      // Un mensaje por cada grupo de duplicados
+      Object.entries(byValue).forEach(([val, keys]) => {
+        if (keys.length > 1) {
+          const labels = keys.map(labelOfKey);
+          errors.push(`Semana ${i + 1}: ${labels.join(' y ')} asignados a la misma persona`);
+        }
+      });
+    }
   });
   return { perWeek, errors };
 }
 
 function weekComplete(w, month) {
   const c = computeConflicts({ weeks: [w] }).perWeek[0];
-  return c.missing.length === 0 && c.duplicates.length === 0;
+  return c.missing.length === 0 && c.duplicates.length === 0 && c.outingDuplicates.length === 0;
 }
 
 /* ---------- PREVIEW: lista y tabla ---------- */
@@ -1565,7 +1611,7 @@ async function quickAddPerson(preselectRole = '') {
       <span>${r.label}</span>
     </label>`).join('');
     openModal(`<div>
-      <h3 class="font-headline-md text-headline-md text-primary mb-4">Agregar persona</h3>
+      <h3 class="font-headline-md text-headline-md text-primary mb-4">Agregar</h3>
       <input id="qpName" type="text" placeholder="Nombre completo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-4">
       <p class="text-on-surface-variant font-label-md text-label-md mb-2">Roles:</p>
       <div class="grid grid-cols-2 gap-2 mb-4">${allRoles}</div>
@@ -1592,7 +1638,7 @@ async function quickAddPerson(preselectRole = '') {
 async function quickAddDepartment() {
   return new Promise((resolve) => {
     openModal(`<div>
-      <h3 class="font-headline-md text-headline-md text-primary mb-4">Agregar grupo</h3>
+      <h3 class="font-headline-md text-headline-md text-primary mb-4">Agregar</h3>
       <input id="qdName" type="text" placeholder="Nombre del grupo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-4">
       <div class="flex gap-3 justify-end">
         <button id="qdCancel" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
