@@ -1,13 +1,12 @@
 <!DOCTYPE html>
 
-<html class="light" lang="en"><head>
+<html class="light" lang="es"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Chronicle Bulletin - Monthly Program Table</title>
+<title>Reunión+ - Vista Tabla (referencia)</title>
 <!-- Google Fonts: Playfair Display & Inter -->
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&amp;family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
 <!-- Material Symbols Outlined -->
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <script id="tailwind-config">
@@ -122,7 +121,7 @@
 <body class="bg-background min-h-screen flex flex-col">
 <!-- TopAppBar -->
 <header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop h-16 bg-surface border-b border-outline-variant">
-<div class="font-headline-md text-headline-md font-bold text-primary">Chronicle Bulletin</div>
+<div class="font-headline-md text-headline-md font-bold text-primary">Reunión+</div>
 <nav class="hidden md:flex gap-8 h-full items-center">
 <button class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors h-full flex items-center px-2">Edit</button>
 <button class="font-label-md text-label-md text-primary border-b-2 border-primary pb-1 h-full flex items-center px-2">Preview</button>
@@ -132,154 +131,112 @@
 </div>
 </header>
 <div class="flex flex-1 pt-16">
-<!-- SideNavBar -->
-<aside class="hidden lg:flex flex-col h-full w-64 p-4 gap-4 bg-surface-container-low border-r border-outline-variant fixed left-0 top-16 bottom-0 overflow-y-auto">
-<div class="mb-6 px-2">
-<h2 class="font-headline-md text-headline-md text-primary">Editorial Board</h2>
-<p class="font-body-md text-body-md text-on-surface-variant opacity-70">Monthly Planner</p>
-</div>
-<nav class="flex flex-col gap-1">
-<a class="flex items-center gap-3 p-3 bg-secondary-container text-on-secondary-container rounded-lg font-bold transition-transform translate-x-1" href="#">
-<span class="material-symbols-outlined" data-icon="calendar_month">calendar_month</span>
-<span class="font-label-md text-label-md">Current Month</span>
-</a>
-<a class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all" href="#">
-<span class="material-symbols-outlined" data-icon="history">history</span>
-<span class="font-label-md text-label-md">Past Issues</span>
-</a>
-<a class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all" href="#">
-<span class="material-symbols-outlined" data-icon="group">group</span>
-<span class="font-label-md text-label-md">Team Roles</span>
-</a>
-<a class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all" href="#">
-<span class="material-symbols-outlined" data-icon="settings">settings</span>
-<span class="font-label-md text-label-md">Settings</span>
-</a>
-</nav>
-<div class="mt-auto pt-6 border-t border-outline-variant flex flex-col gap-1">
-<button class="w-full bg-primary text-on-primary py-3 rounded-lg font-headline-md text-body-md mb-4 hover:opacity-90 transition-opacity">Save Changes</button>
-<a class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant rounded-lg" href="#">
-<span class="material-symbols-outlined" data-icon="help">help</span>
-<span class="font-label-md text-label-md">Help</span>
-</a>
-<a class="flex items-center gap-3 p-3 text-on-surface-variant hover:bg-surface-variant rounded-lg" href="#">
-<span class="material-symbols-outlined" data-icon="logout">logout</span>
-<span class="font-label-md text-label-md">Logout</span>
-</a>
-</div>
-</aside>
 <!-- Main Content Area -->
-<main class="flex-1 lg:ml-64 p-margin-desktop mb-24 overflow-x-hidden">
+<main class="flex-1 lg:ml-0 p-margin-desktop mb-24 overflow-x-hidden">
 <div class="max-w-container-max-width mx-auto">
 <header class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
 <div>
-<span class="font-label-md text-label-md uppercase tracking-widest text-secondary mb-2 block">Monthly Overview</span>
-<h1 class="font-headline-lg text-headline-lg text-primary">July 2024 Schedule</h1>
+<span class="font-label-md text-label-md uppercase tracking-widest text-secondary mb-2 block">Vista Mensual</span>
+<h1 class="font-headline-lg text-headline-lg text-primary">[MES] [AÑO] — Programa</h1>
 </div>
 <div class="flex items-center gap-4 bg-surface-container-high p-1 rounded-lg">
-<button class="px-4 py-2 font-label-md text-label-md text-on-surface-variant rounded-md hover:bg-surface-container-highest transition-colors">List View</button>
-<button class="px-4 py-2 font-label-md text-label-md bg-surface text-primary editorial-shadow rounded-md">Table View</button>
+<button class="px-4 py-2 font-label-md text-label-md text-on-surface-variant rounded-md hover:bg-surface-container-highest transition-colors">Vista Lista</button>
+<button class="px-4 py-2 font-label-md text-label-md bg-surface text-primary editorial-shadow rounded-md">Vista Tabla</button>
 </div>
 </header>
 <!-- Responsive Table Wrapper -->
 <div class="bg-surface-container-lowest editorial-shadow rounded-xl border border-outline-variant overflow-x-auto">
-<table class="w-full text-left border-collapse min-w-[1000px]">
+<table class="w-full text-left border-collapse min-w-[900px]">
 <thead>
 <tr class="bg-surface-container-low border-b border-outline-variant">
-<th class="p-6 font-label-md text-label-md text-secondary uppercase">Week / Date</th>
-<th class="p-6 font-label-md text-label-md text-secondary uppercase">Discourse Title</th>
-<th class="p-6 font-label-md text-label-md text-secondary uppercase">Chairman</th>
-<th class="p-6 font-label-md text-label-md text-secondary uppercase">Speaker</th>
-<th class="p-6 font-label-md text-label-md text-secondary uppercase">Study Conductor</th>
-<th class="p-6 font-label-md text-label-md text-secondary uppercase">Reader</th>
-<th class="p-6 font-label-md text-label-md text-secondary uppercase">Attendance</th>
+<th class="p-6 font-label-md text-label-md text-secondary uppercase">Semana / Fecha</th>
+<th class="p-6 font-label-md text-label-md text-secondary uppercase">Discurso</th>
+<th class="p-6 font-label-md text-label-md text-secondary uppercase">Presidente</th>
+<th class="p-6 font-label-md text-label-md text-secondary uppercase">Orador</th>
+<th class="p-6 font-label-md text-label-md text-secondary uppercase">Conductor</th>
+<th class="p-6 font-label-md text-label-md text-secondary uppercase">Lector</th>
+<th class="p-6 font-label-md text-label-md text-secondary uppercase">Grupo</th>
 </tr>
 </thead>
 <tbody class="divide-y divide-outline-variant">
 <!-- Week 1 -->
-<tr class="table-row-hover transition-colors group"><td class="p-6 align-top bg-secondary-container/10">
-<div class="flex items-center gap-2 mb-1">
-<div class="font-headline-md text-headline-md text-primary">Week 1</div>
-<span class="px-2 py-0.5 bg-primary text-on-primary text-[10px] font-bold rounded uppercase tracking-tighter">Visita Especial</span>
-</div>
-<div class="font-body-md text-body-md text-on-surface-variant">July 05</div>
+<tr class="table-row-hover transition-colors">
+<td class="p-6 align-top">
+<div class="font-headline-md text-headline-md text-primary mb-1">Semana 1</div>
+<div class="font-body-md text-body-md text-on-surface-variant">[Día]</div>
 </td>
-<td class="p-6 align-top max-w-xs bg-secondary-container/10">
-<div class="font-body-lg text-body-lg text-primary leading-tight font-semibold">La Fe Verdadera</div>
-<div class="text-caption text-secondary font-semibold uppercase mt-1">Discurso Supervisor</div>
+<td class="p-6 align-top max-w-xs">
+<div class="font-body-lg text-body-lg text-primary leading-tight font-semibold">[Título del discurso]</div>
 </td>
-<td class="p-6 align-top bg-secondary-container/10">
-<div class="font-body-md text-body-md">Juan Pérez</div>
+<td class="p-6 align-top">
+<div class="font-body-md text-body-md">—</div>
 </td>
-<td class="p-6 align-top bg-secondary-container/10">
-<div class="font-body-md text-body-md font-semibold">Carlos Soto</div>
-<div class="font-body-md text-caption text-on-surface-variant">Discurso Supervisor</div>
+<td class="p-6 align-top">
+<div class="font-body-md text-body-md font-semibold">—</div>
 </td>
-<td class="p-6 align-top bg-secondary-container/10">
-<div class="font-body-md text-body-md">Pedro Rojas</div>
-<div class="font-body-md text-caption text-on-surface-variant">Estudio sin lectura</div>
+<td class="p-6 align-top">
+<div class="font-body-md text-body-md">—</div>
 </td>
-<td class="p-6 align-top bg-secondary-container/10">
-<div class="font-body-md text-body-md">Visitante</div>
-<div class="font-body-md text-caption text-on-surface-variant">Segundo Discurso Supervisor</div>
+<td class="p-6 align-top">
+<div class="font-body-md text-body-md">—</div>
 </td>
-<td class="p-6 align-top bg-secondary-container/10">
-<div class="font-body-md text-body-md text-primary font-bold">Departamento Norte</div>
-<div class="font-body-md text-caption text-on-surface-variant">Departamento Semanero</div>
-</td></tr>
+<td class="p-6 align-top">
+<div class="font-body-md text-body-md text-primary font-bold">—</div>
+</td>
+</tr>
 <!-- Week 2 -->
 <tr class="table-row-hover transition-colors">
 <td class="p-6 align-top">
-<div class="font-headline-md text-headline-md text-primary mb-1">Week 2</div>
-<div class="font-body-md text-body-md text-on-surface-variant">July 12</div>
+<div class="font-headline-md text-headline-md text-primary mb-1">Semana 2</div>
+<div class="font-body-md text-body-md text-on-surface-variant">[Día]</div>
 </td>
 <td class="p-6 align-top max-w-xs">
-<div class="font-body-lg text-body-lg text-primary leading-tight font-semibold">Unity in Diversity: A Practical Guide</div>
+<div class="font-body-lg text-body-lg text-primary leading-tight font-semibold">[Título del discurso]</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md">Marianne Thorne</div>
+<div class="font-body-md text-body-md">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md font-semibold">Thomas Beckett</div>
+<div class="font-body-md text-body-md font-semibold">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md">Arthur Miller</div>
+<div class="font-body-md text-body-md">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md">Chloe Dubois</div>
+<div class="font-body-md text-body-md">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md text-primary font-bold">Records</div>
+<div class="font-body-md text-body-md text-primary font-bold">—</div>
 </td>
 </tr>
 <!-- Week 3 -->
 <tr class="table-row-hover transition-colors">
 <td class="p-6 align-top">
-<div class="font-headline-md text-headline-md text-primary mb-1">Week 3</div>
-<div class="font-body-md text-body-md text-on-surface-variant">July 19</div>
+<div class="font-headline-md text-headline-md text-primary mb-1">Semana 3</div>
+<div class="font-body-md text-body-md text-on-surface-variant">[Día]</div>
 </td>
 <td class="p-6 align-top max-w-xs">
-<div class="font-body-lg text-body-lg text-primary leading-tight font-semibold">Developing Resilience Through Empathy</div>
+<div class="font-body-lg text-body-lg text-primary leading-tight font-semibold">[Título del discurso]</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md">George Winston</div>
+<div class="font-body-md text-body-md">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md font-semibold">Lydia Grant</div>
-<div class="font-body-md text-caption text-on-surface-variant">Keynote</div>
+<div class="font-body-md text-body-md font-semibold">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md">Elena Rodriguez</div>
+<div class="font-body-md text-body-md">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md">Marcus Aurel</div>
+<div class="font-body-md text-body-md">—</div>
 </td>
 <td class="p-6 align-top">
-<div class="font-body-md text-body-md text-primary font-bold">Coordination</div>
+<div class="font-body-md text-body-md text-primary font-bold">—</div>
 </td>
 </tr>
 <!-- Week 4 -->
-<tr class="transition-colors"><td class="p-12 bg-surface-variant/50 text-center" colspan="7">
+<tr class="transition-colors">
+<td class="p-12 bg-surface-variant/50 text-center" colspan="7">
 <div class="flex flex-col items-center justify-center gap-4">
 <div class="flex gap-3">
 <span class="material-symbols-outlined text-primary text-4xl" data-icon="event_available">event_available</span>
@@ -288,35 +245,24 @@
 <div>
 <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest">ASAMBLEA</div>
 <div class="font-body-lg text-body-lg text-on-surface-variant">No hay reunión local programada</div>
-<div class="font-label-md text-label-md text-secondary mt-2">July 26</div>
 </div>
 </div>
-</td></tr>
+</td>
+</tr>
 </tbody>
 </table>
-</div>
-<!-- Footer Summary Info (Optional) -->
-<div class="mt-8 flex flex-col sm:flex-row justify-between items-center bg-tertiary-fixed p-6 rounded-lg border border-outline-variant">
-<div class="flex items-center gap-4 mb-4 sm:mb-0">
-<span class="material-symbols-outlined text-primary" data-icon="info" style="font-variation-settings: 'FILL' 1;">info</span>
-<p class="font-body-md text-body-md text-primary">All speakers have confirmed their availability for July sessions.</p>
-</div>
-<div class="flex gap-2">
-<span class="inline-flex items-center px-3 py-1 bg-on-tertiary text-tertiary rounded font-label-md text-caption uppercase">Confirmed</span>
-<span class="inline-flex items-center px-3 py-1 bg-surface-container text-on-surface-variant rounded font-label-md text-caption uppercase">4 Events</span>
-</div>
 </div>
 </div>
 </main>
 </div>
-<!-- Persistent Bottom Action Bar (Shared Component Footer Logic) -->
+<!-- Footer -->
 <footer class="fixed bottom-0 left-0 w-full bg-surface border-t border-outline-variant z-50">
 <div class="w-full py-4 px-margin-desktop flex justify-between items-center max-w-container-max-width mx-auto">
-<div class="font-label-md text-label-md font-bold text-primary">© 2024 Chronicle Bulletin Editorial</div>
+<div class="font-label-md text-label-md font-bold text-primary">© Reunión+</div>
 <div class="flex items-center gap-6">
 <button class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors opacity-70 hover:opacity-100">
 <span class="material-symbols-outlined" data-icon="print">print</span>
-                    Print
+                    Imprimir
                 </button>
 <button class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors opacity-70 hover:opacity-100">
 <span class="material-symbols-outlined" data-icon="picture_as_pdf">picture_as_pdf</span>
@@ -324,32 +270,16 @@
                 </button>
 <button class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors opacity-70 hover:opacity-100">
 <span class="material-symbols-outlined" data-icon="share">share</span>
-                    Share
+                    Compartir
                 </button>
 </div>
 </div>
 </footer>
 <script>
-        // Simple Micro-interaction for table rows
         document.querySelectorAll('tr.table-row-hover').forEach(row => {
             row.addEventListener('click', () => {
                 row.classList.add('scale-[0.99]');
-                setTimeout(() => {
-                    row.classList.remove('scale-[0.99]');
-                }, 100);
-            });
-        });
-
-        // Toggle functionality for edit/preview
-        const navButtons = document.querySelectorAll('header nav button');
-        navButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                navButtons.forEach(b => {
-                    b.classList.remove('text-primary', 'border-b-2', 'border-primary', 'pb-1');
-                    b.classList.add('text-on-surface-variant');
-                });
-                btn.classList.add('text-primary', 'border-b-2', 'border-primary', 'pb-1');
-                btn.classList.remove('text-on-surface-variant');
+                setTimeout(() => { row.classList.remove('scale-[0.99]'); }, 100);
             });
         });
     </script>

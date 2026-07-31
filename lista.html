@@ -3,11 +3,10 @@
 <html class="light" lang="es"><head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Chronicle Bulletin - Vista Final</title>
+<title>Reunión+ - Vista Lista (referencia)</title>
 <!-- Google Fonts -->
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Playfair+Display:wght@600;700&amp;display=swap" rel="stylesheet"/>
 <!-- Material Symbols Outlined -->
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <!-- Tailwind Config Verbatim -->
@@ -127,7 +126,7 @@
 <body class="font-body-md text-on-surface selection:bg-primary-fixed selection:text-on-primary-fixed">
 <!-- TopAppBar from JSON -->
 <header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop h-16 bg-surface border-b border-outline-variant shadow-none">
-<div class="font-headline-md text-headline-md font-bold text-primary">Chronicle Bulletin</div>
+<div class="font-headline-md text-headline-md font-bold text-primary">Reunión+</div>
 <nav class="hidden md:flex gap-8 items-center h-full">
 <a class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors py-2" href="#">Edit</a>
 <a class="font-label-md text-label-md text-primary border-b-2 border-primary pb-1 py-2" href="#">Preview</a>
@@ -137,8 +136,7 @@
 </div>
 </header>
 <div class="flex min-h-screen pt-16 pb-24">
-<!-- SideNavBar from JSON (Semantic: Hidden as this is a 'Preview/Final' focus state) -->
-<!-- Note: According to 'Shell Visibility & Relevance', we suppress nav for focused tasks, but we keep it here as a subtle desktop sidebar if needed. However, the prompt asks for a "Preview/Final View" which implies a focused task. We will render a minimal version. -->
+<!-- Main -->
 <main class="flex-1 max-w-container-max-width mx-auto px-margin-mobile md:px-margin-desktop py-12">
 <!-- Header Section -->
 <div class="mb-12 text-center md:text-left">
@@ -146,63 +144,87 @@
 <span class="editorial-line w-12 hidden md:block"></span>
 <p class="font-label-md text-label-md text-secondary uppercase tracking-widest">Programación Mensual</p>
 </div>
-<h1 class="font-display-lg text-display-lg text-primary mb-4 leading-tight">JULIO 2026 - Programa de Reuniones</h1>
-<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">Visualización final lista para su distribución y publicación editorial. Este documento refleja la asignación oficial de responsabilidades.</p>
+<h1 class="font-display-lg text-display-lg text-primary mb-4 leading-tight">[MES] [AÑO] — Programa de Reuniones</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">Visualización final lista para su distribución. Este documento refleja la asignación oficial de responsabilidades.</p>
 </div>
 <!-- Bento Grid / Weekly Timeline -->
 <div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
 <!-- Week 1 -->
-<div class="week-card bg-surface-container-low border-l-4 border-primary p-8 rounded-lg bg-primary-fixed/30"><div class="flex justify-between items-start mb-6"><div><div class="flex gap-2 items-center mb-3"><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 1</span><span class="font-label-md text-label-md text-on-primary bg-primary px-3 py-1 rounded-full uppercase">Visita Especial</span></div><h2 class="font-headline-lg text-headline-lg text-primary">5 JULIO</h2></div><div class="material-symbols-outlined text-primary text-4xl" data-icon="verified">verified</div></div><div class="mb-8 p-4 bg-white/50 rounded-lg border border-primary/20"><h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2"><span class="material-symbols-outlined text-secondary" data-icon="mic_external_on">mic_external_on</span>Discurso: "La Fe Verdadera"</h3></div><div class="space-y-4"><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span><span class="font-label-md text-label-md text-on-surface-variant">Presidente</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Juan Pérez</span></div><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span><span class="font-label-md text-label-md text-on-surface-variant">Discurso Supervisor</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Carlos Soto</span></div><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span><span class="font-label-md text-label-md text-on-surface-variant">Estudio (sin lectura)</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Pedro Rojas</span></div><div class="flex items-center justify-between py-2 border-b border-outline-variant/20"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="record_voice_over">record_voice_over</span><span class="font-label-md text-label-md text-on-surface-variant">Segundo Discurso Supervisor</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Visitante</span></div><div class="flex items-center justify-between py-2"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span><span class="font-label-md text-label-md text-on-surface-variant">Departamento Semanero</span></div><span class="font-body-md text-body-md font-semibold text-on-surface">Departamento Norte</span></div></div></div>
+<div class="week-card bg-surface-container-low border-l-4 border-primary p-8 rounded-lg bg-primary-fixed/30">
+<div class="flex justify-between items-start mb-6">
+<div>
+<div class="flex gap-2 items-center mb-3 flex-wrap">
+<span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 1</span>
+<span class="font-label-md text-label-md text-on-primary bg-primary px-3 py-1 rounded-full uppercase">[Tipo]</span>
+</div>
+<h2 class="font-headline-lg text-headline-lg text-primary">[DÍA] [MES]</h2>
+</div>
+<div class="material-symbols-outlined text-primary text-4xl" data-icon="verified">verified</div>
+</div>
+<div class="mb-8 p-4 bg-white/50 rounded-lg border border-primary/20">
+<h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary" data-icon="mic_external_on">mic_external_on</span>
+                    Discurso: "[Título del discurso]"
+                </h3>
+</div>
+<div class="space-y-4">
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span><span class="font-label-md text-label-md text-on-surface-variant">Presidente</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span><span class="font-label-md text-label-md text-on-surface-variant">Orador</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span><span class="font-label-md text-label-md text-on-surface-variant">Conductor</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
+</div>
+<div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="library_books">library_books</span><span class="font-label-md text-label-md text-on-surface-variant">Lector</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
+</div>
+<div class="flex items-center justify-between py-2">
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span><span class="font-label-md text-label-md text-on-surface-variant">Grupo de atención</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
+</div>
+</div>
+</div>
 <!-- Week 2 -->
 <div class="week-card bg-surface-container-low border-l-4 border-primary p-8 rounded-lg">
 <div class="flex justify-between items-start mb-6">
 <div>
 <span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 2</span>
-<h2 class="font-headline-lg text-headline-lg text-primary mt-3">12 JULIO</h2>
+<h2 class="font-headline-lg text-headline-lg text-primary mt-3">[DÍA] [MES]</h2>
 </div>
 <div class="material-symbols-outlined text-outline-variant text-4xl" data-icon="calendar_today">calendar_today</div>
 </div>
 <div class="mb-8 p-4 bg-white/50 rounded-lg border border-outline-variant/30">
 <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
 <span class="material-symbols-outlined text-secondary" data-icon="mic_external_on">mic_external_on</span>
-                            Discurso: "Justicia para Todos"
-                        </h3>
+                    Discurso: "[Título del discurso]"
+                </h3>
 </div>
 <div class="space-y-4">
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Presidente</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Marta Giménez</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span><span class="font-label-md text-label-md text-on-surface-variant">Presidente</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Orador</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Roberto Valle</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span><span class="font-label-md text-label-md text-on-surface-variant">Orador</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Estudio</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Elena Sorondo</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span><span class="font-label-md text-label-md text-on-surface-variant">Conductor</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="library_books">library_books</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Lector</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Ignacio Ruiz</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="library_books">library_books</span><span class="font-label-md text-label-md text-on-surface-variant">Lector</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Atención</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Departamento Sur</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span><span class="font-label-md text-label-md text-on-surface-variant">Grupo de atención</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 </div>
 </div>
@@ -211,56 +233,54 @@
 <div class="flex justify-between items-start mb-6">
 <div>
 <span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 3</span>
-<h2 class="font-headline-lg text-headline-lg text-primary mt-3">19 JULIO</h2>
+<h2 class="font-headline-lg text-headline-lg text-primary mt-3">[DÍA] [MES]</h2>
 </div>
 <div class="material-symbols-outlined text-outline-variant text-4xl" data-icon="stars">stars</div>
 </div>
 <div class="mb-8 p-4 bg-white/50 rounded-lg border border-outline-variant/30">
 <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
 <span class="material-symbols-outlined text-secondary" data-icon="mic_external_on">mic_external_on</span>
-                            Discurso: "Esperanza en Tiempos Modernos"
-                        </h3>
+                    Discurso: "[Título del discurso]"
+                </h3>
 </div>
 <div class="space-y-4">
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Presidente</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Fernando Torres</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="person">person</span><span class="font-label-md text-label-md text-on-surface-variant">Presidente</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Orador</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Andrés Bello</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="campaign">campaign</span><span class="font-label-md text-label-md text-on-surface-variant">Orador</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Estudio</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Sara Mendez</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="menu_book">menu_book</span><span class="font-label-md text-label-md text-on-surface-variant">Conductor</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2 border-b border-outline-variant/20">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="library_books">library_books</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Lector</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Lucas Pratto</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="library_books">library_books</span><span class="font-label-md text-label-md text-on-surface-variant">Lector</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 <div class="flex items-center justify-between py-2">
-<div class="flex items-center gap-3">
-<span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span>
-<span class="font-label-md text-label-md text-on-surface-variant">Atención</span>
-</div>
-<span class="font-body-md text-body-md font-semibold text-on-surface">Departamento Este</span>
+<div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant" data-icon="handshake">handshake</span><span class="font-label-md text-label-md text-on-surface-variant">Grupo de atención</span></div>
+<span class="font-body-md text-body-md font-semibold text-on-surface">—</span>
 </div>
 </div>
 </div>
 <!-- Week 4 -->
-<div class="week-card bg-surface-container-low border-l-4 p-8 rounded-lg bg-surface-dim"><div class="flex justify-between items-start mb-6"><div><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 4</span><h2 class="font-headline-lg text-headline-lg text-primary mt-3">26 JULIO</h2></div><div class="material-symbols-outlined text-outline-variant text-4xl" data-icon="event_busy">event_busy</div></div><div class="flex flex-col items-center justify-center py-12 text-center space-y-4 bg-white/30 rounded-lg border border-dashed border-outline-variant"><span class="material-symbols-outlined text-primary text-6xl" data-icon="groups">groups</span><h3 class="font-display-lg text-headline-lg text-primary uppercase tracking-widest">ASAMBLEA</h3><p class="font-body-md text-body-md text-on-surface-variant max-w-[200px]">No hay reunión local programada para esta semana.</p></div></div>
+<div class="week-card bg-surface-container-low border-l-4 p-8 rounded-lg bg-surface-dim">
+<div class="flex justify-between items-start mb-6">
+<div>
+<span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana 4</span>
+<h2 class="font-headline-lg text-headline-lg text-primary mt-3">[DÍA] [MES]</h2>
+</div>
+<div class="material-symbols-outlined text-outline-variant text-4xl" data-icon="event_busy">event_busy</div>
+</div>
+<div class="flex flex-col items-center justify-center py-12 text-center space-y-4 bg-white/30 rounded-lg border border-dashed border-outline-variant">
+<span class="material-symbols-outlined text-primary text-6xl" data-icon="groups">groups</span>
+<h3 class="font-display-lg text-headline-lg text-primary uppercase tracking-widest">ASAMBLEA</h3>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-[200px]">No hay reunión local programada para esta semana.</p>
+</div>
+</div>
 </div>
 </main>
 </div>
@@ -269,25 +289,25 @@
 <div class="max-w-container-max-width mx-auto flex flex-wrap justify-center md:justify-end gap-gutter">
 <button class="flex items-center gap-2 px-6 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
 <span class="material-symbols-outlined" data-icon="description">description</span>
-                📄 Exportar PDF
+                Exportar PDF
             </button>
 <button class="flex items-center gap-2 px-6 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
 <span class="material-symbols-outlined" data-icon="print">print</span>
-                🖨 Imprimir
+                Imprimir
             </button>
 <button class="flex items-center gap-2 px-6 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
 <span class="material-symbols-outlined" data-icon="ios_share">ios_share</span>
-                📤 Compartir
+                Compartir
             </button>
 <button class="flex items-center gap-2 px-8 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95 shadow-md">
 <span class="material-symbols-outlined" data-icon="edit">edit</span>
-                ✏ Editar
+                Editar
             </button>
 </div>
 </div>
-<!-- Footer from JSON -->
+<!-- Footer -->
 <footer class="w-full py-6 px-margin-desktop flex justify-between items-center max-w-container-max-width mx-auto mb-24 border-t border-outline-variant">
-<div class="font-label-md text-label-md font-bold text-primary">© 2024 Chronicle Bulletin Editorial</div>
+<div class="font-label-md text-label-md font-bold text-primary">© Reunión+</div>
 <div class="flex gap-8">
 <a class="font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors" href="#">Print</a>
 <a class="font-label-md text-label-md text-on-surface-variant hover:text-secondary transition-colors" href="#">PDF</a>
@@ -295,11 +315,8 @@
 </div>
 </footer>
 <script>
-        // Micro-interaction for buttons
         document.querySelectorAll('button').forEach(btn => {
             btn.addEventListener('click', () => {
-                console.log('Action triggered:', btn.innerText.trim());
-                // Visual feedback
                 btn.classList.add('ring-2', 'ring-primary/20');
                 setTimeout(() => btn.classList.remove('ring-2', 'ring-primary/20'), 300);
             });
