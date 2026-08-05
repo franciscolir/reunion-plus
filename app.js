@@ -1,5 +1,12 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
+import {
+  MONTHS_ES, WEEK_TYPES, FIELD_ROLE, FIELD_LABELS,
+  normalizeStr, searchTalks, saturdaysOf,
+  collectWeekPersons, labelOfKey, labelOf,
+  computeConflicts, computeOutingConflicts, weekComplete,
+  capitalize, capField, escapeHtml, escapeAttr, cryptoId,
+} from './logic.js';
 
 /* ---------- Estado ---------- */
 const state = {
@@ -11,24 +18,6 @@ const state = {
   departments: [],
   talks: [],              // lista de discursos públicos [{num, title}]
   toastsOpen: new Set(),
-};
-
-const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const WEEK_TYPES = {
-  normal:      { label: 'Normal',              icon: 'calendar_today' },
-  supervisor:  { label: 'Visita Superintendente',icon: 'verified' },
-  assembly:    { label: 'Asamblea',             icon: 'event_busy' },
-  commemoration:{ label: 'Conmemoración',       icon: 'stars' },
-};
-
-// Mapea el nombre interno del campo al rol de la lista de personas.
-// Si un campo no está aquí (ej. orador de reunión normal), es texto libre.
-const FIELD_ROLE = {
-  presidente:        'presidente',
-  conductor:         'conductor',
-  lector:            'lector',
-  estudioSinLectura: 'conductor',
-  oradorSalida:      'orador',
 };
 
 /* ---------- INIT ---------- */
@@ -494,23 +483,6 @@ function renderWeeks() {
 }
 
 /* ---------- Talk Picker: buscador de discurso por nº o palabra clave ---------- */
-function normalizeStr(s) {
-  return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
-function searchTalks(query, limit = 30) {
-  const q = normalizeStr(query).trim();
-  if (!q) return state.talks.slice(0, limit);
-  const isNumber = /^\d+$/.test(q);
-  const results = [];
-  for (const t of state.talks) {
-    if (isNumber && String(t.num) === q) { results.unshift(t); continue; }
-    if (isNumber && String(t.num).startsWith(q)) { results.push(t); continue; }
-    if (normalizeStr(t.title).includes(q)) results.push(t);
-    if (results.length >= limit * 2) break;
-  }
-  return results.slice(0, limit);
-}
 
 function bindTalkPicker(root) {
   const input = root.querySelector('input[data-field]');
@@ -519,7 +491,7 @@ function bindTalkPicker(root) {
   let highlighted = -1;
 
   const render = (q) => {
-    const results = searchTalks(q);
+    const results = searchTalks(q, state.talks);
     if (!results.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     box.innerHTML = results.map((t, i) => `<button type="button" data-talk-num="${t.num}" data-i="${i}"
         class="w-full text-left px-3 py-2 hover:bg-primary-fixed/40 flex gap-3 items-start border-b border-outline-variant/30 last:border-0">
@@ -573,7 +545,7 @@ function weekCard(w, i, conflicts) {
         </div>
         <div class="inline-block px-3 py-1 bg-primary text-on-primary font-label-md text-label-md rounded">${fullDate}</div>
         <div class="mt-4 space-y-2">
-          <label class="font-label-md text-label-md text-on-surface-variant">Tipo de Reunion</label>
+          <label class="font-label-md text-label-md text-on-surface-variant">Tipo de Reunión</label>
           <select data-field="type" data-idx="${i}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${typeOpts}</select>
         </div>
       </div>
@@ -636,25 +608,6 @@ function outingRow(o, weekIdx, outIdx, conflicts) {
   </div>`;
 }
 
-function computeOutingConflicts(month, i) {
-  const w = month.weeks[i];
-  const pool = collectWeekPersons(w);
-  const byValue = {};
-  pool.forEach(item => { (byValue[item.value] ||= []).push(item.key); });
-  const duplicates = [];
-  Object.entries(byValue).forEach(([, keys]) => {
-    if (keys.length > 1) {
-      keys.forEach(k => {
-        if (k.startsWith('salida_')) {
-          const j = parseInt(k.slice(7), 10);
-          if (!duplicates.includes(j)) duplicates.push(j);
-        }
-      });
-    }
-  });
-  return { duplicates };
-}
-
 function bindOutingControls(scope) {
   // selects de orador
   scope.querySelectorAll('select[data-outing-field][data-people]').forEach(sel => {
@@ -692,7 +645,7 @@ function bindTalkPickerOut(root) {
   if (!input || !box) return;
   let highlighted = -1;
   const render = (q) => {
-    const results = searchTalks(q);
+    const results = searchTalks(q, state.talks);
     if (!results.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     box.innerHTML = results.map((t, i) => `<button type="button" data-talk-num="${t.num}" data-i="${i}"
         class="w-full text-left px-3 py-2 hover:bg-secondary-fixed/50 flex gap-3 items-start border-b border-outline-variant/30 last:border-0">
@@ -755,12 +708,12 @@ function fieldsFor(w, i, conflicts) {
   }
   if (w.type === 'supervisor') {
     return `
-      ${textInput('nombreSupervisor', i, w.nombreSupervisor || '', 'Nombre del supervisor (a mano)', conflicts)}
-      ${textInput('discursoSupervisor1', i, w.discursoSupervisor1 || '', 'Título del primer discurso del supervisor', conflicts)}
+      ${textInput('nombreSupervisor', i, w.nombreSupervisor || '', 'Nombre del Superintendente (a mano)', conflicts)}
+      ${textInput('discursoSupervisor1', i, w.discursoSupervisor1 || '', 'Título del discurso público', conflicts)}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         ${peopleSelect('presidente', i, w.presidente, 'Presidente', conflicts)}
         ${peopleSelect('estudioSinLectura', i, w.estudioSinLectura, 'Conductor del estudio (sin lectura)', conflicts)}
-        ${textInput('discursoSupervisor2', i, w.discursoSupervisor2 || '', 'Segundo discurso del supervisor', conflicts)}
+        ${textInput('discursoSupervisor2', i, w.discursoSupervisor2 || '', 'Título del discurso de servicio', conflicts)}
       </div>`;
   }
   // normal
@@ -814,7 +767,7 @@ function peopleSelect(name, idx, val, label, conflicts) {
     <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between">${label} ${badge}</label>
     <div class="flex gap-2">
       <select data-field="${name}" data-idx="${idx}" data-people ${roleHint} class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
-        <option value="">--2</option>
+        <option value="">— Sin asignar —</option>
       </select>
    </div>
   </div>`;
@@ -827,7 +780,7 @@ function deptSelect(name, idx, val, label, conflicts) {
     <label class="font-label-md text-label-md text-on-surface-variant">${label}</label>
     <div class="flex gap-2">
       <select data-field="${name}" data-idx="${idx}" data-dept class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
-        <option value="">--3</option>
+        <option value="">— Sin asignar —</option>
       </select>
     </div>
   </div>`;
@@ -843,7 +796,7 @@ function fillPeople(sel) {
   const list = role
     ? state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role))
     : state.people;
-  sel.innerHTML = `<option value="">--</option>` +
+  sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
 
@@ -856,14 +809,16 @@ function fillOutingPeople(sel) {
   const val = outing ? outing.oradorSalida : '';
   const role = sel.dataset.role || 'orador';
   const list = state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role));
-  sel.innerHTML = `<option value="">--</option>` +
+  sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
 function fillDepartments(sel) {
+  if (sel.dataset.idx === undefined) return;
   const current = parseInt(sel.dataset.idx, 10);
+  if (!state.month || !state.month.weeks[current]) return;
   const field = sel.dataset.field;
   const val = state.month.weeks[current][field];
-  sel.innerHTML = `<option value="">elegir grupo</option>` +
+  sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     state.departments.map(d => `<option value="${d.id}" ${String(d.id) === String(val) ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
 }
 function refreshPeopleSelects() {
@@ -920,93 +875,7 @@ async function duplicatePrev() {
 }
 
 /* ---------- Validación ---------- */
-// Recoge todas las asignaciones de PERSONA (por ID) de una semana:
-// roles de la reunión principal + oradores de salidas. Devuelve
-// [{ value: '<id>', key: 'presidente' | 'conductor' | 'lector' | 'estudioSinLectura' | 'salida_0' | ... }]
-// 'orador' (texto libre) NO se incluye porque no es un ID de persona.
-function collectWeekPersons(w) {
-  const out = [];
-  const mainFields = [];
-  if (w.type === 'normal') mainFields.push('presidente', 'conductor', 'lector');
-  else if (w.type === 'supervisor') mainFields.push('presidente', 'estudioSinLectura');
-  else if (w.type === 'commemoration') mainFields.push('presidente');
-  for (const f of mainFields) {
-    const v = w[f];
-    if (v) out.push({ value: String(v), key: f });
-  }
-  if (Array.isArray(w.outings)) {
-    w.outings.forEach((o, j) => {
-      const v = o.oradorSalida;
-      if (v) out.push({ value: String(v), key: `salida_${j}` });
-    });
-  }
-  return out;
-}
-
-// Etiqueta legible de un "key" de asignación (para mensajes de error).
-function labelOfKey(key) {
-  if (key.startsWith('salida_')) return `orador de salida ${parseInt(key.slice(7), 10) + 1}`;
-  return labelOf(key);
-}
-
-function computeConflicts(month) {
-  const perWeek = month.weeks.map(() => ({ duplicates: [], missing: [], outingDuplicates: [] }));
-  const errors = [];
-  month.weeks.forEach((w, i) => {
-    // campos requeridos por tipo
-    let required = [];
-    if (w.type === 'normal') {
-      required = ['presidente', 'tituloDiscurso', 'orador', 'conductor', 'lector', 'departamento'];
-    } else if (w.type === 'supervisor') {
-      required = ['presidente', 'nombreSupervisor', 'discursoSupervisor1', 'estudioSinLectura'];
-    } else if (w.type === 'commemoration') {
-      required = ['presidente', 'tituloDiscurso', 'orador'];
-    }
-    required.forEach(f => {
-      const v = w[f];
-      if (v === '' || v === undefined || v === null) {
-        perWeek[i].missing.push(f);
-        errors.push(`Semana ${i + 1}: falta ${labelOf(f)}`);
-      }
-    });
-    // duplicados en la misma semana (reunión principal + salidas)
-    const pool = collectWeekPersons(w);
-    const byValue = {};
-    pool.forEach(item => { (byValue[item.value] ||= []).push(item.key); });
-    const dupKeys = new Set();
-    Object.entries(byValue).forEach(([val, keys]) => {
-      if (keys.length > 1) keys.forEach(k => dupKeys.add(k));
-    });
-    if (dupKeys.size) {
-      // Marcar campos principales duplicados (para badges en peopleSelect)
-      pool.forEach(item => {
-        if (dupKeys.has(item.key) && !perWeek[i].duplicates.includes(item.key)) {
-          perWeek[i].duplicates.push(item.key);
-        }
-      });
-      // Índices de salidas duplicadas
-      dupKeys.forEach(k => {
-        if (k.startsWith('salida_')) {
-          const j = parseInt(k.slice(7), 10);
-          if (!perWeek[i].outingDuplicates.includes(j)) perWeek[i].outingDuplicates.push(j);
-        }
-      });
-      // Un mensaje por cada grupo de duplicados
-      Object.entries(byValue).forEach(([val, keys]) => {
-        if (keys.length > 1) {
-          const labels = keys.map(labelOfKey);
-          errors.push(`Semana ${i + 1}: ${labels.join(' y ')} asignados a la misma persona`);
-        }
-      });
-    }
-  });
-  return { perWeek, errors };
-}
-
-function weekComplete(w, month) {
-  const c = computeConflicts({ weeks: [w] }).perWeek[0];
-  return c.missing.length === 0 && c.duplicates.length === 0 && c.outingDuplicates.length === 0;
-}
+// (collectWeekPersons, labelOfKey, computeConflicts, weekComplete se importan de logic.js)
 
 /* ---------- PREVIEW: lista y tabla ---------- */
 async function renderPreview() {
@@ -1017,13 +886,12 @@ async function renderPreview() {
   renderTop();
   const app = $('#app');
   app.innerHTML = `
-    <div class="mb-10 text-center md:text-left">
+    <div class="mb-8 text-center md:text-left">
       <div class="flex items-center gap-3 mb-2 justify-center md:justify-start">
         <span class="editorial-line w-12 hidden md:block"></span>
-        <p class="font-label-md text-label-md text-secondary uppercase tracking-widest">Programación Mensual</p>
+        <p class="font-label-md text-label-md text-secondary uppercase tracking-widest">REUNION PUBLICA</p>
       </div>
-      <h1 class="font-display-lg text-display-lg text-primary mb-2 leading-tight">${MONTHS_ES[m.month - 1].toUpperCase()} ${m.year} — Programa de Reuniones</h1>
-      <p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">Visualización final. Revisa el programa antes de compartirlo o imprimirlo.</p>
+      <h1 class="font-display-lg text-display-lg text-primary mb-2 leading-tight">${MONTHS_ES[m.month - 1].toUpperCase()} ${m.year}</h1>
     </div>
 
     <div class="flex items-center justify-between gap-4 mb-6 no-print">
@@ -1082,6 +950,8 @@ function weekCardList(w, i) {
   const date = new Date(w.date + 'T00:00:00');
   const day = date.getDate();
   const monthName = MONTHS_ES[state.month.month - 1].toUpperCase();
+   const superintendente = (['Superintendente', w.nombreSupervisor || '—', 'supervisor_account']);
+   
   const icon = WEEK_TYPES[w.type].icon;
   if (w.type === 'assembly') {
     return `<div class="week-card bg-surface-container-low border-l-4 p-8 rounded-lg bg-surface-dim">
@@ -1100,18 +970,18 @@ function weekCardList(w, i) {
   const rows = [];
   const presName = personNameOf(w.presidente);
   if (w.type === 'normal') {
-    rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Presidente', presName, 'person']);
+    rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Orador', w.orador || '—', 'campaign']);
-    rows.push(['Conductor (estudio)', personNameOf(w.conductor), 'menu_book']);
+    rows.push(['Conductor Atalaya', personNameOf(w.conductor), 'menu_book']);
     rows.push(['Lector', personNameOf(w.lector), 'library_books']);
     rows.push(['Grupo de atención', deptNameOf(w.departamento), 'handshake']);
   } else if (w.type === 'supervisor') {
-    rows.push(['Supervisor', w.nombreSupervisor || '—', 'supervisor_account']);
-    rows.push(['1er Discurso Supervisor', w.discursoSupervisor1 || '—', 'campaign']);
     rows.push(['Presidente', presName, 'person']);
+    rows.push(['Discurso público', w.discursoSupervisor1 || '—', 'campaign']);
+    rows.push(['Superintendente', w.nombreSupervisor || '—', 'supervisor_account']);
     rows.push(['Estudio (sin lectura)', personNameOf(w.estudioSinLectura), 'menu_book']);
-    rows.push(['2do Discurso Supervisor', w.discursoSupervisor2 || '—', 'campaign']);
+    rows.push(['Discurso de servicio', w.discursoSupervisor2 || '—', 'campaign']);
   } else if (w.type === 'commemoration') {
     rows.push(['Discurso', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Presidente', presName, 'person']);
@@ -1140,70 +1010,76 @@ function weekCardList(w, i) {
 function previewTabla() {
   const rows = state.month.weeks.map((w, i) => {
     const date = new Date(w.date + 'T00:00:00');
-    const dateStr = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
+    const dateStr = date.toLocaleDateString('es', { day: '2-digit' });
+     const dateAsam = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
+   
     if (w.type === 'assembly') {
-      return `<tr class="transition-colors"><td class="p-6 bg-surface-variant/50 text-center col-span-7" colspan="7">
-        <div class="py-6">
-          <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest">Asamblea</div>
-          <div class="font-body-lg text-body-lg text-on-surface-variant mt-1">${dateStr} — No hay reunión local</div>
+      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7">
+        <div class="py-4">
+          <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Asamblea — ${dateAsam}</div>
         </div></td></tr>`;
     }
     let cells = {
-      title: '—', chairman: '—', speaker: '—', conductor: '—', reader: '—', attendance: '—', badge: WEEK_TYPES[w.type].label
+      title: '—', chairman: '—', speaker: '—', conductor: '—', reader: '—', attendance: '—',
     };
     if (w.type === 'normal') {
-      cells.title = w.tituloDiscurso || '—';
-      cells.chairman = personNameOf(w.presidente);
-      cells.speaker = w.orador || '—';
-      cells.conductor = personNameOf(w.conductor);
-      cells.reader = personNameOf(w.lector);
-      cells.attendance = deptNameOf(w.departamento);
+      cells.title = escapeHtml(w.tituloDiscurso || '—');
+      cells.chairman = escapeHtml(personNameOf(w.presidente));
+      cells.speaker = escapeHtml(w.orador || '—');
+      cells.conductor = escapeHtml(personNameOf(w.conductor));
+      cells.reader = escapeHtml(personNameOf(w.lector));
+      cells.attendance = escapeHtml(deptNameOf(w.departamento));
     } else if (w.type === 'supervisor') {
-      cells.title = `${w.discursoSupervisor1 || '—'}<div class="text-caption text-secondary uppercase mt-1">1er discurso</div>${w.discursoSupervisor2 ? `<div class="mt-2">${escapeHtml(w.discursoSupervisor2)}<div class="text-caption text-secondary uppercase">2do discurso</div></div>` : ''}`;
-      cells.chairman = personNameOf(w.presidente);
-      cells.speaker = `${escapeHtml(w.nombreSupervisor || '—')}<div class="text-caption text-on-surface-variant">Supervisor</div>`;
-      cells.conductor = `${personNameOf(w.estudioSinLectura)}<div class="text-caption text-on-surface-variant">sin lectura</div>`;
-      cells.reader = '—';
+      cells.title = `${escapeHtml(w.discursoSupervisor1 || '—')}<div class="text-caption text-secondary mt-0.5">Discurso público</div>${w.discursoSupervisor2 ? `<div class="mt-1.5">${escapeHtml(w.discursoSupervisor2)}<div class="text-caption text-secondary">Discurso de servicio</div></div>` : ''}`;
+      cells.chairman = escapeHtml(personNameOf(w.presidente));
+      cells.speaker = `${escapeHtml(w.nombreSupervisor || '—')}<div class="text-caption text-on-surface-variant">Superintendente</div>`;
+      cells.conductor = `${escapeHtml(personNameOf(w.estudioSinLectura))}<div class="text-caption text-on-surface-variant"></div>`;
+      //cells.reader = `${WEEK_TYPES[w.type].label}`;
+      cells.reader = `Sin lectura`;
+     cells.attendance = escapeHtml(deptNameOf(w.departamento));
     } else if (w.type === 'commemoration') {
-      cells.title = w.tituloDiscurso || '—';
-      cells.chairman = personNameOf(w.presidente);
-      cells.speaker = w.orador || '—';
+      cells.title = escapeHtml(w.tituloDiscurso || '—');
+      cells.chairman = escapeHtml(personNameOf(w.presidente));
+      cells.speaker = escapeHtml(w.orador || '—');
       cells.conductor = '—';
       cells.reader = '—';
       cells.attendance = 'Conmemoración';
-      cells.badge = 'Conmemoración';
     }
+    const big = w.type === 'assembly' || w.type === 'commemoration';
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
-    return `<tr class="table-row-hover transition-colors">
-      <td class="p-6 align-top ${highlight}">
-        <div class="flex items-center gap-2 mb-1">
-          <div class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</div>
-          <span class="px-2 py-0.5 ${w.type === 'normal' ? 'bg-outline text-on-surface' : 'bg-primary text-on-primary'} text-[10px] font-bold rounded uppercase tracking-tighter">${cells.badge}</span>
-        </div>
-        <div class="font-body-md text-body-md text-on-surface-variant">${dateStr}</div>
-      </td>
-      <td class="p-6 align-top max-w-xs ${highlight}"><div class="font-body-lg text-body-lg text-primary leading-tight font-semibold">${cells.title}</div></td>
-      <td class="p-6 align-top ${highlight}"><div class="font-body-md text-body-md">${cells.chairman}</div></td>
-      <td class="p-6 align-top ${highlight}"><div class="font-body-md text-body-md font-semibold">${cells.speaker}</div></td>
-      <td class="p-6 align-top ${highlight}"><div class="font-body-md text-body-md">${cells.conductor}</div></td>
-      <td class="p-6 align-top ${highlight}"><div class="font-body-md text-body-md">${cells.reader}</div></td>
-      <td class="p-6 align-top ${highlight}"><div class="font-body-md text-body-md text-primary font-bold">${cells.attendance}</div></td>
+    return `<tr class="transition-colors">
+      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
+      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
+      <td class="p-4 align-top ${highlight} max-w-[340px]"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
+      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md font-semibold ${big ? 'text-lg pt-3' : ''}">${cells.speaker}</div></td>
+      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.conductor}</div></td>
+      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.reader}</div></td>
+      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md text-primary font-bold ${big ? 'text-lg pt-3' : ''}">${cells.attendance}</div></td>
     </tr>`;
   }).join('');
-  return `<div class="overflow-x-auto">
-    <table class="w-full text-left border-collapse min-w-[900px]">
+  return `<div class="tabla-programa overflow-x-auto">
+    <table class="w-full text-left" style="border-collapse: separate; border-spacing: 0 0.75rem;">
+      <colgroup>
+        <col class="w-[6%]">
+        <col class="w-[14%]">
+        <col class="w-[28%]">
+        <col class="w-[14%]">
+        <col class="w-[14%]">
+        <col class="w-[14%]">
+        <col class="w-[10%]">
+      </colgroup>
       <thead>
         <tr class="bg-surface-container-low border-b border-outline-variant">
-          <th class="p-6 font-label-md text-label-md text-secondary uppercase">Semana / Fecha</th>
-          <th class="p-6 font-label-md text-label-md text-secondary uppercase">Discurso</th>
-          <th class="p-6 font-label-md text-label-md text-secondary uppercase">Presidente</th>
-          <th class="p-6 font-label-md text-label-md text-secondary uppercase">Orador</th>
-          <th class="p-6 font-label-md text-label-md text-secondary uppercase">Estudio</th>
-          <th class="p-6 font-label-md text-label-md text-secondary uppercase">Lector</th>
-          <th class="p-6 font-label-md text-label-md text-secondary uppercase">Grupo</th>
+          <th class="p-4 font-label-md text-label-md text-secondary uppercase">Fecha</th>
+          <th class="p-4 font-label-md text-label-md text-secondary uppercase">Presidente</th>
+          <th class="p-4 font-label-md text-label-md text-secondary uppercase">Discurso</th>
+          <th class="p-4 font-label-md text-label-md text-secondary uppercase">Orador</th>
+          <th class="p-4 font-label-md text-label-md text-secondary uppercase">Estudio</th>
+          <th class="p-4 font-label-md text-label-md text-secondary uppercase">Lector</th>
+          <th class="p-4 font-label-md text-label-md text-secondary uppercase">Grupo</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-outline-variant">${rows}</tbody>
+      <tbody>${rows}</tbody>
     </table>
   </div>`;
 }
@@ -1511,7 +1387,7 @@ async function renderSettings() {
           <button id="setReloadLists" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
           <button id="setReset" class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
         </div>
-        <p class="text-on-surface-variant text-caption mt-3">"Recargar" vuelve a leer <code>participantes.json</code> y <code>discursos.json</code> sin borrar los programas.</p>
+        <p class="text-on-surface-variant text-caption mt-3">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas.</p>
       </div>
     </div>
   `;
@@ -1661,7 +1537,6 @@ async function quickAddDepartment() {
 /* ---------- Exportación ---------- */
 function buildShareText() {
   const m = state.month;
-  const congo = m && m.id;
   const lines = [];
   lines.push(`*Programa de Reuniones - ${MONTHS_ES[m.month - 1]} ${m.year}*`);
   m.weeks.forEach((w, i) => {
@@ -1681,11 +1556,11 @@ function buildShareText() {
       lines.push(`Lector: ${personNameOf(w.lector)}`);
       lines.push(`Grupo: ${deptNameOf(w.departamento)}`);
     } else if (w.type === 'supervisor') {
-      lines.push(`Supervisor: ${w.nombreSupervisor || '—'}`);
-      lines.push(`1er discurso: ${w.discursoSupervisor1 || '—'}`);
+      lines.push(`Superintendente: ${w.nombreSupervisor || '—'}`);
+      lines.push(`Discurso público: ${w.discursoSupervisor1 || '—'}`);
       lines.push(`Presidente: ${personNameOf(w.presidente)}`);
       lines.push(`Estudio (sin lectura): ${personNameOf(w.estudioSinLectura)}`);
-      lines.push(`2do discurso: ${w.discursoSupervisor2 || '—'}`);
+      lines.push(`Discurso de servicio: ${w.discursoSupervisor2 || '—'}`);
     } else if (w.type === 'commemoration') {
       lines.push(`Discurso: ${w.tituloDiscurso || '—'}`);
       lines.push(`Presidente: ${personNameOf(w.presidente)}`);
@@ -1804,17 +1679,9 @@ function downloadBlob(blob, filename) {
 }
 
 /* ---------- Utilidades ---------- */
-function saturdaysOf(year, month) {
-  // month: 1-12
-  const out = [];
-  const d = new Date(year, month - 1, 1);
-  const last = new Date(year, month, 0).getDate();
-  for (let day = 1; day <= last; day++) {
-    d.setDate(day);
-    if (d.getDay() === 6) out.push(new Date(d));
-  }
-  return out;
-}
+// (saturdaysOf, cryptoId, capitalize, capField, escapeHtml, escapeAttr, labelOf
+//  se importan de logic.js)
+
 function newWeek(date) {
   const iso = date.toISOString().slice(0, 10);
   return {
@@ -1840,7 +1707,7 @@ function newWeek(date) {
 function newOuting() {
   return {
     id: cryptoId(),
-    orador: '',         // id de persona con rol 'orador'
+    oradorSalida: '',    // id de persona con rol 'orador'
     tituloDiscurso: '', // "N. Título" o texto libre
     talkNum: '',        // nº de discurso elegido (para asociar)
   };
@@ -1867,12 +1734,10 @@ function newCongregation() {
     hora: '',          // "18:00"
   };
 }
-function cryptoId() { return 'w_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
 
 function formatShort(date) {
   return date.toLocaleDateString('es', { day: '2-digit', month: 'short' });
 }
-function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function personNameOf(id) {
   if (!id) return '—';
@@ -1883,26 +1748,4 @@ function deptNameOf(id) {
   if (!id) return '—';
   const d = state.departments.find(x => String(x.id) === String(id));
   return d ? d.name : '—';
-}
-
-const FIELD_LABELS = {
-  tituloDiscurso: 'título del discurso',
-  presidente: 'presidente',
-  orador: 'orador',
-  conductor: 'conductor',
-  lector: 'lector',
-  departamento: 'grupo de atención',
-  nombreSupervisor: 'nombre del supervisor',
-  discursoSupervisor1: 'primer discurso',
-  discursoSupervisor2: 'segundo discurso',
-  estudioSinLectura: 'estudio (sin lectura)',
-};
-function labelOf(f) { return FIELD_LABELS[f] || f; }
-function capField(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-function escapeAttr(s) {
-  return String(s ?? '').replace(/["'<>]/g, c => ({ '"':'&quot;',"'":'&#39;','<':'&lt;','>':'&gt;' }[c]));
 }

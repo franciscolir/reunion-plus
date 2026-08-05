@@ -1,14 +1,18 @@
 // sw.js - Service Worker para Reunión+
 // Estrategia: cache-first para el app shell; network-first con fallback para Tailwind CDN y fuentes.
 
-const CACHE_VERSION = 'rp-v10';
+const CACHE_VERSION = 'rp-v18';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.json',
   './app.js',
   './db.js',
+  './logic.js',
   './styles.css',
+  './fonts/material-symbols.woff2',
+  './fonts/inter-latin.woff2',
+  './fonts/playfair-latin.woff2',
   './favicon.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -33,7 +37,11 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    ).then(() => self.clients.claim()).then(() =>
+      self.clients.matchAll({ type: 'window' }).then((clients) =>
+        clients.forEach((c) => c.navigate && c.navigate(c.url))
+      )
+    )
   );
 });
 
@@ -42,6 +50,12 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
+
+  // Recursos externos (CDN Tailwind y fuentes Inter/Playfair):
+  // NO los interceptamos. El navegador los gestiona normalmente (online).
+  // Cuando offline, fallan sin error y caen al fallback del sistema.
+  // La fuente de íconos Material Symbols es local (precacheada) → siempre disponible.
+  if (url.origin !== self.location.origin) return;
 
   // Navegaciones: devolver index.html cacheado si offline
   if (req.mode === 'navigate') {
@@ -52,31 +66,13 @@ self.addEventListener('fetch', (e) => {
   }
 
   // Recursos del propio origen: cache-first
-  if (url.origin === self.location.origin) {
-    e.respondWith(
-      caches.match(req).then((cached) =>
-        cached || fetch(req).then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then((c) => c.put(req, copy)).catch(() => {});
-          return res;
-        }).catch(() => cached)
-      )
-    );
-    return;
-  }
-
-  // Recursos externos (CDN Tailwind y fuentes): stale-while-revalidate
-  // Usamos mode: 'no-cors' para evitar bloqueos CORS (respuestas opacas cacheables).
   e.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req, { mode: 'no-cors' }).then((res) => {
-        if (res && (res.type === 'opaque' || res.ok)) {
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then((c) => c.put(req, copy)).catch(() => {});
-        }
+    caches.match(req).then((cached) =>
+      cached || fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_VERSION).then((c) => c.put(req, copy)).catch(() => {});
         return res;
-      }).catch(() => cached);
-      return cached || network;
-    })
+      }).catch(() => cached)
+    )
   );
 });

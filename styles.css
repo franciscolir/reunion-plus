@@ -1,4 +1,41 @@
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/inter-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('./fonts/playfair-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url('./fonts/material-symbols.woff2') format('woff2');
+}
+
 .material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   vertical-align: middle;
 }
@@ -26,13 +63,48 @@
 ::-webkit-scrollbar-track { background: #f9f9f9; }
 ::-webkit-scrollbar-thumb { background: #c1c8c7; border-radius: 4px; }
 
-/* Programa imprimible: oculta UI cromada */
+/* Programa imprimible: oculta UI cromada y fuerza una sola hoja horizontal */
 @media print {
   header, aside, #sideNav, #actionBar, #toastRoot, #modalRoot, #topNav, #navToggle,
   #onlineBtn, #settingsBtn, #sideAbout, #sideNewMonth, .no-print { display: none !important; }
   main { margin-left: 0 !important; padding: 0 !important; max-width: none !important; }
-  body { background: #fff !important; }
+  body { background: #fff !important; font-size: 11px !important; }
   .print-only { display: block !important; }
+
+  /* Forzar orientación horizontal y ajustar a una sola página */
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  /* El contenedor del preview debe caber en una hoja */
+  #previewContent, #outingsContent {
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 4mm !important;
+  }
+
+  /* Cabecera del preview compacta */
+  .editorial-line, .no-print { display: none !important; }
+
+  /* Tabla del programa: tipografía compacta para que quepa */
+  .tabla-programa { overflow: visible !important; }
+  .tabla-programa table {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 9px !important;
+  }
+  .tabla-programa th,
+  .tabla-programa td {
+    padding: 3px 5px !important;
+    line-height: 1.25 !important;
+  }
+  /* Evitar saltos de página entre filas */
+  .tabla-programa tr { page-break-inside: avoid !important; }
+  .tabla-programa thead { display: table-header-group !important; }
+  .tabla-programa tbody { display: table-row-group !important; }
 }
 .print-only { display: none; }
 
