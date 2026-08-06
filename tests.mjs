@@ -7,6 +7,7 @@ import {
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
   capitalize, capField, escapeHtml, escapeAttr, cryptoId,
+  isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
 } from './logic.js';
 
 let pass = 0, fail = 0;
@@ -188,6 +189,64 @@ ok('MONTHS_ES 12 meses', MONTHS_ES.length === 12);
 ok('WEEK_TYPES 4 tipos', Object.keys(WEEK_TYPES).length === 4);
 ok('FIELD_ROLE mapea estudioSinLectura a conductor', FIELD_ROLE.estudioSinLectura === 'conductor');
 ok('FIELD_ROLE mapea oradorSalida a orador', FIELD_ROLE.oradorSalida === 'orador');
+
+// --- isoDate ---
+console.log('[isoDate]');
+eq('isoDate básico', isoDate(new Date(2026, 6, 6)), '2026-07-06');
+eq('isoDate con ceros', isoDate(new Date(2026, 0, 5)), '2026-01-05');
+
+// --- eventTypeForDate ---
+console.log('[eventTypeForDate]');
+const cfgEvents = {
+  commemorations: ['2026-04-04'],
+  visits: [{ from: '2026-05-13', to: '2026-05-16' }],
+  assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }],
+};
+eq('conmemoración detectada', eventTypeForDate(cfgEvents, '2026-04-04'), 'commemoration');
+eq('visita en rango (inicio)', eventTypeForDate(cfgEvents, '2026-05-13'), 'supervisor');
+eq('visita en rango (fin)', eventTypeForDate(cfgEvents, '2026-05-16'), 'supervisor');
+eq('visita en rango (medio)', eventTypeForDate(cfgEvents, '2026-05-14'), 'supervisor');
+eq('fuera del rango es normal', eventTypeForDate(cfgEvents, '2026-05-17'), 'normal');
+eq('asamblea día 1', eventTypeForDate(cfgEvents, '2026-06-11'), 'assembly');
+eq('asamblea día 3', eventTypeForDate(cfgEvents, '2026-06-13'), 'assembly');
+eq('asamblea día 4 es normal', eventTypeForDate(cfgEvents, '2026-06-14'), 'normal');
+eq('asamblea 1 día', eventTypeForDate({ assemblies: [{ from: '2026-06-11', days: 1 }] }, '2026-06-12'), 'normal');
+eq('asamblea de 3 días con rango (desde)', eventTypeForDate({ assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }] }, '2026-06-11'), 'assembly');
+eq('asamblea de 3 días con rango (hasta)', eventTypeForDate({ assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }] }, '2026-06-13'), 'assembly');
+eq('asamblea de 3 días con rango (fuera)', eventTypeForDate({ assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }] }, '2026-06-14'), 'normal');
+eq('asamblea legacy sin days = 1 día', eventTypeForDate({ assemblies: [{ date: '2026-06-11' }] }, '2026-06-12'), 'normal');
+eq('visita legacy con date', eventTypeForDate({ visits: [{ date: '2026-05-16' }] }, '2026-05-16'), 'supervisor');
+eq('fecha sin evento es normal', eventTypeForDate(cfgEvents, '2026-07-06'), 'normal');
+eq('sin eventos devuelve normal', eventTypeForDate(null, '2026-04-04'), 'normal');
+
+// --- isSpecialDate ---
+console.log('[isSpecialDate]');
+ok('es fecha especial', isSpecialDate(cfgEvents, '2026-04-04'));
+ok('es fecha especial (rango)', isSpecialDate(cfgEvents, '2026-05-15'));
+ok('no es fecha especial', !isSpecialDate(cfgEvents, '2026-07-06'));
+
+// --- addDays ---
+console.log('[addDays]');
+eq('addDays +1', addDays('2026-06-11', 1), '2026-06-12');
+eq('addDays +2 cruza mes', addDays('2026-06-30', 2), '2026-07-02');
+eq('addDays 0', addDays('2026-06-11', 0), '2026-06-11');
+eq('addDays null', addDays(null, 1), null);
+
+// --- eventEndDate ---
+console.log('[eventEndDate]');
+eq('fin de visita', eventEndDate({ from: '2026-05-13', to: '2026-05-16' }), '2026-05-16');
+eq('fin asamblea 3 días', eventEndDate({ date: '2026-06-11', days: 3 }), '2026-06-13');
+eq('fin asamblea 1 día', eventEndDate({ date: '2026-06-11', days: 1 }), '2026-06-11');
+
+// --- upcomingEvents ---
+console.log('[upcomingEvents]');
+const up = upcomingEvents(cfgEvents, '2026-05-01', 5);
+eq('filtra solo futuros y ordena', up.map(e => e.date), ['2026-05-13', '2026-06-11']);
+eq('incluye fecha exacta=from', upcomingEvents({ commemorations: ['2026-05-16'] }, '2026-05-16')[0].type, 'commemoration');
+eq('excluye fechas pasadas', upcomingEvents({ commemorations: ['2026-04-04'] }, '2026-05-01'), []);
+eq('límite max', upcomingEvents(cfgEvents, '2026-01-01', 1).length, 1);
+eq('end de visita en upcoming', upcomingEvents(cfgEvents, '2026-05-01', 5)[0].end, '2026-05-16');
+eq('end de asamblea en upcoming', upcomingEvents(cfgEvents, '2026-05-01', 5)[1].end, '2026-06-13');
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===\n`);
 process.exit(fail > 0 ? 1 : 0);

@@ -6,17 +6,22 @@ import {
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
   capitalize, capField, escapeHtml, escapeAttr, cryptoId,
+  isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
 const state = {
-  view: 'home',           // home | new | edit | preview | lists | settings | about
+  view: 'home',           // home | new | edit | preview | lists | settings | about | midweeks | midweek
+  newTab: 'fin',          // 'fin' | 'entre' (en Nuevo Programa)
   monthId: null,          // "YYYY-MM"
   month: null,
   previewMode: 'lista',   // lista | tabla
   people: [],
   departments: [],
   talks: [],              // lista de discursos públicos [{num, title}]
+  roles: [],              // roles del equipo [{id, label}]
+  midweeks: [],           // reuniones de entre semana
+  config: null,           // configuración general
   toastsOpen: new Set(),
 };
 
@@ -36,6 +41,12 @@ async function refreshCatalogs() {
   state.people = await db.listPeople();
   state.departments = await db.listDepartments();
   state.talks = await db.listTalks();
+  state.midweeks = await db.listMidweeks();
+  state.config = await db.getConfig();
+  const saved = await db.getRoles(null);
+  state.roles = (saved && Array.isArray(saved) && saved.length)
+    ? saved
+    : DEFAULT_ROLES.map(r => ({ ...r }));
 }
 
 function registerSW() {
@@ -102,6 +113,9 @@ function router() {
     case 'preview':  renderPreview(); break;
     case 'outings':  renderOutings(); break;
     case 'lists':    renderLists(); break;
+    case 'midweeks': renderMidweeks(); break;
+    case 'midweek':  renderMidweek(segs[1]); break;
+    case 'midweekPreview': renderMidweekPreview(segs[1]); break;
     case 'settings': renderSettings(); break;
     case 'about':    renderAbout(); break;
     default:         renderHome();
@@ -196,75 +210,261 @@ function renderSide() {
   nav.querySelectorAll('button').forEach(b => b.onclick = () => go(b.dataset.go));
 }
 
-/* ---------- HOME: listado y selección de mes ---------- */
+/* ---------- HOME: Tablero principal ---------- */
 async function renderHome() {
   state.month = null;
   const months = await db.listMonths();
   months.sort((a, b) => b.id.localeCompare(a.id));
+  _homeMonths = months;
   const app = $('#app');
   app.innerHTML = `
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10">
+    <div class="mb-10 md:flex justify-between items-end gap-4">
       <div>
-        <h1 class="font-display-lg text-display-lg text-primary mb-2">Programa de Reuniones</h1>
-        <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">Prepare el programa mensual en minutos. Seleccione el mes para comenzar o continúe con un programa existente.</p>
+        <h1 class="font-display-lg text-display-lg text-primary mb-2">Tablero Principal</h1>
+        <p class="font-body-lg text-body-lg text-on-surface-variant">Resumen de actividades y asignaciones para la semana en curso.</p>
       </div>
-      <button id="btnNew" class="flex items-center gap-2 bg-primary text-on-primary px-5 py-3 rounded-lg font-label-md text-label-md hover:shadow-lg transition-all active:scale-95">
+      <button id="btnNew" class="flex items-center gap-2 bg-primary text-on-primary px-5 py-3 rounded-lg font-label-md text-label-md hover:shadow-lg transition-all active:scale-95 whitespace-nowrap">
         <span class="material-symbols-outlined text-[20px]">add_circle</span>
         Nuevo Programa
       </button>
     </div>
-    <div id="monthsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter"></div>
+
+    <!-- Bento Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
+      <!-- Próximos Eventos -->
+      <section class="md:col-span-8 bg-surface-container-lowest rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant relative overflow-hidden">
+        <div class="absolute top-0 left-0 w-2 h-full bg-primary"></div>
+        <div class="flex justify-between items-start mb-8 gap-3">
+          <div>
+            <h2 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary mb-1 flex items-center gap-3">
+              <span class="material-symbols-outlined text-3xl">event_upcoming</span>
+              Próximos Eventos
+            </h2>
+            <p class="font-body-md text-body-md text-on-surface-variant">Destacados para los próximos meses</p>
+          </div>
+          <button data-go-settings class="text-primary-container bg-primary-fixed hover:bg-primary-fixed-dim px-4 py-2 rounded-lg font-label-md text-label-md transition-colors whitespace-nowrap flex items-center gap-1">
+            <span class="material-symbols-outlined text-[18px]">tune</span> Configurar
+          </button>
+        </div>
+        <div id="homeEvents" class="space-y-6"></div>
+      </section>
+
+      <!-- Asignaciones -->
+      <section class="md:col-span-4 bg-primary-container text-on-primary-container rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] flex flex-col relative overflow-hidden">
+        <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 100% 100%, #ffffff 0%, transparent 50%);"></div>
+        <h2 class="font-headline-md text-headline-md text-on-primary mb-6 flex items-center gap-2 relative z-10">
+          <span class="material-symbols-outlined">assignment</span>
+          Asignaciones
+        </h2>
+        <div class="bg-on-tertiary-fixed-variant/30 rounded-lg p-5 mb-4 border border-on-primary-container/20 relative z-10 flex-1">
+          <span class="inline-block bg-secondary text-on-secondary px-3 py-1 rounded-full font-label-md text-[12px] uppercase tracking-wider mb-4">
+            Grupo de la Semana
+          </span>
+          <h3 class="font-headline-md text-headline-md text-on-primary mb-2">${finWeekAssign()}</h3>
+          <div class="mt-6 pt-4 border-t border-on-primary-container/20">
+            <p class="font-label-md text-label-md text-primary-fixed mb-1 uppercase tracking-wider">Responsabilidad</p>
+            <p class="font-body-lg text-body-lg text-on-primary">${finWeekAssignDetail()}</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Resumen de la Semana -->
+      <section class="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-gutter mt-4">
+        <!-- Entre Semana -->
+        <div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+          <div class="flex items-center justify-between mb-6 gap-3">
+            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+              <span class="material-symbols-outlined">auto_stories</span>
+              Reunión Entre Semana
+            </h3>
+            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${betweenSemanaWhen()}</span>
+          </div>
+          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-primary">
+            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Lectura de la semana</p>
+            <p class="font-headline-md text-headline-md text-on-surface">${betweenSemanaReading()}</p>
+          </div>
+        </div>
+        <!-- Fin de Semana -->
+        <div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+          <div class="flex items-center justify-between mb-6 gap-3">
+            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+              <span class="material-symbols-outlined">record_voice_over</span>
+              Reunión Fin de Semana
+            </h3>
+            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${finSemanaSchedule()}</span>
+          </div>
+          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-secondary">
+            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Título del Discurso</p>
+            <p class="font-body-lg text-body-lg font-semibold text-on-surface italic">${finSemanaTitle()}</p>
+          </div>
+        </div>
+      </section>
+    </div>
   `;
   $('#btnNew').onclick = () => go('new');
+  document.querySelectorAll('[data-go-settings]').forEach(b => b.onclick = () => go('settings'));
 
-  const list = $('#monthsList');
-  if (months.length === 0) {
-    list.innerHTML = `<div class="col-span-full text-center py-16 border-2 border-dashed border-outline-variant rounded-xl">
-      <span class="material-symbols-outlined text-primary text-6xl mb-4">calendar_month</span>
-      <p class="text-on-surface-variant font-body-lg">Aún no hay programas creados. Pulse "Nuevo Programa" para comenzar.</p>
-    </div>`;
-    return;
+  renderHomeEvents($('#homeEvents'));
+}
+
+// ---- Helpers de la semana en curso para el tablero ----
+// Almacena los meses cargados para las tarjetas de resumen.
+let _homeMonths = [];
+function homeMonths() { return _homeMonths; }
+
+// Devuelve lunes y sábado (YYYY-MM-DD) de la semana en curso.
+function currentWeekDates() {
+  const now = new Date();
+  const daysSinceMon = (now.getDay() + 6) % 7; // 0=lunes
+  const monday = new Date(now); monday.setDate(now.getDate() - daysSinceMon);
+  const saturday = new Date(monday); saturday.setDate(monday.getDate() + 5);
+  return { monday: isoDate(monday), saturday: isoDate(saturday) };
+}
+
+// Busca la semana del programa mensual cuya fecha (sábado) es la semana en curso.
+function findCurrentFinWeek() {
+  const { saturday } = currentWeekDates();
+  for (const m of _homeMonths) {
+    const w = (m.weeks || []).find(x => x.date === saturday);
+    if (w) return { month: m, week: w };
   }
-  list.innerHTML = months.map(m => {
-    const filled = m.weeks.filter(w => w.type === 'assembly' || weekComplete(w, m)).length;
-    const pct = Math.round((filled / m.weeks.length) * 100);
-    return `<article class="week-card-accent bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 border border-outline-variant hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow flex flex-col gap-4">
-      <div class="flex justify-between items-start">
-        <div>
-          <span class="inline-block px-3 py-1 ${m.published ? 'bg-tertiary-fixed text-on-tertiary-fixed' : 'bg-secondary-container text-on-secondary-container'} font-label-md text-label-md rounded-full">${m.published ? 'Final' : 'Borrador'}</span>
-          <h3 class="font-headline-md text-headline-md text-primary mt-3">${MONTHS_ES[m.month - 1]} ${m.year}</h3>
-          <p class="text-on-surface-variant font-caption text-caption uppercase tracking-wider">${m.weeks.length} reuniones · ${pct}% completo</p>
-        </div>
-        <span class="material-symbols-outlined text-outline-variant">${m.published ? 'task_alt' : 'edit_note'}</span>
+  return null;
+}
+function finSemanaTitle() {
+  const cur = findCurrentFinWeek();
+  if (!cur) return 'Programa aún no cargado para esta semana';
+  const w = cur.week;
+  if (w.type === 'assembly') return 'Asamblea';
+  if (w.type === 'commemoration') return 'Conmemoración';
+  if (w.type === 'supervisor') return 'Visita del Superintendente';
+  return (w.tituloDiscurso && w.tituloDiscurso.trim()) ? `"${w.tituloDiscurso}"` : 'Sin asignar';
+}
+function finSemanaSchedule() {
+  const cfg = state.config || {};
+  const day = DAYS_ES_NAMES[Number(cfg.schedule?.day) || 6] || 'Sábado';
+  return `${day}, ${cfg.schedule?.time || '10:00'}`;
+}
+function finWeekAssign() {
+  const cur = findCurrentFinWeek();
+  if (!cur) return '—';
+  // El grupo de la semana sale de la rotación (cantidad + grupo inicial),
+  // contando las semanas normales previas dentro del mismo programa mensual.
+  const cfg = state.config?.groups || {};
+  const n = Number(cfg.cantidad) || 0;
+  if (!n) return cur.week.departamento ? deptNameOf(cur.week.departamento) : 'Sin asignar';
+  const start = Number(cfg.start) || 1;
+  const weeks = cur.month.weeks || [];
+  let k = -1;
+  for (const w of weeks) {
+    if (w.type !== 'normal') continue;
+    k++;
+    if (w.date === cur.week.date) break;
+  }
+  const grupo = ((start - 1 + Math.max(k, 0)) % n) + 1;
+  return `Grupo ${grupo}`;
+}
+function finWeekAssignDetail() {
+  const labores = state.config?.groups?.labores;
+  if (labores) return labores;
+  const cur = findCurrentFinWeek();
+  if (cur) return `${capField(WEEK_TYPES[cur.week.type]?.label || 'Normal')} de la semana`;
+  return 'Seleccione el programa del mes en curso';
+}
+function betweenSemanaReading() {
+  const { monday, saturday } = currentWeekDates();
+  const mw = state.midweeks.find(m => m.id >= monday && m.id <= saturday) || null;
+  return mw ? (mw.reading || '—') : 'Lectura no cargada para esta semana';
+}
+function betweenSemanaWhen() {
+  const cfg = state.config || {};
+  const day = DAYS_ES_NAMES[Number(cfg.midweek?.day) ?? Number(cfg.schedule?.day) ?? 2] || 'Miércoles';
+  const time = cfg.midweek?.time || cfg.schedule?.time || '19:00';
+  return `${day}, ${time}`;
+}
+
+// Panel de próximos eventos (conmemoración, visita, asamblea) desde la configuración general.
+function renderHomeEvents(container) {
+  const config = state.config || { schedule: { day: 6, time: '10:00' }, events: {} };
+  const today = isoDate(new Date());
+  const upcoming = upcomingEvents(config.events || {}, today, 6);
+
+  const TYPE_META = {
+    commemoration: { icon: 'stars', label: 'Conmemoración', sub: 'Conmemoración de la muerte de Cristo', box: 'bg-secondary-container text-on-secondary-container' },
+    supervisor:    { icon: 'meeting_room', label: 'Visita del Superintendente', sub: 'Semana Especial de Actividades', box: 'bg-tertiary-container text-on-tertiary-container' },
+    assembly:      { icon: 'event', label: 'Asamblea', sub: 'Asamblea', box: 'bg-primary-fixed text-on-primary-fixed-variant' },
+  };
+
+  const MON = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const dayNum = (iso) => ({ m: +iso.slice(5, 7), d: +iso.slice(8, 10) });
+
+  const raw = [ ...upcoming ];
+  container.innerHTML = raw.map((ev, idx) => {
+    const meta = TYPE_META[ev.type] || TYPE_META.commemoration;
+    const { m, d } = dayNum(ev.date);
+    const days = ev.end ? ((dayNum(ev.end).d - d) + 1) : 1;
+    const sub = ev.type === 'assembly'
+      ? `${days} ${days === 1 ? 'día' : 'días'} de programa`
+      : meta.sub;
+    return `<div class="flex items-start gap-4 ${raw.length > 1 && idx < raw.length - 1 ? 'pb-6 border-b border-outline-variant/30' : ''}">
+      <div class="${meta.box} w-16 h-16 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
+        <span class="font-label-md text-label-md uppercase text-[10px] leading-tight">${MON[m]}</span>
+        <span class="font-headline-md text-headline-md leading-none">${d}</span>
       </div>
-      <div class="h-2 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-primary" style="width:${pct}%"></div></div>
-      <div class="flex gap-2 mt-2">
-        <button data-edit="${m.id}" class="flex-1 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all">Editar</button>
-        <button data-view="${m.id}" class="flex-1 px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-all">Vista</button>
-        <button data-del="${m.id}" class="px-3 py-2 rounded-lg border border-outline-variant text-error font-label-md text-label-md hover:bg-error-container transition-all" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+      <div class="pt-1">
+        <h3 class="font-headline-md text-headline-md text-on-surface mb-1">${meta.label}</h3>
+        <p class="font-body-md text-body-md text-on-surface-variant flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">${meta.icon}</span>
+          ${sub}
+        </p>
       </div>
-    </article>`;
+    </div>`;
   }).join('');
-  list.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => go('edit', { monthId: b.dataset.edit }));
-  list.querySelectorAll('[data-view]').forEach(b => b.onclick = () => go('preview', { monthId: b.dataset.view }));
-  list.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-    if (await confirmDialog('¿Eliminar este programa? Esta acción no se puede deshacer.', 'Eliminar')) {
-      await db.deleteMonth(b.dataset.del);
-      toast('Programa eliminado', 'success');
-      renderHome();
-    }
-  });
 }
 
 /* ---------- NEW: selección de mes/año + opciones ---------- */
 async function renderNew() {
   state.month = null;
-  const months = await db.listMonths();
-  const now = new Date();
-  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  renderTop();
   const app = $('#app');
   app.innerHTML = `
     <h1 class="font-headline-lg text-headline-lg text-primary mb-6">Nuevo Programa</h1>
+    <div class="flex gap-2 mb-8 border-b border-outline-variant">
+      <button data-tab="fin" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Reunión de Fin de Semana</button>
+      <button data-tab="entre" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Reunión de Entre Semana</button>
+    </div>
+    <div id="newBody"></div>
+  `;
+  const tabs = app.querySelectorAll('.newTab');
+  const setActive = () => {
+    tabs.forEach(t => {
+      const on = t.dataset.tab === state.newTab;
+      t.classList.toggle('border-b-2', on);
+      t.classList.toggle('border-primary', on);
+      t.classList.toggle('text-primary', on);
+      t.classList.toggle('text-on-surface-variant', !on);
+    });
+  };
+  tabs.forEach(t => t.onclick = () => {
+    state.newTab = t.dataset.tab;
+    setActive();
+    renderNewBody();
+  });
+  setActive();
+  renderNewBody();
+}
+
+async function renderNewBody() {
+  const body = $('#newBody');
+  if (!body) return;
+  if (state.newTab === 'entre') { renderMidweeks({ embed: body }); return; }
+  renderNewFin(body);
+}
+
+async function renderNewFin(body) {
+  const months = await db.listMonths();
+  const now = new Date();
+  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  body.innerHTML = `
     <div class="max-w-xl bg-surface-container-lowest rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 md:p-8 border border-outline-variant">
       <div class="grid grid-cols-2 gap-4 mb-6">
         <div>
@@ -299,7 +499,51 @@ async function renderNew() {
         Crear Programa
       </button>
     </div>
+
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mt-12 mb-6">
+      <h2 class="font-headline-lg text-headline-lg text-primary">Programas</h2>
+      <p class="text-on-surface-variant font-body-md">Seleccione el mes para continuar o crear uno nuevo.</p>
+    </div>
+    <div id="newMonthsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter"></div>
   `;
+  const list = $('#newMonthsList');
+  if (months.length === 0) {
+    list.innerHTML = `<div class="col-span-full text-center py-16 border-2 border-dashed border-outline-variant rounded-xl">
+      <span class="material-symbols-outlined text-primary text-6xl mb-4">calendar_month</span>
+      <p class="text-on-surface-variant font-body-lg">Aún no hay programas creados. Use el formulario de arriba para comenzar.</p>
+    </div>`;
+  } else {
+    list.innerHTML = months.map(m => {
+      const filled = m.weeks.filter(w => w.type === 'assembly' || weekComplete(w, m)).length;
+      const pct = Math.round((filled / m.weeks.length) * 100);
+      const label = m.published ? 'Final' : (pct === 0 ? 'Nuevo programa' : 'Borrador');
+      return `<article class="week-card-accent bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 border border-outline-variant hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow flex flex-col gap-4">
+        <div class="flex justify-between items-start">
+          <div>
+            <span class="inline-block px-3 py-1 ${m.published ? 'bg-tertiary-fixed text-on-tertiary-fixed' : 'bg-secondary-container text-on-secondary-container'} font-label-md text-label-md rounded-full">${label}</span>
+            <h3 class="font-headline-md text-headline-md text-primary mt-3">${MONTHS_ES[m.month - 1]} ${m.year}</h3>
+            <p class="text-on-surface-variant font-caption text-caption uppercase tracking-wider">${m.weeks.length} reuniones · ${pct}% completo</p>
+          </div>
+          <span class="material-symbols-outlined text-outline-variant">${m.published ? 'task_alt' : 'edit_note'}</span>
+        </div>
+        <div class="h-2 bg-surface-variant rounded-full overflow-hidden"><div class="h-full bg-primary" style="width:${pct}%"></div></div>
+        <div class="flex gap-2 mt-2">
+          <button data-edit="${m.id}" class="flex-1 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all">Editar</button>
+          <button data-view="${m.id}" class="flex-1 px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-all">Vista</button>
+          <button data-del="${m.id}" class="px-3 py-2 rounded-lg border border-outline-variant text-error font-label-md text-label-md hover:bg-error-container transition-all" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+        </div>
+      </article>`;
+    }).join('');
+    list.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => go('edit', { monthId: b.dataset.edit }));
+    list.querySelectorAll('[data-view]').forEach(b => b.onclick = () => go('preview', { monthId: b.dataset.view }));
+    list.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      if (await confirmDialog('¿Eliminar este programa? Esta acción no se puede deshacer.', 'Eliminar')) {
+        await db.deleteMonth(b.dataset.del);
+        toast('Programa eliminado', 'success');
+        renderNewBody();
+      }
+    });
+  }
   const yearSel = $('#nmYear');
   yearSel.innerHTML = years.map(y => `<option value="${y}" ${y === now.getFullYear() ? 'selected' : ''}>${y}</option>`).join('');
 
@@ -340,11 +584,53 @@ async function renderNew() {
         toast('Asignaciones copiadas del mes anterior', 'success');
       }
     }
+    applyConfigWeekTypes(weeks);
+    moduleApplyGroupRotation(weeks, state.config?.groups?.cantidad || 0, Number(state.config?.groups?.start) || 1);
     const month = { id, year: y, month: m, weeks, published: false };
     await db.putMonth(month);
     toast('Programa creado', 'success');
     go('edit', { monthId: id });
   };
+}
+
+// Marca automáticamente el tipo de reunión de cada semana según las fechas
+// especiales de la configuración general (conmemoración, visita, asamblea).
+function applyConfigWeekTypes(weeks) {
+  const events = state.config?.events || {};
+  let marked = 0;
+  for (const w of weeks) {
+    const type = eventTypeForDate(events, w.date);
+    if (type !== 'normal') {
+      w.type = type;
+      marked++;
+    }
+  }
+  if (marked > 0) toast(`${marked} semana(s) marcada(s) según la configuración general`, 'success');
+  return weeks;
+}
+
+// Asigna el grupo de atención (departamento) a las semanas normales de forma
+// correlativa (rotación). `n` es la cantidad de grupos y `start` (1-based) el
+// grupo inicial. Reutiliza los grupos ya existentes en la DB (por nombre "Grupo i"
+// o número "i"), creándolos si hiciera falta. Devuelve cuántas semanas se asignaron.
+function moduleApplyGroupRotation(weeks, n, start) {
+  n = Math.max(n || 0, 0);
+  if (!n) { for (const w of weeks) { if (w.type === 'normal') w.departamento = ''; } return 0; }
+  const deptFor = (i) => {
+    const d = state.departments.find(x => {
+      const name = String(x.name || '').trim();
+      const m = /^(?:grupo\s*)?(\d+)$/i.exec(name);
+      return m && parseInt(m[1], 10) === i;
+    });
+    return d ? d.id : '';
+  };
+  let assigned = 0, k = 0;
+  for (const w of weeks) {
+    if (w.type !== 'normal') continue;
+    w.departamento = deptFor(((start - 1 + k) % n) + 1);
+    k++; assigned++;
+  }
+  return assigned;
 }
 
 /* ---------- EDIT: editor de semanas ---------- */
@@ -466,6 +752,7 @@ function renderWeeks() {
   const conflicts = computeConflicts(state.month);
   container.innerHTML = state.month.weeks.map((w, i) => weekCard(w, i, conflicts.perWeek[i] || {})).join('');
   container.querySelectorAll('[data-field]').forEach(bindFieldChange);
+  container.querySelectorAll('select[data-labore]').forEach(bindLaboreChange);
   container.querySelectorAll('select[data-people]').forEach(fillPeople);
   container.querySelectorAll('select[data-dept]').forEach(fillDepartments);
   container.querySelectorAll('[data-add-person]').forEach(b => {
@@ -551,8 +838,45 @@ function weekCard(w, i, conflicts) {
       </div>
       <div class="flex-1 space-y-6" data-fields="${i}">${fieldsFor(w, i, conflicts)}</div>
     </div>
+    <div class="mt-6 pt-6 border-t-2 border-dashed border-secondary/40">${laboresEditor(w, i)}</div>
     ${w.type === 'normal' ? outingsSection(w, i) : ''}
   </section>`;
+}
+
+/* ---------- Labores: editor (tras bambalinas, no asignaciones de reunión) ---------- */
+function laboresEditor(w, i) {
+  ensureLabores(w);
+  const l = w.labores;
+  const rows = LABORES_DEFS.map(({ key, label, icon, count }) => {
+    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
+      ? l[key]
+      : [l[key] || ''];
+    const fields = Array.from({ length: count }, (_, si) => {
+      const cur = slots[si] || '';
+      const opts = `<option value="">— Sin asignar —</option>` +
+        state.people
+          .filter(p => ['hermano', 'hermana'].includes(p.role))
+          .map(p => `<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
+          .join('');
+      return `<div class="flex-1 min-w-[130px]">
+        <select data-labore="${key}" data-labore-idx="${si}" data-idx="${i}" data-people class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts}</select>
+      </div>`;
+    }).join('');
+    return `<div class="flex items-start gap-3">
+      <span class="material-symbols-outlined text-on-surface-variant mt-2.5">${icon}</span>
+      <div class="flex-1">
+        <label class="font-label-md text-label-md text-on-surface-variant mb-1 block">${label} <span class="text-caption text-on-surface-variant/70">×${count}</span></label>
+        <div class="flex flex-wrap gap-2">${fields}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="rounded-lg border border-dashed border-on-surface-variant/40 bg-surface-bright/40 p-5">
+    <div class="flex items-center gap-2 mb-1">
+      <h4 class="font-headline-md text-headline-md text-on-surface-variant">Atencion departamentos</h4>
+    </div>
+    <p class="font-body-sm text-body-sm text-on-surface-variant/70 mb-4">Tareas operativas que sostienen la reunión, no forman parte del programa de asignaciones de la plataforma.</p>
+    <div class="space-y-4">${rows}</div>
+  </div>`;
 }
 
 /* ---------- EDIT: sección Salidas (sólo semanas normales) ---------- */
@@ -848,6 +1172,20 @@ function bindFieldChange(node) {
   });
 }
 
+function bindLaboreChange(node) {
+  node.addEventListener('change', () => {
+    const idx = parseInt(node.dataset.idx, 10);
+    const key = node.dataset.labore;
+    const slot = parseInt(node.dataset.laboreIdx, 10);
+    const w = state.month.weeks[idx];
+    ensureLabores(w);
+    const val = node.value === '' ? '' : node.value;
+    if (Array.isArray(w.labores[key])) w.labores[key][slot] = val;
+    else w.labores[key] = val;
+    renderWeeks();
+  });
+}
+
 async function saveMonth() {
   const conflicts = computeConflicts(state.month);
   const hard = conflicts.errors;
@@ -1004,6 +1342,7 @@ function weekCardList(w, i) {
       <span class="material-symbols-outlined text-primary text-4xl">${icon}</span>
     </div>
     ${rowsHtml}
+    ${previewLaboresBox(w, 'box-bottom')}
   </div>`;
 }
 
@@ -1013,10 +1352,11 @@ function previewTabla() {
     const dateStr = date.toLocaleDateString('es', { day: '2-digit' });
      const dateAsam = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
    
-    if (w.type === 'assembly') {
+    if (w.type === 'assembly' || w.type === 'commemoration') {
+      const label = w.type === 'assembly' ? 'Asamblea' : 'Conmemoración';
       return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7">
         <div class="py-4">
-          <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Asamblea — ${dateAsam}</div>
+          <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
         </div></td></tr>`;
     }
     let cells = {
@@ -1253,11 +1593,23 @@ async function imageOutings() {
 }
 
 /* ---------- LISTAS: personas y grupos ---------- */
-const ALL_ROLES = [
+const DEFAULT_ROLES = [
   { id: 'presidente', label: 'Presidente' },
-  { id: 'conductor',  label: 'Conductor / Estudio (sin lectura)' },
-  { id: 'orador',     label: 'Orador (salidas)' },
+  { id: 'conductor',  label: 'Conductor' },
+  { id: 'orador',     label: 'Orador' },
   { id: 'lector',     label: 'Lector' },
+  { id: 'atencion',   label: 'Atención' },
+  { id: 'semanero',   label: 'Semanero' },
+  { id: 'audio',      label: 'Audio' },
+  { id: 'video',      label: 'Video' },
+  { id: 'microf1',    label: 'Microf. 1' },
+  { id: 'microf2',    label: 'Microf. 2' },
+  { id: 'plataforma', label: 'Plataforma' },
+  { id: 'acomodador', label: 'Acomodador' },
+  { id: 'limpieza',   label: 'Limpieza' },
+  { id: 'seguridad',  label: 'Seguridad' },
+  { id: 'cronometrador', label: 'Cronometrador' },
+  { id: 'auxiliar',   label: 'Auxiliar' },
 ];
 
 async function renderLists() {
@@ -1266,98 +1618,260 @@ async function renderLists() {
   await refreshCatalogs();
   const app = $('#app');
   app.innerHTML = `
-    <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Personas y Grupos</h1>
-    <p class="text-on-surface-variant font-body-lg text-body-lg mb-8">Administre las listas que se utilizan en los selectores. Marque los roles de cada persona. Los oradores se escriben a mano en cada programa.</p>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="font-headline-md text-headline-md text-primary">Personas</h2>
-          <span class="text-on-surface-variant font-label-md text-label-md">${state.people.length}</span>
-        </div>
-        <form id="pForm" class="flex gap-2 mb-4">
-          <input id="pName" type="text" placeholder="Nombre completo" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-          <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
-        </form>
-        <p class="text-on-surface-variant text-caption mb-4">Marque los roles en los que esta persona puede ser asignada:</p>
-        <ul id="pList" class="divide-y divide-outline-variant"></ul>
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+      <div>
+        <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Personas y Grupos</h1>
+        <p class="text-on-surface-variant font-body-md text-body-md">Asignar y gestionar responsabilidades del equipo.</p>
       </div>
-      <div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-6">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="font-headline-md text-headline-md text-primary">Grupos</h2>
-          <span class="text-on-surface-variant font-label-md text-label-md">${state.departments.length}</span>
+      <div class="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+        <div class="relative w-full sm:w-64">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="search">search</span>
+          <input id="pSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md" placeholder="Buscar miembro..." type="text">
         </div>
-        <form id="dForm" class="flex gap-2 mb-4">
-          <input id="dName" type="text" placeholder="Nombre del grupo" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-          <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
-        </form>
-        <ul id="dList" class="divide-y divide-outline-variant"></ul>
+        <button class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors" id="toggleEditMode">
+          <span class="material-symbols-outlined text-[18px]">lock_open</span>
+          <span id="editText">Desbloquear</span>
+        </button>
       </div>
     </div>
+
+    <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse" id="rolesTable">
+          <thead><tr class="bg-surface-container border-b border-outline-variant"></tr></thead>
+          <tbody class="divide-y divide-outline-variant/50" id="pList"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-6 flex justify-between flex-wrap gap-3">
+      <div class="flex flex-wrap gap-3">
+        <button id="manageRolesBtn" class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Roles
+        </button>
+        <button id="addGroupBtn" class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">group_add</span> Gestionar Grupos
+        </button>
+      </div>
+      <button id="addMemberBtn" class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">add</span> Añadir Miembro
+      </button>
+    </div>
   `;
-  $('#pForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const name = $('#pName').value.trim();
-    if (!name) return;
-    try { await db.addPerson({ name, roles: [] }); $('#pName').value = ''; toast('Persona agregada', 'success'); }
-    catch (err) { toast(err.message, 'error'); }
-    renderLists();
+
+  const thead = app.querySelector('#rolesTable thead tr');
+  thead.innerHTML = `
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 bg-surface-container z-10 min-w-[220px]">Miembro del Equipo</th>
+    ${state.roles.map(r => `<th class="p-4 font-label-md text-label-md text-on-surface-variant text-center w-14 whitespace-nowrap" title="${escapeAttr(r.label)}"><div class="rotate-180" style="writing-mode: vertical-rl; letter-spacing: 0.05em;">${r.label}</div></th>`).join('')}
+  `;
+
+  let editMode = false;
+  const toggleBtn = $('#toggleEditMode');
+  toggleBtn.onclick = () => {
+    editMode = !editMode;
+    if (editMode) {
+      toggleBtn.classList.remove('border-primary', 'text-primary');
+      toggleBtn.classList.add('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
+      toggleBtn.lastElementChild.textContent = 'Guardar y Bloquear';
+      $('#pList').querySelectorAll('.role-checkbox').forEach(cb => cb.disabled = false);
+    } else {
+      toggleBtn.classList.add('border-primary', 'text-primary');
+      toggleBtn.classList.remove('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
+      toggleBtn.lastElementChild.textContent = 'Desbloquear';
+      $('#pList').querySelectorAll('.role-checkbox').forEach(cb => cb.disabled = true);
+    }
   };
+  $('#addMemberBtn').onclick = () => {
+    openModal(`
+    <div class="text-center">
+      <span class="material-symbols-outlined text-6xl text-primary mb-2">person_add</span>
+      <h3 class="font-headline-md text-headline-md text-primary mb-4">Añadir Miembro</h3>
+      <form id="mdForm" class="space-y-4">
+        <input id="mdName" type="text" placeholder="Nombre completo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary" autocomplete="off">
+        <div class="flex flex-wrap justify-center gap-2" id="mdRoles"></div>
+        <div class="flex gap-3 justify-center pt-2">
+          <button type="button" id="mdCancel2" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+          <button type="submit" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
+        </div>
+      </form>
+    </div>`);
+    $('#mdRoles').innerHTML = state.roles.map(r =>
+      `<label class="flex items-center gap-1.5 cursor-pointer text-[12px] font-label-md text-on-surface-variant"><input type="checkbox" data-mr="${r.id}" class="text-primary accent-primary"> ${r.label}</label>`
+    ).join('');
+    $('#mdCancel2').onclick = closeModal;
+    $('#mdForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = $('#mdName').value.trim();
+      if (!name) { toast('Escribe un nombre', 'error'); return; }
+      const roles = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
+      try { await db.addPerson({ name, roles }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
+      catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  $('#addGroupBtn').onclick = renderGroupsModal;
+  $('#manageRolesBtn').onclick = renderRolesModal;
+
+  const search = $('#pSearch');
+  search.addEventListener('input', () => {
+    const q = normalizeStr(search.value);
+    document.querySelectorAll('#pList tr').forEach(tr => {
+      tr.style.display = tr.dataset.norm.includes(q) ? '' : 'none';
+    });
+  });
+
+  $('#pList').innerHTML = state.people.map(renderRows).join('') || `
+    <tr><td colspan="${state.roles.length + 1}" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>`;
+  renderRowsBindings();
+}
+
+function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/);
+  return (parts[0]?.[0] || '') + (parts[1]?.[0] || '');
+}
+
+function avatarClassFor(name) {
+  let s = 0;
+  for (const ch of String(name)) s += ch.charCodeAt(0);
+  return s % 2 ? 'bg-secondary-container text-on-secondary-container' : 'bg-primary-container text-on-primary-container';
+}
+
+function renderRows(p) {
+  const roles = Array.isArray(p.roles) ? p.roles : [];
+  const checks = state.roles.map(r => {
+    const on = roles.includes(r.id);
+    return `<td class="p-3 text-center"><div class="checkbox-cell"><input type="checkbox" data-prole="${r.id}" data-pid="${p.id}" class="text-primary role-checkbox" ${on ? 'checked' : ''} disabled></div></td>`;
+  }).join('');
+  return `<tr class="hover:bg-surface-container-low transition-colors group" data-norm="${escapeAttr(normalizeStr(p.name))}">
+    <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10 border-l-4 border-l-transparent hover:border-l-primary">
+      <div class="w-8 h-8 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold">${initialsOf(p.name)}</div>
+      <span class="truncate">${escapeHtml(p.name)}</span>
+      <button data-pdel="${p.id}" class="ml-auto text-error opacity-0 group-hover:opacity-100 transition-opacity material-symbols-outlined text-[18px]">delete</button>
+    </td>
+    ${checks}
+  </tr>`;
+}
+
+function renderRowsBindings() {
+  $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
+    if (await confirmDialog('¿Eliminar esta persona?')) { await db.deletePerson(parseInt(b.dataset.pdel, 10)); renderLists(); }
+  });
+  $('#pList').querySelectorAll('[data-prole]').forEach(cb => cb.onchange = async () => {
+    const pid = parseInt(cb.dataset.pid, 10);
+    const role = cb.dataset.prole;
+    const person = state.people.find(x => String(x.id) === String(pid));
+    if (!person) return;
+    const roles = Array.isArray(person.roles) ? [...person.roles] : [];
+    const idx = roles.indexOf(role);
+    if (cb.checked && idx === -1) roles.push(role);
+    else if (!cb.checked && idx !== -1) roles.splice(idx, 1);
+    await db.setPersonRoles(pid, roles);
+    person.roles = roles;
+  });
+}
+
+function renderGroupsModal() {
+  openModal(`
+    <h3 class="font-headline-md text-headline-md text-primary mb-2">Grupos</h3>
+    <p class="text-on-surface-variant font-body-md text-body-md mb-4">Añadir o eliminar grupos de atención a la congregación.</p>
+    <form id="dForm" class="flex gap-2 mb-4">
+      <input id="dName" type="text" placeholder="Nombre del grupo" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+      <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Agregar</button>
+    </form>
+    <ul id="dList" class="divide-y divide-outline-variant max-h-80 overflow-y-auto"></ul>
+    <button id="mdCloseG" class="mt-5 w-full px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+  `);
+  $('#dList').innerHTML = state.departments.map(d => `<li class="flex items-center justify-between py-3 group">
+    <span class="font-body-md text-body-md">${escapeHtml(d.name)}</span>
+    <button data-ddel="${d.id}" class="text-error opacity-0 group-hover:opacity-100 transition-opacity"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+  </li>`).join('') || `<li class="py-3 text-on-surface-variant text-sm">Sin grupos.</li>`;
+  $('#dList').querySelectorAll('[data-ddel]').forEach(b => b.onclick = async () => {
+    if (await confirmDialog('¿Eliminar este grupo?')) { await db.deleteDepartment(parseInt(b.dataset.ddel, 10)); state.departments = await db.listDepartments(); renderGroupsModal(); }
+  });
   $('#dForm').onsubmit = async (e) => {
     e.preventDefault();
     const name = $('#dName').value.trim();
     if (!name) return;
     try { await db.addDepartment(name); $('#dName').value = ''; toast('Grupo agregado', 'success'); }
     catch (err) { toast(err.message, 'error'); }
-    renderLists();
+    state.departments = await db.listDepartments();
+    renderGroupsModal();
   };
+  $('#mdCloseG').onclick = closeModal;
+}
 
-  $('#pList').innerHTML = state.people.map(p => {
-    const roles = Array.isArray(p.roles) ? p.roles : [];
-    const checks = ALL_ROLES.map(r => {
-      const on = roles.includes(r.id);
-      return `<button type="button" data-prole="${r.id}" data-pid="${p.id}"
-        class="px-2.5 py-1 rounded-full text-[11px] font-label-md border transition-colors ${on ? 'bg-primary text-on-primary border-primary' : 'bg-surface-bright text-on-surface-variant border-outline-variant hover:bg-surface-container'}">${r.label}</button>`;
-    }).join(' ');
-    return `<li class="py-3 flex flex-col gap-2">
-      <div class="flex items-center justify-between group">
-        <span class="font-body-md text-body-md">${escapeHtml(p.name)}</span>
-        <button data-pdel="${p.id}" class="text-error opacity-0 group-hover:opacity-100 transition-opacity"><span class="material-symbols-outlined text-[18px]">delete</span></button>
-      </div>
-      <div class="flex flex-wrap gap-1.5">${checks}</div>
-    </li>`;
-  }).join('') || `<li class="py-3 text-on-surface-variant text-sm">Sin personas.</li>`;
-
-  $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
-    if (await confirmDialog('¿Eliminar esta persona?')) { await db.deletePerson(parseInt(b.dataset.pdel, 10)); renderLists(); }
-  });
-  // Toggle de rol: añade/quita sin re-render completo (persiste en DB)
-  $('#pList').querySelectorAll('[data-prole]').forEach(btn => btn.onclick = async () => {
-    const pid = parseInt(btn.dataset.pid, 10);
-    const role = btn.dataset.prole;
-    const person = state.people.find(x => String(x.id) === String(pid));
-    if (!person) return;
-    const roles = Array.isArray(person.roles) ? [...person.roles] : [];
-    const idx = roles.indexOf(role);
-    if (idx === -1) roles.push(role); else roles.splice(idx, 1);
-    await db.setPersonRoles(pid, roles);
-    // actualizar UI local
-    person.roles = roles;
-    if (idx === -1) {
-      btn.classList.add('bg-primary', 'text-on-primary', 'border-primary');
-      btn.classList.remove('bg-surface-bright', 'text-on-surface-variant', 'border-outline-variant', 'hover:bg-surface-container');
-    } else {
-      btn.classList.remove('bg-primary', 'text-on-primary', 'border-primary');
-      btn.classList.add('bg-surface-bright', 'text-on-surface-variant', 'border-outline-variant', 'hover:bg-surface-container');
+function renderRolesModal() {
+  openModal(`
+    <h3 class="font-headline-md text-headline-md text-primary mb-2">Roles del equipo</h3>
+    <p class="text-on-surface-variant font-body-md text-body-md mb-4">Cree, renombre o elimine los roles que se asignan a los miembros.</p>
+    <form id="rForm" class="flex gap-2 mb-4">
+      <input id="rName" type="text" placeholder="Nuevo rol (p. ej. Sonido)" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+      <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Agregar</button>
+    </form>
+    <ul id="rList" class="divide-y divide-outline-variant max-h-80 overflow-y-auto"></ul>
+    <button id="mdCloseR" class="mt-5 w-full px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+  `);
+  $('#rList').innerHTML = state.roles.map(r => `<li class="flex items-center justify-between py-3 gap-3 group">
+    <span class="font-body-md text-body-md">${escapeHtml(r.label)}</span>
+    <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <button data-redit="${r.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Renombrar"><span class="material-symbols-outlined text-[18px]">edit</span></button>
+      <button data-rdel="${r.id}" class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+    </div>
+  </li>`).join('') || `<li class="py-3 text-on-surface-variant text-sm">Sin roles.</li>`;
+  $('#rList').querySelectorAll('[data-redit]').forEach(b => b.onclick = () => editRoleModal(b.dataset.redit));
+  $('#rList').querySelectorAll('[data-rdel]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.rdel;
+    const role = state.roles.find(r => r.id === id);
+    if (!role) return;
+    if (!await confirmDialog(`¿Eliminar el rol "${role.label}"? Se quitará de todos los miembros.`, 'Eliminar')) return;
+    state.roles = state.roles.filter(r => r.id !== id);
+    await db.setRoles(state.roles);
+    for (const p of state.people) {
+      if (Array.isArray(p.roles) && p.roles.includes(id)) {
+        p.roles = p.roles.filter(x => x !== id);
+        await db.setPersonRoles(p.id, p.roles);
+      }
     }
+    toast('Rol eliminado', 'success');
+    renderRolesModal();
   });
+  $('#rForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = $('#rName').value.trim();
+    if (!name) { toast('Escribe un nombre', 'error'); return; }
+    if (state.roles.some(r => r.label.toLowerCase() === name.toLowerCase())) { toast('Ese rol ya existe', 'error'); return; }
+    state.roles.push({ id: 'role_' + cryptoId(), label: name });
+    await db.setRoles(state.roles);
+    toast('Rol agregado', 'success');
+    renderRolesModal();
+  };
+  $('#mdCloseR').onclick = () => { closeModal(); renderLists(); };
+}
 
-  $('#dList').innerHTML = state.departments.map(d => `<li class="flex items-center justify-between py-3 group">
-    <span class="font-body-md text-body-md">${escapeHtml(d.name)}</span>
-    <button data-ddel="${d.id}" class="text-error opacity-0 group-hover:opacity-100 transition-opacity"><span class="material-symbols-outlined text-[18px]">delete</span></button>
-  </li>`).join('') || `<li class="py-3 text-on-surface-variant text-sm">Sin grupos.</li>`;
-  $('#dList').querySelectorAll('[data-ddel]').forEach(b => b.onclick = async () => {
-    if (await confirmDialog('¿Eliminar este grupo?')) { await db.deleteDepartment(parseInt(b.dataset.ddel, 10)); renderLists(); }
-  });
+function editRoleModal(id) {
+  const role = state.roles.find(r => r.id === id);
+  if (!role) return;
+  openModal(`
+    <h3 class="font-headline-md text-headline-md text-primary mb-4">Renombrar rol</h3>
+    <input id="editRName" type="text" value="${escapeAttr(role.label)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-4">
+    <div class="flex gap-3 justify-end">
+      <button id="editRCancel" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+      <button id="editROk" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+    </div>
+  `);
+  const save = async () => {
+    const name = $('#editRName').value.trim();
+    if (!name) { toast('Escribe un nombre', 'error'); return; }
+    if (state.roles.some(r => r.id !== id && r.label.toLowerCase() === name.toLowerCase())) { toast('Ese rol ya existe', 'error'); return; }
+    role.label = name;
+    await db.setRoles(state.roles);
+    toast('Rol actualizado', 'success');
+    closeModal();
+    renderRolesModal();
+  };
+  $('#editRCancel').onclick = () => { closeModal(); renderRolesModal(); };
+  $('#editROk').onclick = save;
+  $('#editRName').addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
 }
 
 /* ---------- SETTINGS ---------- */
@@ -1365,32 +1879,377 @@ async function renderSettings() {
   state.month = null;
   renderTop();
   const congregation = await db.getSetting('congregation', '');
+  const config = await db.getConfig();
   const app = $('#app');
+
+  const cfgRow = (arr, type) => (Array.isArray(arr) ? arr : []).map((item, i) => {
+    const it = typeof item === 'string' ? { date: item } : (item || {});
+    if (type === 'visits') {
+      return `<div class="cfg-event-row flex items-center gap-2">
+        <span class="text-on-surface-variant text-sm">Desde</span>
+        <input data-cfg-from type="date" value="${escapeAttr(it.from || it.date || '')}"
+          class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+        <span class="text-on-surface-variant text-sm">hasta</span>
+        <input data-cfg-to type="date" value="${escapeAttr(it.to || it.date || '')}"
+          class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+        <button data-cfg-del="${i}" type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
+      </div>`;
+    }
+    if (type === 'assemblies') {
+      const days = Number(it.days) || (it.from && it.to ? 3 : 1);
+      const from = it.from || it.date || '';
+      const to = it.to || (days === 3 && it.date ? addDays(it.date, 2) : '');
+      return `<div class="cfg-event-row flex items-center gap-2 flex-wrap">
+        <select data-cfg-days class="bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+          <option value="1" ${days === 1 ? 'selected' : ''}>1 día</option>
+          <option value="3" ${days === 3 ? 'selected' : ''}>3 días</option>
+        </select>
+        <span class="text-on-surface-variant text-sm">Desde</span>
+        <input data-cfg-from type="date" value="${escapeAttr(from)}"
+          class="cfg-date flex-1 min-w-[140px] bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+        <span class="text-on-surface-variant text-sm cfg-to-label ${days === 3 ? '' : 'hidden'}">hasta</span>
+        <input data-cfg-to type="date" value="${escapeAttr(to)}"
+          class="cfg-date flex-1 min-w-[140px] bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary ${days === 3 ? '' : 'hidden'}">
+        <button data-cfg-del="${i}" type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
+      </div>`;
+    }
+    return `<div class="cfg-event-row flex items-center gap-2">
+      <input data-cfg-type="${type}" type="date" value="${escapeAttr(it.date || '')}"
+        class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+      <button data-cfg-del="${i}" type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
+    </div>`;
+  }).join('');
+
   app.innerHTML = `
     <h1 class="font-headline-lg text-headline-lg text-primary mb-6">Ajustes</h1>
-    <div class="max-w-xl bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
-      <div>
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Nombre de la congregación / grupo</label>
-        <input id="setCong" type="text" value="${escapeAttr(congregation)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-        <p class="text-on-surface-variant text-caption mt-2">Aparece en los programas generados.</p>
-      </div>
-      <button id="setSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+    <div class="max-w-2xl space-y-6">
 
-      <div class="border-t border-outline-variant pt-6">
-        <h3 class="font-headline-md text-headline-md text-primary mb-2">Respaldo de datos</h3>
-        <p class="text-on-surface-variant text-sm mb-3">Exporta toda la información (programas, personas, grupos, ajustes) como archivo JSON.</p>
-        <div class="flex gap-3 flex-wrap">
-          <button id="setExport" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Descargar respaldo</button>
-          <label class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container cursor-pointer">
-            Restaurar <input id="setImport" type="file" accept="application/json" class="hidden">
-          </label>
-          <button id="setReloadLists" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
-          <button id="setReset" class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Configuración General</h3>
+          <p class="text-on-surface-variant text-sm mb-4">Horarios de las reuniones y fechas especiales. Las fechas especiales marcan automáticamente el tipo de reunión de la semana y se muestran en el inicio.</p>
         </div>
-        <p class="text-on-surface-variant text-caption mt-3">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Día de la reunión</label>
+            <select id="cfgDay" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+              ${DAYS_ES_NAMES.map((d, i) => `<option value="${i}" ${i === Number(config.schedule?.day) ? 'selected' : ''}>${d}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Hora de comienzo</label>
+            <input id="cfgTime" type="time" value="${escapeAttr(config.schedule?.time || '10:00')}"
+              class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+        </div>
+
+        <div class="border-t border-outline-variant pt-5">
+          <div class="mb-3">
+            <p class="font-label-md text-label-md text-on-surface uppercase tracking-wider">Reunión de Entre Semana</p>
+            <p class="text-on-surface-variant text-caption">Día y hora de la reunión de entre semana.</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Día</label>
+              <select id="cfgMwDay" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+                ${DAYS_ES_NAMES.map((d, i) => `<option value="${i}" ${i === Number(config.midweek?.day) ? 'selected' : ''}>${d}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Hora de comienzo</label>
+              <input id="cfgMwTime" type="time" value="${escapeAttr(config.midweek?.time || '19:00')}"
+                class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+          </div>
+        </div>
+
+        <div class="border-t border-outline-variant pt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <p class="font-label-md text-label-md text-on-surface uppercase tracking-wider">Conmemoración</p>
+              <p class="text-on-surface-variant text-caption">La fecha se marcará como Conmemoración en esa semana.</p>
+            </div>
+          </div>
+          <div id="cfgCommWrap">${cfgRow(config.events.commemorations, 'commemoration')}</div>
+          <button id="cfgAddComm" type="button" class="mt-2 text-primary font-label-md text-label-md hover:underline flex items-center gap-1">
+            <span class="material-symbols-outlined text-[18px]">add_circle</span> Añadir fecha
+          </button>
+        </div>
+
+        <div class="border-t border-outline-variant pt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <p class="font-label-md text-label-md text-on-surface uppercase tracking-wider">Visita de Superintendente</p>
+              <p class="text-on-surface-variant text-caption">Indique el rango de fechas (desde/hasta) de la visita.</p>
+            </div>
+          </div>
+          <div id="cfgVisitWrap">${cfgRow(config.events.visits, 'visits')}</div>
+          <button id="cfgAddVisit" type="button" class="mt-2 text-primary font-label-md text-label-md hover:underline flex items-center gap-1">
+            <span class="material-symbols-outlined text-[18px]">add_circle</span> Añadir visita
+          </button>
+        </div>
+
+        <div class="border-t border-outline-variant pt-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <p class="font-label-md text-label-md text-on-surface uppercase tracking-wider">Asambleas</p>
+              <p class="text-on-surface-variant text-caption">La fecha de inicio; elija si es de 1 día o de 3 días.</p>
+            </div>
+          </div>
+          <div id="cfgAssemblyWrap">${cfgRow(config.events.assemblies, 'assemblies')}</div>
+          <button id="cfgAddAssembly" type="button" class="mt-2 text-primary font-label-md text-label-md hover:underline flex items-center gap-1">
+            <span class="material-symbols-outlined text-[18px]">add_circle</span> Añadir fecha
+          </button>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button id="cfgSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+        </div>
+      </div>
+
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Gestión de Grupos</h3>
+          <p class="text-on-surface-variant text-sm">Indique la cantidad de grupos de atención y cuál comienza el programa. Los grupos se asignan de forma correlativa (en rotación) a las semanas. Las labores son comunes a todos los grupos y sirven de referencia para los programas futuros.</p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Cantidad de grupos</label>
+            <select id="grpCant" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary"></select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">El grupo que comienza el programa</label>
+            <select id="grpStart" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary"></select>
+          </div>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores (comunes a todos los grupos)</label>
+          <input id="grpLabores" type="text" value="${escapeAttr(config.groups?.labores || '')}" placeholder="p. ej. Aseo y hospitalidad, sonido, ujieres…" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          <p class="text-on-surface-variant text-caption mt-1">Esta descripción es la misma para todos los grupos y se usará como referencia en los programas; modifíquela aquí cuando cambie.</p>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button id="grpSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar grupos</button>
+          <button id="grpAuto" class="px-5 py-2.5 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container">Aplicar rotación a todos los programas</button>
+        </div>
+      </div>
+
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Nombre de la congregación / grupo</label>
+          <input id="setCong" type="text" value="${escapeAttr(congregation)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          <p class="text-on-surface-variant text-caption mt-2">Aparece en los programas generados.</p>
+        </div>
+        <button id="setSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+
+        <div class="border-t border-outline-variant pt-6">
+          <h3 class="font-headline-md text-headline-md text-primary mb-2">Respaldo de datos</h3>
+          <p class="text-on-surface-variant text-sm mb-3">Exporta toda la información (programas, personas, grupos, ajustes) como archivo JSON.</p>
+          <div class="flex gap-3 flex-wrap">
+            <button id="setExport" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Descargar respaldo</button>
+            <label class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container cursor-pointer">
+              Restaurar <input id="setImport" type="file" accept="application/json" class="hidden">
+            </label>
+            <button id="setReloadLists" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
+            <button id="setReset" class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
+          </div>
+          <p class="text-on-surface-variant text-caption mt-3">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas.</p>
+        </div>
       </div>
     </div>
   `;
+
+  // ---- Configuración General: añadir/eliminar fechas ----
+  const addRow = (wrap, type) => {
+    const row = type === 'visits'
+      ? `<div class="cfg-event-row flex items-center gap-2">
+          <span class="text-on-surface-variant text-sm">Desde</span>
+          <input data-cfg-from type="date" value=""
+            class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+          <span class="text-on-surface-variant text-sm">hasta</span>
+          <input data-cfg-to type="date" value=""
+            class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+          <button data-cfg-del type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
+        </div>`
+      : type === 'assemblies'
+      ? `<div class="cfg-event-row flex items-center gap-2 flex-wrap">
+          <select data-cfg-days class="bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+            <option value="1">1 día</option>
+            <option value="3">3 días</option>
+          </select>
+          <span class="text-on-surface-variant text-sm">Desde</span>
+          <input data-cfg-from type="date" value=""
+            class="cfg-date flex-1 min-w-[140px] bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+          <span class="text-on-surface-variant text-sm cfg-to-label hidden">hasta</span>
+          <input data-cfg-to type="date" value=""
+            class="cfg-date flex-1 min-w-[140px] bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary hidden">
+          <button data-cfg-del type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
+        </div>`
+      : `<div class="cfg-event-row flex items-center gap-2">
+          <input type="date" class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+          <button data-cfg-del type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
+        </div>`;
+    wrap.insertAdjacentHTML('beforeend', row);
+  };
+  const removeCfgRow = (e) => { e.target.closest('.cfg-event-row').remove(); };
+  const bindCfgDel = (wrap) => wrap.querySelectorAll('.cfg-del').forEach(b => b.addEventListener('click', removeCfgRow));
+
+  const bindAdd = (id, wrapId) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      addRow(document.getElementById(wrapId), $(`#${wrapId}`).dataset.kind);
+      bindDaysToggles(document.getElementById(wrapId));
+    });
+  };
+  // Muestra/oculta el campo "hasta" según si la asamblea es de 3 días.
+  const toggleDays = (row) => {
+    const days = row.querySelector('[data-cfg-days]');
+    if (!days) return;
+    const is3 = days.value === '3';
+    const to = row.querySelector('[data-cfg-to]');
+    const toLabel = row.querySelector('.cfg-to-label');
+    if (to) to.classList.toggle('hidden', !is3);
+    if (toLabel) toLabel.classList.toggle('hidden', !is3);
+    if (is3 && to && !to.value) {
+      const from = row.querySelector('[data-cfg-from]').value;
+      if (from) to.value = addDays(from, 2);
+    }
+  };
+  const bindDaysToggles = (wrap) => {
+    wrap.querySelectorAll('[data-cfg-days]').forEach(d => {
+      d.addEventListener('change', () => toggleDays(d.closest('.cfg-event-row')));
+    });
+  };
+  // kind por contenedor
+  document.getElementById('cfgCommWrap').dataset.kind = 'commemoration';
+  document.getElementById('cfgVisitWrap').dataset.kind = 'visits';
+  document.getElementById('cfgAssemblyWrap').dataset.kind = 'assemblies';
+  bindCfgDel(document.getElementById('cfgCommWrap'));
+  bindCfgDel(document.getElementById('cfgVisitWrap'));
+  bindCfgDel(document.getElementById('cfgAssemblyWrap'));
+  bindAdd('cfgAddComm', 'cfgCommWrap');
+  bindAdd('cfgAddVisit', 'cfgVisitWrap');
+  bindAdd('cfgAddAssembly', 'cfgAssemblyWrap');
+  bindDaysToggles(document.getElementById('cfgAssemblyWrap'));
+
+  $('#cfgSave').onclick = async () => {
+    const readRows = (wrap) => {
+      const wrapEl = document.getElementById(wrap);
+      const rows = [...wrapEl.querySelectorAll('.cfg-event-row')];
+      const kind = wrapEl.dataset.kind;
+      const out = [];
+      rows.forEach(r => {
+        if (kind === 'commemoration') {
+          const d = r.querySelector('.cfg-date').value;
+          if (d) out.push(d);
+        } else if (kind === 'visits') {
+          const from = r.querySelector('[data-cfg-from]').value;
+          const to = r.querySelector('[data-cfg-to]').value;
+          if (from) out.push({ from, to: to || from });
+        } else if (kind === 'assemblies') {
+          const days = parseInt(r.querySelector('[data-cfg-days]').value, 10) || 1;
+          const from = r.querySelector('[data-cfg-from]').value;
+          const to = r.querySelector('[data-cfg-to]').value;
+          if (from) out.push(days === 1 ? { from, days: 1 } : { from, to: to || addDays(from, 2), days: 3 });
+        }
+      });
+      return out;
+    };
+    const cfg = {
+      schedule: {
+        day: parseInt($('#cfgDay').value, 10) || 6,
+        time: $('#cfgTime').value || '10:00',
+      },
+      midweek: {
+        day: parseInt($('#cfgMwDay').value, 10) || 2,
+        time: $('#cfgMwTime').value || '19:00',
+      },
+      events: {
+        commemorations: readRows('cfgCommWrap'),
+        visits: readRows('cfgVisitWrap'),
+        assemblies: readRows('cfgAssemblyWrap'),
+      },
+    };
+    const prev = await db.getConfig();
+    cfg.groups = prev.groups;
+    await db.setConfig(cfg);
+    state.config = cfg;
+    toast('Configuración general guardada', 'success');
+  };
+
+  // ---- Gestión de Grupos: cantidad + grupo inicial + labores comunes ----
+  const grpCant = $('#grpCant');
+  const grpStart = $('#grpStart');
+  const curCant = Number(config.groups?.cantidad) || Math.max(state.departments.length, 1) || 3;
+  const curStart = Number(config.groups?.start) || 1;
+
+  const fillGrpCant = () => {
+    grpCant.innerHTML = Array.from({ length: 12 }, (_, i) => i + 1)
+      .map(n => `<option value="${n}" ${n === curCant ? 'selected' : ''}>${n} grupo${n > 1 ? 's' : ''}</option>`).join('');
+  };
+  const fillGrpStart = () => {
+    const n = Math.max(parseInt(grpCant.value, 10) || curCant, 1);
+    grpStart.innerHTML = Array.from({ length: n }, (_, i) => i + 1)
+      .map(i => `<option value="${i}" ${i === curStart ? 'selected' : ''}>Grupo ${i}</option>`).join('');
+  };
+  fillGrpCant();
+  fillGrpStart();
+  grpCant.onchange = () => {
+    const n = Math.max(parseInt(grpCant.value, 10) || curCant, 1);
+    grpStart.innerHTML = Array.from({ length: n }, (_, i) => i + 1)
+      .map(i => `<option value="${i}">Grupo ${i}</option>`).join('');
+  };
+
+  // Asegura que existan exactamente `n` grupos (numerados "Grupo i" o "i") en la
+  // DB, reutilizando los ya existentes para no perder referencias.
+  async function ensureGroupCount(n) {
+    const existing = await db.listDepartments();
+    const byNum = new Map();
+    for (const d of existing) {
+      const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
+      if (m) byNum.set(parseInt(m[1], 10), d);
+    }
+    for (let i = 1; i <= n; i++) {
+      if (!byNum.has(i)) await db.addDepartment(`Grupo ${i}`);
+    }
+    for (const d of existing) {
+      const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
+      if (m && parseInt(m[1], 10) > n) await db.deleteDepartment(d.id);
+    }
+    state.departments = await db.listDepartments();
+  }
+
+  // Aplica la rotación correlativa a las semanas normales.
+  const applyGroupRotation = (weeks) => {
+    const n = Math.max(parseInt(grpCant.value, 10) || curCant, 1);
+    const start = Math.max(parseInt(grpStart.value, 10) || curStart, 1);
+    return moduleApplyGroupRotation(weeks, n, start);
+  };
+
+  const saveGroups = async () => {
+    const n = Math.max(parseInt(grpCant.value, 10) || curCant, 1);
+    const start = Math.max(parseInt(grpStart.value, 10) || curStart, 1);
+    await ensureGroupCount(n);
+    const cfg = await db.getConfig();
+    cfg.groups = { cantidad: n, start, labores: $('#grpLabores').value.trim() };
+    await db.setConfig(cfg);
+    state.config = cfg;
+    toast('Grupos guardados', 'success');
+  };
+  $('#grpSave').onclick = saveGroups;
+
+  $('#grpAuto').onclick = async () => {
+    await saveGroups();
+    const months = await db.listMonths();
+    let total = 0;
+    for (const m of months) {
+      if (!m.weeks || !m.weeks.length) continue;
+      total += applyGroupRotation(m.weeks);
+      await db.putMonth(m);
+    }
+    toast(`Rotación aplicada a ${months.length} programa(s) · ${total} semana(s) asignada(s)`, 'success');
+  };
   $('#setSave').onclick = async () => {
     await db.setSetting('congregation', $('#setCong').value.trim());
     toast('Ajustes guardados', 'success');
@@ -1456,6 +2315,369 @@ async function renderSettings() {
   };
 }
 
+/* ---------- MIDWEEKS: vista general ---------- */
+async function renderMidweeks(opts = {}) {
+  state.month = null;
+  renderTop();
+  const embed = opts.embed;
+  const container = embed || $('#app');
+  const weeks = state.midweeks.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  const summary = (w) => {
+    let total = 0, done = 0;
+    for (const sec of (w.sections || [])) {
+      for (const p of (sec.parts || [])) {
+        total++;
+        const ap = p.assignments || {};
+        if (Object.values(ap).some(v => v != null && String(v).trim() !== '')) done++;
+      }
+    }
+    return { total, done };
+  };
+
+  if (embed) {
+    embed.innerHTML = `
+      <div id="mwList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter"></div>
+    `;
+  } else {
+    container.innerHTML = `
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10">
+      <div>
+        <h1 class="font-display-lg text-display-lg text-primary mb-2">Reunión de Entre Semana</h1>
+        <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">Programa de la reunión de entre semana. Revise cada semana y asigne los participantes a cada parte.</p>
+      </div>
+      <div id="mwTotals" class="text-right text-sm text-on-surface-variant"></div>
+    </div>
+    <div id="mwList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter"></div>
+  `;
+  }
+
+  const list = embed ? embed.querySelector('#mwList') : $('#mwList');
+  if (!list) return;
+
+  if (weeks.length === 0) {
+    list.innerHTML = `<div class="col-span-full text-center py-16 border-2 border-dashed border-outline-variant rounded-xl">
+      <span class="material-symbols-outlined text-primary text-6xl mb-4">event_available</span>
+      <p class="text-on-surface-variant font-body-lg">No hay semanas cargadas para la reunión de entre semana.</p>
+    </div>`;
+    return;
+  }
+
+  const global = weeks.map(w => summary(w)).reduce((a, c) => ({ total: a.total + c.total, done: a.done + c.done }), { total: 0, done: 0 });
+  const totals = embed ? embed.querySelector('#mwTotals') : $('#mwTotals');
+  if (totals) totals.textContent = `${global.done} / ${global.total} partes asignadas`;
+
+  list.innerHTML = weeks.map(w => {
+    const s = summary(w);
+    const pct = Math.round((s.done / Math.max(s.total, 1)) * 100);
+    const songs = [];
+    if (w.introSong) songs.push(`Intro ${w.introSong}`);
+    if (w.songIn) songs.push(String(w.songIn));
+    if (w.songOut) songs.push(w.songOut);
+    return `<article class="bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 border border-outline-variant hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow flex flex-col gap-4">
+      <div class="flex justify-between items-start">
+        <div>
+          <span class="inline-block px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(w.header)}</span>
+          <h3 class="font-headline-md text-headline-md text-primary mt-3">Lectura: ${escapeHtml(w.reading || '—')}</h3>
+          <p class="text-on-surface-variant font-caption text-caption uppercase tracking-wider">${s.done} / ${s.total} partes · ${pct}%</p>
+        </div>
+      </div>
+      <div class="h-2 bg-surface-variant rounded-full overflow-hidden"><div class="h-full ${pct === 100 ? 'bg-tertiary' : 'bg-primary'}" style="width:${pct}%"></div></div>
+      <div class="flex gap-2 mt-2">
+        <button data-open="${w.id}" class="flex-1 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all">${pct === 100 ? 'Editar' : 'Asignar participantes'}</button>
+        <button data-preview="${w.id}" class="flex-1 px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-all">Vista Final</button>
+      </div>
+    </article>`;
+  }).join('');
+
+  list.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('midweek', { monthId: b.dataset.open }));
+  list.querySelectorAll('[data-preview]').forEach(b => b.onclick = () => go('midweekPreview', { monthId: b.dataset.preview }));
+}
+
+/* ---------- MIDWEEK: editor de una semana ---------- */
+const MW_SLOTS = {
+  1: () => [{ key: 'conductor', label: 'Conductor' }],
+  2: () => [{ key: 'conductor', label: 'Conductor de perlas' }],
+  3: () => [{ key: 'lector', label: 'Lector' }],
+  4: () => [{ key: 'estudiante', label: 'Estudiante' }, { key: 'ayudante', label: 'Ayudante' }],
+  5: () => [{ key: 'estudiante', label: 'Estudiante' }, { key: 'ayudante', label: 'Ayudante' }],
+  6: () => [{ key: 'estudiante', label: 'Estudiante' }, { key: 'ayudante', label: 'Ayudante' }],
+};
+
+function mwSlotsFor(part) {
+  const fn = MW_SLOTS[part.num] || (() => [{ key: 'conductor', label: 'Conductor' }]);
+  return fn();
+}
+
+async function renderMidweek(id) {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
+  const week = state.midweeks.find(w => String(w.id) === String(id));
+  if (!week) {
+    app.innerHTML = `<h1 class="font-headline-lg text-headline-lg text-primary mb-6">Semana no encontrada</h1>
+      <button class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md hover:opacity-90" onclick="location.hash='#/midweeks'">Volver</button>`;
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="flex items-center gap-3 mb-2">
+      <button data-back class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary rounded-full">arrow_back</button>
+      <div>
+        <h1 class="font-headline-lg text-headline-lg text-primary">${escapeHtml(week.header)}</h1>
+        <p class="text-on-surface-variant font-label-md">Lectura bíblica: ${escapeHtml(week.reading || '—')}</p>
+      </div>
+    </div>
+    <div id="mwEditor" class="mt-6 space-y-6"></div>
+    <div class="sticky bottom-0 bg-surface py-4 mt-8 flex gap-3 justify-end">
+      <button id="mwPreviewBtn" class="px-5 py-3 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container transition-all active:scale-95">Vista Final</button>
+      <button id="mwSave" class="px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">Guardar asignaciones</button>
+    </div>
+  `;
+  $('[data-back]').onclick = () => go('midweeks');
+  $('#mwPreviewBtn').onclick = () => go('midweekPreview', { monthId: id });
+
+  const editor = $('#mwEditor');
+  editor.innerHTML = (week.sections || []).map((sec, si) => {
+    const parts = (sec.parts || []).map(p => {
+      const slots = mwSlotsFor(p);
+      const ap = p.assignments || {};
+      const slotFields = slots.map(s => {
+        const cur = ap[s.key];
+        const opts = ['<option value="">— Sin asignar —</option>'];
+        for (const person of state.people) {
+          opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
+        }
+        return `<div class="flex-1 min-w-[160px]">
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">${escapeHtml(s.label)}</label>
+          <select data-sec="${si}" data-part="${p.num}" data-slot="${s.key}"
+            class="mwSel w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts.join('')}</select>
+        </div>`;
+      }).join('');
+      return `<div class="flex flex-col md:flex-row gap-3 md:items-center md:gap-4 bg-surface-container-low rounded-lg p-4 border border-outline-variant">
+        <div class="min-w-[32px] h-8 px-2 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-md text-label-md">${p.num}</div>
+        <div class="flex-1">
+          <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">${p.mins} min</p>
+          <p class="font-body-lg text-body-lg text-on-surface">${escapeHtml(p.title)}</p>
+        </div>
+        <div class="flex-1 flex flex-wrap gap-3">${slotFields}</div>
+      </div>`;
+    }).join('');
+    return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-headline-md text-headline-md text-primary">${escapeHtml(sec.title)}</h2>
+        <span class="text-sm text-on-surface-variant font-label-md">${sec.parts.reduce((a, p) => a + p.mins, 0)} min</span>
+      </div>
+      <div class="space-y-4">${parts}</div>
+    </div>`;
+  }).join('');
+
+  editor.innerHTML += `<div class="mt-6">${midweekLaboresEditor(week)}</div>`;
+  editor.querySelectorAll('select[data-mw-labore]').forEach(bindMwLaboreChange);
+
+  $('#mwSave').onclick = async () => {
+    week.sections.forEach((sec, si) => {
+      sec.parts.forEach(p => {
+        const slots = mwSlotsFor(p);
+        const ap = { ...(p.assignments || {}) };
+        for (const f of slots) {
+          const sel = editor.querySelector(`[data-sec="${si}"][data-part="${p.num}"][data-slot="${f.key}"]`);
+          ap[f.key] = sel ? sel.value : ap[f.key];
+        }
+        p.assignments = ap;
+      });
+    });
+    week.labores = state.editingMidweek || ensureLabores(week).labores;
+    await db.putMidweek(week);
+    state.midweeks = await db.listMidweeks();
+    toast('Asignaciones guardadas', 'success');
+    renderMidweek(id);
+  };
+}
+
+/* Labores en el editor de midweek (se persisten en week.labores) */
+function midweekLaboresEditor(week) {
+  const w = ensureLabores(week);
+  state.editingMidweek = w.labores;
+  const l = w.labores;
+  const rows = LABORES_DEFS.map(({ key, label, icon, count }) => {
+    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
+      ? l[key]
+      : [l[key] || ''];
+    const fields = Array.from({ length: count }, (_, si) => {
+      const cur = slots[si] || '';
+      const opts = ['<option value="">— Sin asignar —</option>'];
+      for (const p of state.people) {
+        opts.push(`<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`);
+      }
+      return `<div class="flex-1 min-w-[130px]">
+        <select data-mw-labore="${key}" data-mw-labore-idx="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts.join('')}</select>
+      </div>`;
+    }).join('');
+    return `<div class="flex items-start gap-3">
+      <span class="material-symbols-outlined text-on-surface-variant mt-2.5">${icon}</span>
+      <div class="flex-1">
+        <label class="font-label-md text-label-md text-on-surface-variant mb-1 block">${label} <span class="text-caption text-on-surface-variant/70">×${count}</span></label>
+        <div class="flex flex-wrap gap-2">${fields}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="rounded-lg border border-dashed border-on-surface-variant/40 bg-surface-bright/40 p-5">
+    <div class="flex items-center gap-2 mb-1">
+     <h2 class="font-headline-md text-headline-md text-on-surface-variant">Atencion departamentos</h2>
+    </div>
+   <div class="space-y-4">${rows}</div>
+  </div>`;
+}
+
+function bindMwLaboreChange(node) {
+  node.addEventListener('change', () => {
+    const key = node.dataset.mwLabore;
+    const slot = parseInt(node.dataset.mwLaboreIdx, 10);
+    const labores = state.editingMidweek;
+    const val = node.value === '' ? '' : node.value;
+    if (Array.isArray(labores[key])) labores[key][slot] = val;
+    else labores[key] = val;
+  });
+}
+
+/* ---------- MIDWEEK: vista final (documento imprimible) ---------- */
+async function renderMidweekPreview(id) {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
+  const week = state.midweeks.find(w => String(w.id) === String(id));
+  if (!week) {
+    app.innerHTML = `<h1 class="font-headline-lg text-headline-lg text-primary mb-6">Semana no encontrada</h1>
+      <button class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md hover:opacity-90" onclick="location.hash='#/midweeks'">Volver</button>`;
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="flex items-center justify-between gap-4 mb-6 no-print">
+      <div class="flex items-center gap-3">
+        <button data-back class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary rounded-full">arrow_back</button>
+        <h1 class="font-headline-lg text-headline-lg text-primary">Vista Final · ${escapeHtml(week.header)}</h1>
+      </div>
+      <div class="flex gap-2">
+        <button id="mwPrint" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">print</span> Imprimir
+        </button>
+        <button id="mwPdf" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">picture_as_pdf</span> Exportar PDF
+        </button>
+      </div>
+    </div>
+    <div id="mwPreviewContent"></div>
+  `;
+  $('[data-back]').onclick = () => go('midweek', { monthId: id });
+  $('#mwPrint').onclick = () => window.print();
+  $('#mwPdf').onclick = () => window.print();
+
+  $('#mwPreviewContent').innerHTML = midweekPreviewDocument(week);
+}
+
+function midweekPreviewDocument(w) {
+  const assigned = (p) => {
+    const ap = p.assignments || {};
+    const slots = mwSlotsFor(p);
+    const names = slots.map(s => {
+      const v = ap[s.key];
+      return v ? personNameOf(v) : null;
+    }).filter(Boolean);
+    return names.length ? `<span class="text-gray-600 italic">· ${names.join(' — ')}</span>` : '';
+  };
+
+  const sectionBlock = (sec, color) => {
+    const parts = (sec.parts || []).map(p => `
+      <div class="px-4 mb-4">
+        <p class="font-bold" style="color:${color.strong}">${p.num}. ${escapeHtml(p.title)}</p>
+        <p class="text-gray-600 text-sm ml-4">(${p.mins} mins.) ${assigned(p)}</p>
+      </div>`).join('');
+    const song = sec.song ? `
+      <div class="flex items-center text-sm mb-6 ml-4">
+        <span class="text-blue-custom mr-2">♪</span>
+        <span class="font-bold text-blue-custom">Canción ${escapeHtml(sec.song)}</span>
+      </div>` : '';
+    return `
+    <section class="mb-8">
+      <div class="flex items-center mb-2">
+        <span class="text-white rounded-sm mr-2 flex items-center justify-center w-6 h-6" style="background-color:${color.strong}">${color.icon}</span>
+        <h2 class="text-lg font-bold uppercase tracking-wide" style="color:${color.strong}">${escapeHtml(sec.title)}</h2>
+      </div>
+      <div class="mw-sep mb-4"></div>
+      ${song}
+      ${parts}
+    </section>`;
+  };
+
+  const introSong = w.introSong || w.songIn;
+  const laboresBox = previewLaboresBox(w, 'box-side');
+  return `
+    <div id="mwDoc" class="page-container rounded-lg" style="max-width:800px;margin:0 auto;background:#fff;padding:2rem 3rem;box-shadow:0 4px 6px -1px rgba(0,0,0,.1);">
+      <div class="flex gap-6 items-start">
+      <div class="flex-1 min-w-0">
+      <header class="mb-4">
+        <h1 class="text-2xl font-bold text-gray-600 mb-1">${escapeHtml(w.header)}</h1>
+        <p class="text-blue-custom font-bold text-lg mb-2">${escapeHtml(w.reading || '')}</p>
+        <div class="mw-sep mb-3"></div>
+        <div class="flex items-center text-sm mb-6">
+          <span class="text-blue-custom mr-2">♪</span>
+          <span class="font-bold text-blue-custom">Canción ${escapeHtml(introSong || '')}</span>
+          <span class="mx-1 text-gray-500">y oración |</span>
+          <span class="font-bold mr-1">${escapeHtml(w.introTitle || 'Palabras de introducción')}</span>
+          <span class="text-gray-500">(${w.introMins || 1} min.)</span>
+        </div>
+      </header>
+      ${sectionBlock((w.sections || []).find(s => s.id === 'tesoros'), { strong: '#0f7685', icon: '◆' })}
+      ${sectionBlock((w.sections || []).find(s => s.id === 'maestros'), { strong: '#b8860b', icon: '✚' })}
+      ${sectionBlock((w.sections || []).find(s => s.id === 'vida'), { strong: '#9e2a2b', icon: '▦' })}
+      <footer>
+        <div class="mw-sep mb-3"></div>
+        <div class="flex items-center text-sm">
+          <span class="font-bold mr-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')}</span>
+          <span class="text-gray-500 mr-1">(${w.closingMins || 3} mins.) |</span>
+          <span class="text-blue-custom mr-1">♪</span>
+          <span class="font-bold text-blue-custom">Canción ${escapeHtml(w.songOut || '')}</span>
+          <span class="font-bold mx-1">y oración</span>
+        </div>
+      </footer>
+      </div>
+      ${laboresBox}
+      </div>
+    </div>`;
+}
+
+/* Cuadro de Atencion departamentos en la vista final */
+function previewLaboresBox(w, variant) {
+  const l = ensureLabores(w).labores;
+  const rows = LABORES_DEFS.map(({ key, label, icon, count }) => {
+    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
+      ? l[key]
+      : [l[key] || ''];
+    const names = Array.from({ length: count }, (_, si) => {
+      const v = slots[si] || '';
+      return v ? personNameOf(v) : null;
+    }).filter(Boolean);
+    return `<div class="flex items-center justify-between text-xs ${variant === 'box-side' ? '' : 'mb-2'}">
+      <span class="text-gray-500">${label}</span>
+      <span class="font-semibold text-gray-700 text-right">${names.length ? names.join(' · ') : '—'}</span>
+    </div>`;
+  }).join('');
+  const label = 'LABORES · TRAS BAMBALINAS';
+  if (variant === 'box-side') {
+    return `
+    <aside class="w-44 border border-dashed border-gray-400 rounded p-3" style="min-width:11rem">
+      <div class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 border-b border-gray-300 pb-2">${label}</div>
+      <div class="space-y-2">${rows}</div>
+    </aside>`;
+  }
+  return `<div class="mt-6 pt-3 border-t-2 border-dashed border-gray-300">
+    <div class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">${label}</div>
+    ${rows}
+  </div>`;
+}
+
 /* ---------- ABOUT ---------- */
 function renderAbout() {
   state.month = null;
@@ -1481,7 +2703,7 @@ function renderAbout() {
 /* ---------- Quick add persona (modal) ---------- */
 async function quickAddPerson(preselectRole = '') {
   return new Promise((resolve) => {
-    const allRoles = ALL_ROLES.map(r => `<label class="flex items-center gap-2 text-sm">
+    const allRoles = state.roles.map(r => `<label class="flex items-center gap-2 text-sm">
       <input type="checkbox" data-prole="${r.id}" ${preselectRole === r.id ? 'checked' : ''} class="accent-primary">
       <span>${r.label}</span>
     </label>`).join('');
@@ -1700,7 +2922,47 @@ function newWeek(date) {
     discursoSupervisor2: '',
     // Salidas (sólo relevantes si type === 'normal'): lista de oradores
     outings: [ newOuting() ],
+    // Atencion departamentos (no son asignaciones del programa)
+    labores: newLabores(),
   };
+}
+
+// Definición de labores: cada rol con su cantidad de puestos
+const LABORES_DEFS = [
+  { key: 'acomodacion', label: 'Acomodación', icon: 'weekend', count: 2 },
+  { key: 'microfono',   label: 'Micrófono',   icon: 'mic', count: 2 },
+  { key: 'plataforma',  label: 'Plataforma',  icon: 'grid_on', count: 1 },
+  { key: 'sonido',      label: 'Sonido',      icon: 'volume_up', count: 1 },
+];
+
+// Estructura por defecto de las labores de una semana
+function newLabores() {
+  return {
+    acomodacion: ['', ''],
+    microfono:   ['', ''],
+    plataforma:  '',
+    sonido:      '',
+  };
+}
+
+// Garantiza que una semana tenga su objeto de labores
+function ensureLabores(w) {
+  if (!w) w = {};
+  if (!w.labores) w.labores = newLabores();
+  const d = newLabores();
+  LABORES_DEFS.forEach(({ key }) => {
+    let cur = w.labores[key];
+    const slotCount = (Array.isArray(d[key]) ? d[key].length : 1);
+    if (Array.isArray(d[key])) {
+      if (!Array.isArray(cur)) cur = Array(slotCount).fill('');
+      while (cur.length < slotCount) cur.push('');
+      for (let i = 0; i < slotCount; i++) cur[i] = cur[i] || '';
+    } else if (cur === undefined) {
+      cur = '';
+    }
+    w.labores[key] = cur;
+  });
+  return w;
 }
 
 // Estructura de una salida (un orador con su discurso)

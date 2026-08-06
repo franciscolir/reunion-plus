@@ -2,12 +2,13 @@
 // Stores: months (programas mensuales), people, departments, settings
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
 const STORE_SETTINGS = 'settings';   // key: string
 const STORE_TALKS = 'talks';        // keyPath: num (discurso n°)
+const STORE_MIDWEEKS = 'midweeks';   // key: "YYYY-MM-DD" (reunión de entre semana)
 
 let _db = null;
 
@@ -36,6 +37,9 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_TALKS)) {
         const s = db.createObjectStore(STORE_TALKS, { keyPath: 'num' });
         s.createIndex('title', 'title', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_MIDWEEKS)) {
+        db.createObjectStore(STORE_MIDWEEKS, { keyPath: 'id' });
       }
     };
 
@@ -133,11 +137,14 @@ export async function listDepartments() {
   return all.sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 
-export async function addDepartment(name) {
+export async function addDepartment(name, opts = {}) {
   const db = await openDB();
   name = (name || '').trim();
   if (!name) throw new Error('Nombre vacío');
-  return reqToPromise(tx(db, STORE_DEPARTMENTS, 'readwrite').add({ name, createdAt: Date.now() }));
+  const record = { name, createdAt: Date.now() };
+  if (opts.orden !== undefined) record.orden = opts.orden;
+  if (opts.labores !== undefined) record.labores = opts.labores;
+  return reqToPromise(tx(db, STORE_DEPARTMENTS, 'readwrite').add(record));
 }
 
 export async function updateDepartment(dept) {
@@ -160,6 +167,44 @@ export async function getSetting(key, fallback = null) {
 export async function setSetting(key, value) {
   const db = await openDB();
   return reqToPromise(tx(db, STORE_SETTINGS, 'readwrite').put(value, key));
+}
+
+// ===== ROLES (lista editable de roles del equipo) =====
+const SETTING_ROLES = 'roles';
+export async function getRoles(fallback = null) {
+  const v = await getSetting(SETTING_ROLES, null);
+  return Array.isArray(v) && v.length ? v : fallback;
+}
+export async function setRoles(roles) {
+  return setSetting(SETTING_ROLES, Array.isArray(roles) ? roles : []);
+}
+
+// ===== CONFIG (configuración general) =====
+const SETTING_CONFIG = 'config';
+export function defaultConfig() {
+  return {
+    schedule: { day: 6, time: '10:00' }, // día (0=domingo..6=sábado) y hora de comienzo
+    midweek: { day: 2, time: '19:00' }, // reunión de entre semana: día y hora
+    events: { commemorations: [], visits: [], assemblies: [] },
+    groups: { cantidad: 3, start: 1, labores: '' }, // nº de grupos, grupo inicial (1-based), labores comunes
+  };
+}
+export async function getConfig() {
+  const v = await getSetting(SETTING_CONFIG, null);
+  if (!v || typeof v !== 'object') return defaultConfig();
+  return {
+    schedule: { ...defaultConfig().schedule, ...(v.schedule || {}) },
+    midweek: { ...defaultConfig().midweek, ...(v.midweek || {}) },
+    events: {
+      commemorations: Array.isArray(v.events?.commemorations) ? v.events.commemorations : [],
+      visits: Array.isArray(v.events?.visits) ? v.events.visits : [],
+      assemblies: Array.isArray(v.events?.assemblies) ? v.events.assemblies : [],
+    },
+    groups: { ...defaultConfig().groups, ...(v.groups || {}) },
+  };
+}
+export async function setConfig(cfg) {
+  return setSetting(SETTING_CONFIG, cfg);
 }
 
 // ===== TALKS (lista de discursos públicos) =====
@@ -202,6 +247,71 @@ export async function bulkPutTalks(talks) {
 export async function replaceAllTalks(talks) {
   await clearTalks();
   await bulkPutTalks(talks);
+}
+
+// ===== MIDWEEKS (reuniones de entre semana) =====
+export async function listMidweeks() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_MIDWEEKS).getAll());
+  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+export async function getMidweek(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_MIDWEEKS).get(id));
+}
+
+export async function putMidweek(week) {
+  const db = await openDB();
+  week.updatedAt = Date.now();
+  if (!week.createdAt) week.createdAt = week.updatedAt;
+  return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').put(week));
+}
+
+export async function deleteMidweek(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').delete(id));
+}
+
+export async function clearMidweeks() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').clear());
+}
+
+// Carga desde midweeks.json solo cuando el store está vacío.
+export async function seedMidweeks() {
+  const existing = await listMidweeks();
+  if (existing.length > 0) return;
+  try {
+    const res = await fetch('./midweeks.json', { cache: 'no-cache' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const weeks = Array.isArray(data.weeks) ? data.weeks : [];
+    const store = tx(await openDB(), STORE_MIDWEEKS, 'readwrite');
+    await new Promise((resolve, reject) => {
+      let pending = weeks.length;
+      if (pending === 0) return resolve();
+      for (const w of weeks) {
+        const r = store.put(w);
+        r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
+        r.onerror = () => reject(r.error);
+      }
+    });
+    console.log('[Reunión+] Reuniones de entre semana cargadas:', weeks.length);
+  } catch (e) {
+    console.warn('[Reunión+] No se pudo cargar midweeks.json', e);
+  }
+}
+
+// Devuelve true si el programa de esa semana tiene alguna asignación de persona.
+export function weekHasAssignments(week) {
+  if (!week || !Array.isArray(week.sections)) return false;
+  return week.sections.some(sec =>
+    Array.isArray(sec.parts) && sec.parts.some(p => {
+      const ap = p.assignments;
+      return ap && Object.values(ap).some(v => v != null && String(v).trim() !== '');
+    })
+  );
 }
 
 // ===== SEED inicial =====
@@ -251,6 +361,8 @@ export async function seedIfEmpty() {
       console.warn('[Reunión+] No se pudo cargar discursos.json', e);
     }
   }
+  // Reuniones de entre semana: cargar desde midweeks.json si el store está vacío
+  await seedMidweeks();
 }
 
 // Sincroniza los grupos (departamentos) de la DB con grupos.json:
@@ -385,9 +497,11 @@ export async function exportAll() {
     people: await listPeople(),
     departments: await listDepartments(),
     talks: await listTalks(),
+    midweeks: await listMidweeks(),
     settings: {
       congregation: await getSetting('congregation', ''),
       lastMonthId: await getSetting('lastMonthId', null),
+      config: await getConfig(),
     },
     exportedAt: new Date().toISOString(),
   };

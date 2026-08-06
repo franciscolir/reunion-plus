@@ -65,6 +65,81 @@ export function saturdaysOf(year, month) {
   return out;
 }
 
+// Convierte una fecha JS a "YYYY-MM-DD" local.
+export function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Tipo de reunión que corresponde a una fecha según la configuración general.
+// La configuración lista fechas de conmemoración, visitas de superintendente (rango
+// desde/hasta) y asambleas (1 o 3 días). `iso` debe ser "YYYY-MM-DD".
+// `events` = { commemorations:[], visits:[], assemblies:[] } (se extienden desde db.defaultConfig).
+export function eventTypeForDate(events, iso) {
+  if (!events) return 'normal';
+  const inRange = (from, to) => from && to && iso >= from && iso <= to;
+  const visitFrom = (v) => v.from || (v.date ? v.date : null);
+  const visitTo = (v) => v.to || v.from || (v.date ? v.date : null);
+  if ((events.commemorations || []).some(d => d === iso)) return 'commemoration';
+  if ((events.visits || []).some(v => inRange(visitFrom(v), visitTo(v)))) return 'supervisor';
+  if ((events.assemblies || []).some(a => {
+    if (a.from && a.to) return inRange(a.from, a.to);
+    const days = Number(a.days) || 1;
+    return inRange(a.date, addDays(a.date, days - 1));
+  })) return 'assembly';
+  return 'normal';
+}
+
+const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+export const DAYS_ES_NAMES = DAYS_ES;
+
+// Suma días a una fecha "YYYY-MM-DD" y devuelve otra "YYYY-MM-DD".
+export function addDays(iso, days) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return isoDate(dt);
+}
+
+// Último día de un evento (rango desde/hasta, o fecha + días).
+export function eventEndDate(ev) {
+  if (!ev) return null;
+  if (ev.to) return ev.to;
+  if (ev.date) return addDays(ev.date, (Number(ev.days) || 1) - 1);
+  return null;
+}
+
+// Devuelve la lista de eventos futuros (incluido hoy) ordenados por fecha.
+// Cada item: { type:'commemoration'|'supervisor'|'assembly', date:'YYYY-MM-DD', end:'YYYY-MM-DD'|null }
+// Se pueden limitar a `max` próximos.
+export function upcomingEvents(events, fromIso, max = 5) {
+  if (!events) return [];
+  const out = [];
+  const push = (date, type, end) => { if (date && date >= fromIso) out.push({ type, date, end: end && end !== date ? end : null }); };
+  (events.commemorations || []).forEach(d => push(d, 'commemoration'));
+  (events.visits || []).forEach(v => push(v.from || v.date, 'supervisor', visitEnd(v)));
+  (events.assemblies || []).forEach(a => push(a.from || a.date, 'assembly', assemblyEnd(a)));
+  return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, max);
+}
+
+function visitEnd(v) {
+  return v.to || (v.days ? addDays(v.from, (Number(v.days) || 1) - 1) : (v.from ? v.from : null));
+}
+
+function assemblyEnd(a) {
+  if (a.to) return a.to;
+  if (a.date) return addDays(a.date, (Number(a.days) || 1) - 1);
+  return null;
+}
+
+// ¿Hay un evento programado para la fecha exacta `date`?
+export function isSpecialDate(events, date) {
+  return eventTypeForDate(events, date) !== 'normal';
+}
+
 // Recoge todas las asignaciones de PERSONA (por ID) de una semana:
 // roles de la reunión principal + oradores de salidas. Devuelve
 // [{ value: '<id>', key: 'presidente' | 'conductor' | 'lector' | 'estudioSinLectura' | 'salida_0' | ... }]
