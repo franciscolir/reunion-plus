@@ -6,6 +6,7 @@ import {
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
+  collectLaboresPersons, collectMidweekPersons, computeMidweekConflicts, dedupPersons,
   capitalize, capField, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
 } from './logic.js';
@@ -247,6 +248,64 @@ eq('excluye fechas pasadas', upcomingEvents({ commemorations: ['2026-04-04'] }, 
 eq('límite max', upcomingEvents(cfgEvents, '2026-01-01', 1).length, 1);
 eq('end de visita en upcoming', upcomingEvents(cfgEvents, '2026-05-01', 5)[0].end, '2026-05-16');
 eq('end de asamblea en upcoming', upcomingEvents(cfgEvents, '2026-05-01', 5)[1].end, '2026-06-13');
+
+// --- Labores: collectLaboresPersons ---
+console.log('[collectLaboresPersons]');
+eq('labores vacías no recoge personas', collectLaboresPersons(undefined), []);
+eq('labores completas recoge 3 personas', collectLaboresPersons({
+  acomodacion: [1, 2], microfono: ['', 3], plataforma: 4, sonido: '',
+}).map(x => x.value), ['1', '2', '3', '4']);
+ok('claves labores correctas', collectLaboresPersons({ acomodacion: [1, 2] }).map(x => x.key).join(','), 'labores_acomodacion_0,labores_acomodacion_1');
+
+// --- collectWeekPersons incluye labores (fin de semana) ---
+console.log('[collectWeekPersons + labores]');
+eq('fin de semana incluye labores', collectWeekPersons({
+  type: 'normal', presidente: 1, conductor: 2, lector: 3, outings: [{ oradorSalida: 5 }],
+  labores: { acomodacion: [6, 7], microfono: ['', ''], plataforma: '', sonido: '' },
+}).map(p => p.value), ['1', '2', '3', '5', '6', '7']);
+eq('fin de semana sin labores no rompe', collectWeekPersons({ type: 'normal', presidente: 1 }), [{ value: '1', key: 'presidente' }]);
+
+// --- computeConflicts + labores (fin de semana) ---
+console.log('[computeConflicts + labores]');
+const mwLabDup = computeConflicts({ weeks: [{
+  type: 'normal', presidente: 1, tituloDiscurso: 'T', orador: 'X', conductor: 2, lector: 3, departamento: 4,
+  outings: [], labores: { acomodacion: [1, 5], microfono: ['', ''], plataforma: '', sonido: '' },
+}] });
+ok('labores repetidas con presidente detectadas', mwLabDup.perWeek[0].duplicates.includes('labores_acomodacion_0'));
+ok('labores no repetidas no marcan', !mwLabDup.perWeek[0].duplicates.includes('labores_acomodacion_1'));
+
+// --- collectMidweekPersons ---
+console.log('[collectMidweekPersons]');
+const mwk = {
+  sections: [{ title: 'TESOROS', parts: [{ num: 1, assignments: { conductor: '10' } }] }],
+  labores: { acomodacion: ['10', ''], microfono: ['', ''], plataforma: '', sonido: '' },
+};
+eq('recoge pads y labores de entresemana', collectMidweekPersons(mwk).map(p => p.value), ['10', '10']);
+
+// --- computeMidweekConflicts ---
+console.log('[computeMidweekConflicts]');
+const mwkDup = {
+  sections: [{ title: 'TESOROS', parts: [
+    { num: 1, assignments: { conductor: '10' } },
+    { num: 3, assignments: { lector: '10' } },
+  ] }],
+  labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' },
+};
+ok('entresemana detecta persona repetida en 2 partes', computeMidweekConflicts(mwkDup).errors.length > 0);
+ok('dupKeys incluye ambas partes', computeMidweekConflicts(mwkDup).dupKeys.has('mw_0_1_lector'));
+const mwkOk = {
+  sections: [{ title: 'TESOROS', parts: [
+    { num: 1, assignments: { conductor: '10' } },
+    { num: 3, assignments: { lector: '11' } },
+  ] }],
+  labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' },
+};
+ok('entresemana sin duplicados: 0 errors', computeMidweekConflicts(mwkOk).errors.length === 0);
+
+// --- labelOfKey labores ---
+console.log('[labelOfKey labores]');
+ok('etiqueta de labores acomodacion 2', labelOfKey('labores_acomodacion_1') === 'labores de acomodación 2');
+ok('etiqueta de labores plataforma (1 solo)', labelOfKey('labores_plataforma_0') === 'labores de plataforma');
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===\n`);
 process.exit(fail > 0 ? 1 : 0);

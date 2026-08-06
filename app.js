@@ -5,6 +5,7 @@ import {
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
+  computeMidweekConflicts, collectMidweekPersons,
   capitalize, capField, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays,
 } from './logic.js';
@@ -195,8 +196,8 @@ function renderTop() {
 
 function renderSide() {
   const items = [
-    { id: 'home', icon: 'calendar_month', label: 'Programas', view: 'home' },
-    { id: 'new', icon: 'add_circle', label: 'Nuevo Programa', view: 'new' },
+    { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
+    { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
     { id: 'lists', icon: 'group', label: 'Personas y Deptos.', view: 'lists' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
   ];
@@ -252,18 +253,11 @@ async function renderHome() {
       <!-- Asignaciones -->
       <section class="md:col-span-4 bg-primary-container text-on-primary-container rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] flex flex-col relative overflow-hidden">
         <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 100% 100%, #ffffff 0%, transparent 50%);"></div>
-        <h2 class="font-headline-md text-headline-md text-on-primary mb-6 flex items-center gap-2 relative z-10">
-          <span class="material-symbols-outlined">assignment</span>
-          Asignaciones
-        </h2>
+        
         <div class="bg-on-tertiary-fixed-variant/30 rounded-lg p-5 mb-4 border border-on-primary-container/20 relative z-10 flex-1">
-          <span class="inline-block bg-secondary text-on-secondary px-3 py-1 rounded-full font-label-md text-[12px] uppercase tracking-wider mb-4">
-            Grupo de la Semana
-          </span>
-          <h3 class="font-headline-md text-headline-md text-on-primary mb-2">${finWeekAssign()}</h3>
-          <div class="mt-6 pt-4 border-t border-on-primary-container/20">
-            <p class="font-label-md text-label-md text-primary-fixed mb-1 uppercase tracking-wider">Responsabilidad</p>
             <p class="font-body-lg text-body-lg text-on-primary">${finWeekAssignDetail()}</p>
+          <div class="mt-6 pt-4 border-t border-on-primary-container/20">
+           <h3 class="font-headline-md text-headline-md text-on-primary mb-2">${finWeekAssign()}</h3>
           </div>
         </div>
       </section>
@@ -335,9 +329,8 @@ function finSemanaTitle() {
   if (!cur) return 'Programa aún no cargado para esta semana';
   const w = cur.week;
   if (w.type === 'assembly') return 'Asamblea';
-  if (w.type === 'commemoration') return 'Conmemoración';
-  if (w.type === 'supervisor') return 'Visita del Superintendente';
-  return (w.tituloDiscurso && w.tituloDiscurso.trim()) ? `"${w.tituloDiscurso}"` : 'Sin asignar';
+  const title = w.tituloDiscurso || w.discursoSupervisor1 || w.discursoSupervisor2 || '';
+  return (title && title.trim()) ? `"${title}"` : 'Por confirmar';
 }
 function finSemanaSchedule() {
   const cfg = state.config || {};
@@ -502,7 +495,6 @@ async function renderNewFin(body) {
 
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mt-12 mb-6">
       <h2 class="font-headline-lg text-headline-lg text-primary">Programas</h2>
-      <p class="text-on-surface-variant font-body-md">Seleccione el mes para continuar o crear uno nuevo.</p>
     </div>
     <div id="newMonthsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter"></div>
   `;
@@ -838,28 +830,31 @@ function weekCard(w, i, conflicts) {
       </div>
       <div class="flex-1 space-y-6" data-fields="${i}">${fieldsFor(w, i, conflicts)}</div>
     </div>
-    <div class="mt-6 pt-6 border-t-2 border-dashed border-secondary/40">${laboresEditor(w, i)}</div>
+    <div class="mt-6 pt-6 border-t-2 border-dashed border-secondary/40">${laboresEditor(w, i, conflicts)}</div>
     ${w.type === 'normal' ? outingsSection(w, i) : ''}
   </section>`;
 }
 
 /* ---------- Labores: editor (tras bambalinas, no asignaciones de reunión) ---------- */
-function laboresEditor(w, i) {
+function laboresEditor(w, i, conflicts) {
   ensureLabores(w);
   const l = w.labores;
+  const dups = conflicts?.duplicates || [];
   const rows = LABORES_DEFS.map(({ key, label, icon, count }) => {
     const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
       ? l[key]
       : [l[key] || ''];
     const fields = Array.from({ length: count }, (_, si) => {
       const cur = slots[si] || '';
+      const hasConflict = dups.includes(`labores_${key}_${si}`);
+      const errClass = hasConflict ? 'bg-error-container/20 border-error' : 'border-outline-variant';
       const opts = `<option value="">— Sin asignar —</option>` +
         state.people
           .filter(p => ['hermano', 'hermana'].includes(p.role))
           .map(p => `<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
           .join('');
       return `<div class="flex-1 min-w-[130px]">
-        <select data-labore="${key}" data-labore-idx="${si}" data-idx="${i}" data-people class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts}</select>
+        <select data-labore="${key}" data-labore-idx="${si}" data-idx="${i}" data-people class="w-full bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">${opts}</select>
       </div>`;
     }).join('');
     return `<div class="flex items-start gap-3">
@@ -872,7 +867,7 @@ function laboresEditor(w, i) {
   }).join('');
   return `<div class="rounded-lg border border-dashed border-on-surface-variant/40 bg-surface-bright/40 p-5">
     <div class="flex items-center gap-2 mb-1">
-      <h4 class="font-headline-md text-headline-md text-on-surface-variant">Atencion departamentos</h4>
+      <h4 class="font-headline-md text-headline-md text-on-surface-variant">Atención departamentos</h4>
     </div>
     <p class="font-body-sm text-body-sm text-on-surface-variant/70 mb-4">Tareas operativas que sostienen la reunión, no forman parte del programa de asignaciones de la plataforma.</p>
     <div class="space-y-4">${rows}</div>
@@ -2428,7 +2423,7 @@ async function renderMidweek(id) {
         <p class="text-on-surface-variant font-label-md">Lectura bíblica: ${escapeHtml(week.reading || '—')}</p>
       </div>
     </div>
-    <div id="mwEditor" class="mt-6 space-y-6"></div>
+    <div id="mwEditor" class="mt-6 space-y-6" data-mwid="${escapeAttr(id)}"></div>
     <div class="sticky bottom-0 bg-surface py-4 mt-8 flex gap-3 justify-end">
       <button id="mwPreviewBtn" class="px-5 py-3 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container transition-all active:scale-95">Vista Final</button>
       <button id="mwSave" class="px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">Guardar asignaciones</button>
@@ -2449,7 +2444,7 @@ async function renderMidweek(id) {
           opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
         }
         return `<div class="flex-1 min-w-[160px]">
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">${escapeHtml(s.label)}</label>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">${escapeHtml(s.label)} <span data-mwbadge="${si}.${p.num}.${s.key}" class="mw-conflict-badge hidden items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Conflicto</span></label>
           <select data-sec="${si}" data-part="${p.num}" data-slot="${s.key}"
             class="mwSel w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts.join('')}</select>
         </div>`;
@@ -2473,9 +2468,17 @@ async function renderMidweek(id) {
   }).join('');
 
   editor.innerHTML += `<div class="mt-6">${midweekLaboresEditor(week)}</div>`;
+  mwRefreshConflicts(editor, week);
+  editor.querySelectorAll('select[data-mw-labore], select.mwSel').forEach(bindMwChange);
   editor.querySelectorAll('select[data-mw-labore]').forEach(bindMwLaboreChange);
 
   $('#mwSave').onclick = async () => {
+    const dup = mwCurrentDupKeys(editor);
+    if (dup.size) {
+      mwRefreshConflicts(editor, week);
+      toast('Hay personas repetidas en esta reunión. Revise los campos resaltados.', 'error');
+      return;
+    }
     week.sections.forEach((sec, si) => {
       sec.parts.forEach(p => {
         const slots = mwSlotsFor(p);
@@ -2511,6 +2514,7 @@ function midweekLaboresEditor(week) {
         opts.push(`<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`);
       }
       return `<div class="flex-1 min-w-[130px]">
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-1 text-[11px]">${si + 1} <span data-mwbadge="labores_${key}_${si}" class="mw-conflict-badge hidden items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Conflicto</span></label>
         <select data-mw-labore="${key}" data-mw-labore-idx="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts.join('')}</select>
       </div>`;
     }).join('');
@@ -2538,6 +2542,69 @@ function bindMwLaboreChange(node) {
     const val = node.value === '' ? '' : node.value;
     if (Array.isArray(labores[key])) labores[key][slot] = val;
     else labores[key] = val;
+  });
+}
+
+/* ---------- MIDWEEK: detección de personas duplicadas (en vivo) ---------- */
+
+// Relee los valores actuales de todos los selects (partes + labores) del editor
+// y devuelve el conjunto de keys con persona duplicada dentro de la reunión.
+function mwCurrentDupKeys(editor) {
+  const persons = [];
+  editor.querySelectorAll('select.mwSel').forEach(sel => {
+    if (sel.value) persons.push({
+      value: String(sel.value),
+      key: `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`,
+    });
+  });
+  editor.querySelectorAll('select[data-mw-labore]').forEach(sel => {
+    const key = sel.dataset.mwLabore;
+    const slot = parseInt(sel.dataset.mwLaboreIdx, 10);
+    if (sel.value) persons.push({ value: String(sel.value), key: `labores_${key}_${slot}` });
+  });
+  return dedupKeys(persons);
+}
+
+function dedupKeys(persons) {
+  const byValue = {};
+  persons.forEach(p => { (byValue[p.value] ||= []).push(p.key); });
+  const dup = new Set();
+  Object.values(byValue).forEach(ks => { if (ks.length > 1) ks.forEach(k => dup.add(k)); });
+  return dup;
+}
+
+// Estiliza selects duplicados y muestra un rótulo "Conflicto" parpadeante junto
+// al campo, igual que en la reunión de fin de semana.
+function mwRefreshConflicts(editor, week) {
+  const dup = mwCurrentDupKeys(editor);
+
+  // rótulo de conflicto junto a cada campo (pads y labores)
+  editor.querySelectorAll('span[data-mwbadge]').forEach(badge => {
+    const keyExpanded = badge.dataset.mwbadge.startsWith('mw_') || badge.dataset.mwbadge.startsWith('labores_')
+      ? badge.dataset.mwbadge
+      : `mw_${badge.dataset.mwbadge.split('.').join('_')}`;
+    const isDup = dup.has(keyExpanded);
+    badge.classList.toggle('hidden', !isDup);
+    badge.classList.toggle('inline-flex', isDup);
+  });
+
+  // selects (pads + labores): borde rojo en duplicados
+  editor.querySelectorAll('select.mwSel, select[data-mw-labore]').forEach(sel => {
+    const key = sel.classList.contains('mwSel')
+      ? `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`
+      : `labores_${sel.dataset.mwLabore}_${sel.dataset.mwLaboreIdx}`;
+    const isDup = dup.has(key);
+    sel.classList.toggle('border-error', isDup);
+    sel.classList.toggle('border-outline-variant', !isDup);
+  });
+}
+
+function bindMwChange(node) {
+  node.addEventListener('change', () => {
+    const editor = $('#mwEditor');
+    const id = editor?.dataset.mwid;
+    const wk = state.midweeks.find(w => String(w.id) === String(id));
+    mwRefreshConflicts(editor, wk || {});
   });
 }
 

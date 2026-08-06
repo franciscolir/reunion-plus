@@ -160,7 +160,62 @@ export function collectWeekPersons(w) {
       if (v) out.push({ value: String(v), key: `salida_${j}` });
     });
   }
+  // Labores tras bambalinas: también cuentan para no repetir a una persona
+  // dentro de la misma reunión de fin de semana.
+  collectLaboresPersons(w.labores).forEach(x => out.push(x));
   return out;
+}
+
+// Labores operativas (tras bambalinas) que también cuentan para detectar
+// personas duplicadas dentro de una reunión.
+export const LABORES_DEF = [
+  { key: 'acomodacion', label: 'Acomodación', count: 2 },
+  { key: 'microfono',   label: 'Micrófono',   count: 2 },
+  { key: 'plataforma',  label: 'Plataforma',  count: 1 },
+  { key: 'sonido',      label: 'Sonido',      count: 1 },
+];
+
+// Recolecta las personas asignadas a labores → [{value, key}].
+// key: "labores_<clave>_<slotIdx>".
+export function collectLaboresPersons(labores) {
+  const out = [];
+  const l = labores || {};
+  for (const d of LABORES_DEF) {
+    const v = l[d.key];
+    const values = Array.isArray(v) ? v : [v];
+    for (let si = 0; si < d.count; si++) {
+      const id = values[si];
+      if (id) out.push({ value: String(id), key: `labores_${d.key}_${si}` });
+    }
+  }
+  return out;
+}
+
+// Recolecta TODAS las personas de una reunión de entresemana:
+// todos los "pads" con asignación en todas las secciones + labores.
+// key: "mw_<si>_<pi>_<slot>" (si=sección, pi=parte).
+export function collectMidweekPersons(week) {
+  const out = [];
+  (week.sections || []).forEach((sec, si) => {
+    (sec.parts || []).forEach((p, pi) => {
+      const ap = p.assignments || {};
+      Object.entries(ap).forEach(([slot, id]) => {
+        if (id) out.push({ value: String(id), key: `mw_${si}_${pi}_${slot}`, sectionTitle: sec.title, partNum: p.num, slot });
+      });
+    });
+  });
+  collectLaboresPersons(week.labores).forEach(x => out.push(x));
+  return out;
+}
+
+// A partir de una lista [{value,key}] devuelve {byValue, dupKeys}
+// para detectar personas repetidas dentro de la misma reunión.
+export function dedupPersons(persons) {
+  const byValue = {};
+  (persons || []).forEach(item => { (byValue[item.value] ||= []).push(item); });
+  const dupKeys = new Set();
+  Object.values(byValue).forEach(items => { if (items.length > 1) items.forEach(i => dupKeys.add(i.key)); });
+  return { byValue, dupKeys };
 }
 
 export function labelOf(f) { return FIELD_LABELS[f] || f; }
@@ -168,6 +223,15 @@ export function labelOf(f) { return FIELD_LABELS[f] || f; }
 // Etiqueta legible de un "key" de asignación (para mensajes de error).
 export function labelOfKey(key) {
   if (key.startsWith('salida_')) return `orador de salida ${parseInt(key.slice(7), 10) + 1}`;
+  if (key.startsWith('labores_')) {
+    const m = key.match(/^labores_(\w+)_(\d+)$/);
+    if (m) {
+      const d = LABORES_DEF.find(x => x.key === m[1]);
+      const label = d ? d.label : m[1];
+      const suffix = d && d.count > 1 ? ` ${Number(m[2]) + 1}` : '';
+      return `labores de ${label.toLowerCase()}${suffix}`;
+    }
+  }
   return labelOf(key);
 }
 
@@ -239,6 +303,34 @@ export function computeOutingConflicts(month, i) {
     }
   });
   return { duplicates };
+}
+
+// Conflictos de una reunión de entresemana: personas repetidas dentro de la
+// misma reunión (todos los pads + labores). Devuelve { dupKeys, errors }.
+export function computeMidweekConflicts(week) {
+  const persons = collectMidweekPersons(week);
+  const { dupKeys } = dedupPersons(persons);
+  const labelOf = (item) => {
+    if (item && item.key && item.key.startsWith('mw_')) {
+      return (item.sectionTitle || 'Sección') + ' · parte ' + item.partNum + ' · ' + FIELD_LABELS[item.slot] || item.slot;
+    }
+    return labelOfKey(item && item.key);
+  };
+  const errors = [];
+  persons.forEach((item, idx) => {
+    if (!dupKeys.has(item.key)) return;
+    const partners = persons
+      .map((e, j) => ({ e, j }))
+      .filter(({ e, j }) => j !== idx && e.value === item.value && e.key !== item.key)
+      .map(({ e }) => labelOf(e));
+    errors.push(`${labelOf(item)} y ${partners.join(', ')}: misma persona`);
+  });
+  return { dupKeys, errors };
+}
+
+// ¿Tiene conflictos de duplicados la reunión de entresemana?
+export function midweekComplete(week) {
+  return computeMidweekConflicts(week).errors.length === 0;
 }
 
 export function weekComplete(w) {
