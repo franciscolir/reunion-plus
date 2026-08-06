@@ -114,6 +114,31 @@ export async function deletePerson(id) {
   return reqToPromise(tx(db, STORE_PEOPLE, 'readwrite').delete(id));
 }
 
+export async function clearPeople() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_PEOPLE, 'readwrite').clear());
+}
+
+// Reemplaza toda la lista de personas desde un archivo con formato de
+// participantes.json: { roles: { <rol>: [nombres...], ... } }.
+// Inserta personas únicas (por nombre) con sus roles.
+export async function replaceAllPeople(data) {
+  const rolesMap = (data && (data.roles || data.participantes)) || {};
+  const merged = {};
+  for (const [role, names] of Object.entries(rolesMap)) {
+    for (const name of (Array.isArray(names) ? names : [])) {
+      const key = String(name).trim().toLowerCase();
+      if (!key) continue;
+      if (!merged[key]) merged[key] = { name: String(name).trim(), roles: [] };
+      if (!merged[key].roles.includes(role)) merged[key].roles.push(role);
+    }
+  }
+  await clearPeople();
+  const list = Object.values(merged);
+  for (const p of list) await addPerson({ name: p.name, roles: p.roles });
+  return list.length;
+}
+
 // Personas filtradas por rol. Si una persona no tiene `roles` (datos antiguos),
 // se incluye en todos los roles para no romper programas existentes.
 export async function listPeopleByRole(role) {
@@ -249,6 +274,16 @@ export async function replaceAllTalks(talks) {
   await bulkPutTalks(talks);
 }
 
+// Reemplaza discursos aceptando un array [{num,title}] o { discursos:[...] } o { talks:[...] }.
+export async function replaceTalksFromFile(data) {
+  const list = Array.isArray(data) ? data
+    : (Array.isArray(data?.discursos) ? data.discursos
+      : (Array.isArray(data?.talks) ? data.talks : []));
+  const normalized = list.map(d => ({ num: Number(d.num), title: String(d.title ?? '') })).filter(d => d.num && d.title);
+  await replaceAllTalks(normalized);
+  return normalized.length;
+}
+
 // ===== MIDWEEKS (reuniones de entre semana) =====
 export async function listMidweeks() {
   const db = await openDB();
@@ -276,6 +311,26 @@ export async function deleteMidweek(id) {
 export async function clearMidweeks() {
   const db = await openDB();
   return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').clear());
+}
+
+// Reemplaza todas las reuniones de entresemana desde un archivo tipo midweeks.json:
+// { weeks: [...] } o un array directo de semanas. Devuelve el nº de semanas cargadas.
+export async function replaceAllMidweeks(data) {
+  const weeks = Array.isArray(data) ? data : (Array.isArray(data?.weeks) ? data.weeks : []);
+  await clearMidweeks();
+  if (weeks.length) {
+    const db = await openDB();
+    const store = tx(db, STORE_MIDWEEKS, 'readwrite');
+    await new Promise((resolve, reject) => {
+      let pending = weeks.length;
+      for (const w of weeks) {
+        const r = store.put(w);
+        r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
+        r.onerror = () => reject(r.error);
+      }
+    });
+  }
+  return weeks.length;
 }
 
 // Carga desde midweeks.json solo cuando el store está vacío.

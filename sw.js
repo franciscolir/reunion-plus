@@ -1,7 +1,7 @@
 // sw.js - Service Worker para Reunión+
 // Estrategia: cache-first para el app shell; network-first con fallback para Tailwind CDN y fuentes.
 
-const CACHE_VERSION = 'rp-v40';
+const CACHE_VERSION = 'rp-v45';
 const APP_SHELL = [
   './',
   './index.html',
@@ -20,6 +20,8 @@ const APP_SHELL = [
   './participantes.json',
   './grupos.json',
   './midweeks.json',
+  './vendor/pdfjs/pdf.min.js',
+  './vendor/pdfjs/pdf.worker.min.js',
 ];
 
 self.addEventListener('install', (e) => {

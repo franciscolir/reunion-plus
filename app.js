@@ -114,6 +114,7 @@ function router() {
     case 'preview':  renderPreview(); break;
     case 'outings':  renderOutings(); break;
     case 'lists':    renderLists(); break;
+    case 'uploads':  renderUploads(); break;
     case 'midweeks': renderMidweeks(); break;
     case 'midweek':  renderMidweek(segs[1]); break;
     case 'midweekPreview': renderMidweekPreview(segs[1]); break;
@@ -176,6 +177,7 @@ function renderTop() {
   const items = [
     { id: 'home', label: 'Inicio' },
     { id: 'lists', label: 'Listas' },
+    { id: 'uploads', label: 'Carga' },
     { id: 'settings', label: 'Ajustes' },
   ];
   nav.innerHTML = items.map(i =>
@@ -199,6 +201,7 @@ function renderSide() {
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
     { id: 'lists', icon: 'group', label: 'Personas y Deptos.', view: 'lists' },
+    { id: 'uploads', icon: 'upload_file', label: 'Carga de Archivos', view: 'uploads' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
   ];
   const nav = $('#sideNavItems');
@@ -232,8 +235,55 @@ async function renderHome() {
 
     <!-- Bento Grid -->
     <div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
-      <!-- Próximos Eventos -->
-      <section class="md:col-span-8 bg-surface-container-lowest rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant relative overflow-hidden">
+      <!-- Columna izquierda: reuniones -->
+      <div class="md:col-span-8 md:grid-rows-1 flex flex-col gap-4">
+        <!-- Entre Semana -->
+        <div class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+          <div class="flex items-center justify-between mb-6 gap-3">
+            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+              <span class="material-symbols-outlined">auto_stories</span>
+              Reunión Entre Semana
+            </h3>
+            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${betweenSemanaWhen()}</span>
+          </div>
+          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-primary">
+            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Lectura de la semana</p>
+            <p class="font-headline-md text-headline-md text-on-surface">${betweenSemanaReading()}</p>
+          </div>
+        </div>
+        <!-- Fin de Semana -->
+        <div class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+          <div class="flex items-center justify-between mb-6 gap-3">
+            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+              <span class="material-symbols-outlined">record_voice_over</span>
+              Reunión Fin de Semana
+            </h3>
+            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${finSemanaSchedule()}</span>
+          </div>
+          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-secondary">
+            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Título del Discurso</p>
+            <p class="font-body-lg text-body-lg font-semibold text-on-surface italic">${finSemanaTitle()}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Columna derecha: Aseo y Hospitalidad -->
+      <div class="md:col-span-4 flex">
+        <div class="w-full bg-primary-container text-on-primary-container rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] flex flex-col relative overflow-hidden">
+          <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 100% 100%, #ffffff 0%, transparent 50%);"></div>
+          <div class="bg-on-tertiary-fixed-variant/30 rounded-xl p-6 border border-on-primary-container/20 relative z-10 flex-1 flex flex-col">
+            <h3 class="font-headline-md text-headline-md text-on-primary uppercase tracking-[0.2em] text-center mb-4">${finWeekAssignDetail()}</h3>
+            <div class="border-b border-on-primary-container/40 mb-6"></div>
+            <div class="text-center flex-1 flex flex-col justify-center">
+              <p class="font-label-lg text-label-lg text-primary-fixed uppercase tracking-[0.3em] mb-2">Grupo</p>
+              <h4 class="font-headline-lg text-[96px] leading-none text-on-primary" style="font-family:'Playfair Display', serif;font-weight:800">${finWeekAssign()}</h4>
+             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Próximos Eventos (abajo) -->
+      <section class="md:col-span-12 bg-surface-container-lowest rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant relative overflow-hidden">
         <div class="absolute top-0 left-0 w-2 h-full bg-primary"></div>
         <div class="flex justify-between items-start mb-8 gap-3">
           <div>
@@ -248,50 +298,6 @@ async function renderHome() {
           </button>
         </div>
         <div id="homeEvents" class="space-y-6"></div>
-      </section>
-
-      <!-- Asignaciones -->
-      <section class="md:col-span-4 bg-primary-container text-on-primary-container rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] flex flex-col relative overflow-hidden">
-        <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 100% 100%, #ffffff 0%, transparent 50%);"></div>
-        
-        <div class="bg-on-tertiary-fixed-variant/30 rounded-lg p-5 mb-4 border border-on-primary-container/20 relative z-10 flex-1">
-            <p class="font-body-lg text-body-lg text-on-primary">${finWeekAssignDetail()}</p>
-          <div class="mt-6 pt-4 border-t border-on-primary-container/20">
-           <h3 class="font-headline-md text-headline-md text-on-primary mb-2">${finWeekAssign()}</h3>
-          </div>
-        </div>
-      </section>
-
-      <!-- Resumen de la Semana -->
-      <section class="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-gutter mt-4">
-        <!-- Entre Semana -->
-        <div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
-          <div class="flex items-center justify-between mb-6 gap-3">
-            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
-              <span class="material-symbols-outlined">auto_stories</span>
-              Reunión Entre Semana
-            </h3>
-            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${betweenSemanaWhen()}</span>
-          </div>
-          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-primary">
-            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Lectura de la semana</p>
-            <p class="font-headline-md text-headline-md text-on-surface">${betweenSemanaReading()}</p>
-          </div>
-        </div>
-        <!-- Fin de Semana -->
-        <div class="bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
-          <div class="flex items-center justify-between mb-6 gap-3">
-            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
-              <span class="material-symbols-outlined">record_voice_over</span>
-              Reunión Fin de Semana
-            </h3>
-            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${finSemanaSchedule()}</span>
-          </div>
-          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-secondary">
-            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Título del Discurso</p>
-            <p class="font-body-lg text-body-lg font-semibold text-on-surface italic">${finSemanaTitle()}</p>
-          </div>
-        </div>
       </section>
     </div>
   `;
@@ -354,7 +360,7 @@ function finWeekAssign() {
     if (w.date === cur.week.date) break;
   }
   const grupo = ((start - 1 + Math.max(k, 0)) % n) + 1;
-  return `Grupo ${grupo}`;
+  return ` ${grupo}`;
 }
 function finWeekAssignDetail() {
   const labores = state.config?.groups?.labores;
@@ -1867,6 +1873,344 @@ function editRoleModal(id) {
   $('#editRCancel').onclick = () => { closeModal(); renderRolesModal(); };
   $('#editROk').onclick = save;
   $('#editRName').addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+}
+
+/* ---------- UPLOADS: carga de archivos para completar la base de datos ---------- */
+const UPLOAD_TYPES = [
+  {
+    key: 'talks',
+    title: 'Conferencias',
+    icon: 'campaign',
+    desc: 'Lista de discursos públicos (discursos.json).',
+    jsonHint: 'Formato: [{ "num": 1, "title": "..." }, ...] o { "discursos": [...] }',
+    pdfHint: 'Se extraen los títulos de discursos del PDF para revisar.',
+  },
+  {
+    key: 'people',
+    title: 'Personas',
+    icon: 'group',
+    desc: 'Lista de participantes con sus roles (participantes.json).',
+    jsonHint: 'Formato: { "roles": { "presidente": ["Nombre", ...], ... } }',
+    pdfHint: 'Se extraen nombres y roles del PDF para revisar.',
+  },
+  {
+    key: 'midweeks',
+    title: 'Guía de Actividades',
+    icon: 'auto_stories',
+    desc: 'Programa de las reuniones de entre semana (midweeks.json).',
+    jsonHint: 'Formato: { "weeks": [...] }',
+    pdfHint: 'Se extrae el programa de la revisa para regenerar las semanas.',
+  },
+];
+
+async function renderUploads() {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
+  const cards = UPLOAD_TYPES.map(t => `
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)] p-6">
+      <div class="flex items-start gap-4 mb-4">
+        <span class="material-symbols-outlined text-primary text-3xl">${t.icon}</span>
+        <div class="flex-1">
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">${t.title}</h3>
+          <p class="font-body-md text-body-md text-on-surface-variant">${t.desc}</p>
+        </div>
+      </div>
+      <div class="flex rounded-lg border border-outline-variant overflow-hidden mb-4" data-format-switch>
+        <button data-fmt="json" data-jsonsel="${t.key}" class="flex-1 py-2 font-label-md text-label-md bg-primary text-on-primary">JSON</button>
+        <button data-fmt="pdf" data-pdfsel="${t.key}" class="flex-1 py-2 font-label-md text-label-md text-on-surface-variant">PDF</button>
+      </div>
+      <div data-slot="json">
+        <label for="upl-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
+          <span class="material-symbols-outlined text-4xl text-on-surface-variant block mb-2">file_upload</span>
+          <span class="font-label-md text-label-md text-primary">Seleccionar archivo JSON</span>
+          <span class="block text-caption text-on-surface-variant mt-1">${t.jsonHint}</span>
+        </label>
+        <input id="upl-${t.key}" type="file" accept=".json,application/json" class="hidden" data-upload="${t.key}">
+      </div>
+      <div data-slot="pdf" class="hidden">
+        <label for="upl-pdf-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
+          <span class="material-symbols-outlined text-4xl text-on-surface-variant block mx-auto mb-2">picture_as_pdf</span>
+          <span class="font-label-md text-label-md text-primary">Seleccionar archivo PDF</span>
+          <span class="block text-caption text-on-surface-variant mt-1">${t.pdfHint}</span>
+        </label>
+        <input id="upl-pdf-${t.key}" type="file" accept=".pdf,application/pdf" class="hidden" data-upload-pdf="${t.key}">
+      </div>
+      <p id="upl-status-${t.key}" class="mt-3 font-label-md text-label-md text-on-surface-variant hidden"></p>
+    </div>
+  `).join('');
+
+  app.innerHTML = `
+    <div class="mb-10">
+      <h1 class="font-display-lg text-display-lg text-primary mb-2">Carga de Archivos</h1>
+      <p class="font-body-lg text-body-lg text-on-surface-variant">Suba un archivo JSON (o PDF) y la app completará su base de datos local. Los nuevos datos reemplazan los del tipo elegido.</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">${cards}</div>
+    <div id="uploadSummary" class="mt-8"></div>
+  `;
+
+  // Conmutador JSON / PDF por tarjeta
+  app.querySelectorAll('[data-jsonsel]').forEach(btn => {
+    const key = btn.dataset.jsonsel;
+    btn.addEventListener('click', () => setUploadFormat(key, 'json'));
+  });
+  app.querySelectorAll('[data-pdfsel]').forEach(btn => {
+    const key = btn.dataset.pdfsel;
+    btn.addEventListener('click', () => setUploadFormat(key, 'pdf'));
+  });
+
+  // Carga de JSON
+  app.querySelectorAll('input[data-upload]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const type = input.dataset.upload;
+      const status = $(`#upl-status-${type}`);
+      showStatus(status, `Leyendo ${file.name}…`, 'text-on-surface-variant');
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        openJsonReview(type, await loadSerialized(data, type), uiRawText(text, type));
+      } catch (e) {
+        showStatus(status, `Error: ${e.message}. Verifique el formato del archivo.`, 'text-error');
+      }
+    });
+  });
+
+  // Carga de PDF → intenta convertir y abre revisión
+  app.querySelectorAll('input[data-upload-pdf]').forEach(input => {
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const type = input.dataset.uploadPdf;
+      const status = $(`#upl-status-${type}`);
+      showStatus(status, `Extrayendo ${file.name} con OCR/pdf.js…`, 'text-on-surface-variant');
+      try {
+        const text = await extractPdfText(file);
+        const { data, warnings } = convertPdfToData(type, text);
+        if (!data) { showStatus(status, 'No se pudo interpretar este PDF. Revíselo a mano en la vista "Revisar PDF".', 'text-error'); openPdfTextReview(type, text); return; }
+        openJsonReview(type, JSON.stringify(data, null, 2), text);
+      } catch (e) {
+        showStatus(status, `Error al leer PDF: ${e.message}`, 'text-error');
+      }
+    });
+  });
+
+  await renderUploadSummary();
+}
+
+async function renderUploadSummary() {
+  const s = $('#uploadSummary');
+  if (!s) return;
+  const [people, talks, midweeks, depts] = await Promise.all([
+    db.listPeople(), db.listTalks(), db.listMidweeks(), db.listDepartments(),
+  ]);
+  const rows = [
+    ['Personas', people.length, 'group'],
+    ['Departamentos', depts.length, 'apartment'],
+    ['Conferencias', talks.length, 'campaign'],
+    ['Semanas de entre semana', midweeks.length, 'auto_stories'],
+  ].map(([label, n, icon]) => `<div class="flex items-center gap-3 bg-surface-container-lowest rounded-lg p-4 border border-outline-variant">
+    <span class="material-symbols-outlined text-primary">${icon}</span>
+    <div class="flex-1"><p class="font-label-md text-label-md text-on-surface-variant">${label}</p></div>
+    <span class="font-headline-md text-headline-md text-primary">${n}</span>
+  </div>`).join('');
+  s.innerHTML = `<h2 class="font-headline-md text-headline-md text-primary mb-4">Base de datos actual</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${rows}</div>`;
+}
+
+// Muestra/oculta el conmutador JSON/PDF de una tarjeta.
+function setUploadFormat(key, fmt) {
+  const jsonBtn = document.querySelector(`[data-jsonsel="${key}"]`);
+  const pdfBtn = document.querySelector(`[data-pdfsel="${key}"]`);
+  const jsonInput = document.querySelector(`input[data-upload="${key}"]`);
+  const pdfInput = document.querySelector(`input[data-upload-pdf="${key}"]`);
+  if (jsonBtn) { jsonBtn.classList.toggle('bg-primary', fmt === 'json'); jsonBtn.classList.toggle('text-on-primary', fmt === 'json'); jsonBtn.classList.toggle('text-on-surface-variant', fmt !== 'json'); }
+  if (pdfBtn) { pdfBtn.classList.toggle('bg-primary', fmt === 'pdf'); pdfBtn.classList.toggle('text-on-primary', fmt === 'pdf'); pdfBtn.classList.toggle('text-on-surface-variant', fmt !== 'pdf'); }
+  if (jsonInput) jsonInput.parentElement.classList.toggle('hidden', fmt !== 'json');
+  if (pdfInput) pdfInput.parentElement.classList.toggle('hidden', fmt !== 'pdf');
+}
+
+function showStatus(node, msg, cls) {
+  if (!node) return;
+  node.classList.remove('hidden');
+  node.className = 'mt-3 font-label-md text-label-md ' + cls;
+  node.textContent = msg;
+}
+
+// Serializa el objeto ya cargado del JSON a texto para mostrar en revisión.
+function loadSerialized(data, type) {
+  if (type === 'talks') {
+    const arr = Array.isArray(data) ? data : (data?.discursos || data?.talks || []);
+    return JSON.stringify(arr, null, 2);
+  }
+  return JSON.stringify(data, null, 2);
+}
+
+function uiRawText(text) { return text; }
+
+// ---- Revisión de datos (modal) ----
+function openJsonReview(type, jsonText, rawText) {
+  const label = (UPLOAD_TYPES.find(t => t.key === type) || { title: 'datos' }).title;
+  openModal(`<div class="min-w-[80vw]">
+    <h3 class="font-headline-md text-headline-md text-primary mb-2">Revisar ${label}</h3>
+    <p class="font-body-md text-body-md text-on-surface-variant mb-4">Revise y edite el JSON. Al guardar se reemplazará la base de datos local de este tipo.</p>
+    <div class="flex gap-3 items-center mb-3">
+      <button id="rvFormat" class="px-3 py-1.5 rounded border border-outline font-label-md text-label-md text-on-surface-variant hover:bg-surface-container">Formatear</button>
+    </div>
+    <textarea id="rvJson" spellcheck="false" class="w-full h-[50vh] font-mono text-sm p-4 bg-surface-container border border-outline-variant rounded-lg focus:border-primary outline-none">${escapeHtml(jsonText)}</textarea>
+    ${rawText ? `<details class="mt-3"><summary class="font-label-md text-label-md text-primary cursor-pointer">Ver texto extraído del PDF</summary><pre class="mt-2 p-3 rounded bg-surface-container text-xs whitespace-pre-wrap max-h-48 overflow-auto">${escapeHtml(rawText)}</pre></details>` : ''}
+    <div class="flex justify-end gap-3 mt-4">
+      <button id="rvCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+      <button id="rvSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+    </div>
+  </div>`);
+  $('#rvCancel').onclick = closeModal;
+  $('#rvFormat').onclick = () => {
+    try { $('#rvJson').value = JSON.stringify(JSON.parse($('#rvJson').value), null, 2); }
+    catch (e) { toast('JSON inválido: ' + e.message, 'error'); }
+  };
+  $('#rvSave').onclick = async () => {
+    try {
+      const parsed = JSON.parse($('#rvJson').value);
+      let count = 0;
+      if (type === 'talks') count = await db.replaceTalksFromFile(parsed);
+      else if (type === 'people') count = await db.replaceAllPeople(parsed);
+      else if (type === 'midweeks') count = await db.replaceAllMidweeks(parsed);
+      await refreshCatalogs();
+      closeModal();
+      const status = $(`#upl-status-${type}`);
+      showStatus(status, `✓ ${count} ${type === 'people' ? 'personas' : type === 'talks' ? 'discursos' : 'semanas'} guardados.`, 'text-tertiary-fixed');
+      renderUploadSummary();
+      toast('Base de datos actualizada', 'success');
+    } catch (e) {
+      toast('JSON inválido: ' + e.message, 'error');
+    }
+  };
+}
+
+// Revisión manual del texto extraído cuando no fue posible la conversión automática.
+function openPdfTextReview(type, text) {
+  const label = (UPLOAD_TYPES.find(t => t.key === type) || { title: 'datos' }).title;
+  openModal(`
+    <h3 class="font-headline-md text-headline-md text-primary mb-2">Texto extraído — ${label}</h3>
+    <p class="font-body-md text-body-md text-on-surface-variant mb-4">No fue posible interpretar el PDF automáticamente. Puede copiar el texto o usarlo como guía para preparar su archivo JSON.</p>
+    <pre class="p-3 rounded bg-surface-container text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto">${escapeHtml(text)}</pre>
+    <div class="flex justify-end gap-3 mt-4"><button class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90" data-close>Cerrar</button></div>
+  `);
+  document.querySelector('#modalCard [data-close]').onclick = closeModal;
+}
+
+// ---- PDF: extracción de texto con pdf.js (vendored, funciona sin conexión) ----
+let _pdfReady = false;
+function pdfInit() {
+  if (_pdfReady) return true;
+  if (!window.pdfjsLib) return false;
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdfjs/pdf.worker.min.js';
+  _pdfReady = true;
+  return true;
+}
+
+async function extractPdfText(file) {
+  pdfInit();
+  if (!window.pdfjsLib) throw new Error('Motor PDF no disponible');
+  const data = await file.arrayBuffer();
+  const doc = await window.pdfjsLib.getDocument({ data }).promise;
+  let out = '';
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    let lastY = null, line = '';
+    for (const item of content.items) {
+      if (item.str == null) continue;
+      const y = Math.round(item.transform ? item.transform[5] : 0);
+      if (lastY !== null && Math.abs(y - lastY) > 2) { out += line.trimEnd() + '\n'; line = ''; }
+      line += (item.str || '') + ' ';
+      lastY = y;
+    }
+    if (line.trim()) out += line.trimEnd() + '\n';
+  }
+  return out;
+}
+
+// Convierte el texto extraído a la estructura por tipo. Devuelve { data, warnings }.
+function convertPdfToData(type, text) {
+  if (type === 'talks') return convertPdfTalks(text);
+  if (type === 'midweeks') return convertPdfMidweeks(text);
+  if (type === 'people') return convertPdfPeople(text);
+  return { data: null, warnings: ['Tipo desconocido'] };
+}
+
+function convertPdfTalks(text) {
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  const talks = [];
+  const re = /^(?:discurso\s*)?(\d{1,3})\s*[.:-]\s*(.+)$/i;
+  for (const ln of lines) {
+    const m = ln.match(re);
+    if (m) talks.push({ num: Number(m[1]), title: m[2].replace(/[_*\u2022•]/g, '').trim() });
+  }
+  if (!talks.length) return { data: null, warnings: ['No se detectaron discursos numerados'] };
+  return { data: { discursos: talks }, warnings: [] };
+}
+
+function convertPdfPeople(text) {
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  const roles = {};
+  let currentRole = null;
+  const roleRe = /^(presidente|conductor|lector|orador|atencion|microf\w*|plataforma|audio|video|acomodador|limpieza|seguridad|cronometrador|auxiliar|semanero)s?\s*$/i;
+  const nameRe = /^[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ]?[a-záéíóúüñ]+){1,5}$/;
+  for (const ln of lines) {
+    const rm = ln.match(roleRe);
+    if (rm) { currentRole = rm[1].toLowerCase(); if (!roles[currentRole]) roles[currentRole] = []; continue; }
+    if (currentRole && nameRe.test(ln)) roles[currentRole].push(ln.replace(/[-–•.*]+$/g, '').trim());
+  }
+  const total = Object.values(roles).reduce((a, r) => a + r.length, 0);
+  if (!total) return { data: null, warnings: ['No se detectaron nombres de personas'] };
+  return { data: { roles }, warnings: ['Roles detectados: ' + (Object.keys(roles).join(', ') || 'revisar')] };
+}
+
+function convertPdfMidweeks(text) {
+  const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  // Los PDF de la JW usan letras separadas ("6 -1 2 D E J U L I O").
+  // Detección flexible: buscar "N FATURA.. - N DE MES" ignorando espacios entre caracteres.
+  const found = [];
+  const clean = (s) => s.replace(/[\u0002\u0003]/g, ' ').trim();
+  const compactLine = (s) => clean(s).replace(/\s+/g, '');
+  // Monograma del mes
+  const lines = text.split('\n').map(s => clean(s)).filter(Boolean);
+  for (const ln of lines) {
+    // colapsa guiones/saltos de la cadena buscando la cabecera estilo "6-12 DE JULIO"
+    const s = ln.replace(/\s*-\s*/g, '-');
+    const m = s.match(/^(\d{1,2})-(\d{1,2})\s*DE\s*([A-ZÁÉÍÓÚÑ]{3,})$/i);
+    if (m) {
+      const mt = months.indexOf(m[3].toUpperCase());
+      if (mt >= 0) found.push({ mIni: +m[1], mFin: +m[2], month: mt + 1 });
+    }
+  }
+  // Fallback: PDF de JW con caracteres separados → comparar el mes compactando
+  // los espacios ("6  -12 DE J U L I O" → "6-12DEJULIOJEREMIAS...").
+  if (!found.length) {
+    const seen = new Set();
+    for (const ln of lines) {
+      const compactNoSp = ln.replace(/[\s\u0002\u0003]/g, '');
+      const mDate = compactNoSp.match(/^(\d{1,2})\-(\d{1,2})/);
+      if (!mDate) continue;
+      const tail = compactNoSp.slice(mDate[0].length); // tras "6-12" → "DE..."
+      const rest = tail.replace(/^DE/i, ''); // quita "DE"
+      const mt = months.findIndex(m => rest.includes(m));
+      if (mt >= 0) {
+        const k = mDate[1] + '-' + mDate[2] + '-' + (mt + 1);
+        if (!seen.has(k)) { seen.add(k); found.push({ mIni: +mDate[1], mFin: +mDate[2], month: mt + 1 }); }
+      }
+    }
+  }
+  if (!found.length) return { data: null, warnings: ['No se detectaron semanas (formato "D-D DE MES"). Revise el texto manualmente.'] };
+  const weeksOut = found.map(f => ({ header: `${f.mIni}-${f.mFin} DE ${months[f.month - 1]}`, reading: '', songIn: 0, songOut: 0, introTitle: 'Palabras de introducción', introMins: 1, closingTitle: 'Palabras de conclusión', closingMins: 3, sections: [
+    { id: 'tesoros', title: 'TESOROS DE LA BIBLIA', parts: [] },
+    { id: 'maestros', title: 'SEAMOS MEJORES MAESTROS', parts: [] },
+    { id: 'vida', title: 'NUESTRA VIDA CRISTIANA', parts: [] },
+  ] }));
+  return { data: { weeks: weeksOut }, warnings: [`Se detectaron ${weeksOut.length} semanas; rellene lecturas y partes.`] };
 }
 
 /* ---------- SETTINGS ---------- */
