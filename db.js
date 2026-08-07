@@ -239,16 +239,6 @@ export async function listTalks() {
   return all.sort((a, b) => a.num - b.num);
 }
 
-export async function getTalk(num) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_TALKS).get(num));
-}
-
-export async function putTalk(talk) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_TALKS, 'readwrite').put(talk));
-}
-
 export async function clearTalks() {
   const db = await openDB();
   return reqToPromise(tx(db, STORE_TALKS, 'readwrite').clear());
@@ -356,17 +346,6 @@ export async function seedMidweeks() {
   } catch (e) {
     console.warn('[Reunión+] No se pudo cargar midweeks.json', e);
   }
-}
-
-// Devuelve true si el programa de esa semana tiene alguna asignación de persona.
-export function weekHasAssignments(week) {
-  if (!week || !Array.isArray(week.sections)) return false;
-  return week.sections.some(sec =>
-    Array.isArray(sec.parts) && sec.parts.some(p => {
-      const ap = p.assignments;
-      return ap && Object.values(ap).some(v => v != null && String(v).trim() !== '');
-    })
-  );
 }
 
 // ===== SEED inicial =====

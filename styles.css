@@ -95,6 +95,8 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
 #mwDoc h1, #mwDoc h2 { font-family: 'Playfair Display', Georgia, serif; }
 #mwDoc .bg-highlight { background-color: #f1f1f1; }
 #mwDoc .border-b-custom { border-bottom: 1px solid #d1d5db; }
+
+/* Vista final mensual de entre semana: documento compacto en una hoja */
 @media print {
   #mwDoc {
     margin: 0 !important;
@@ -102,6 +104,7 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
     max-width: 100% !important;
     box-shadow: none !important;
   }
+  .mw-month-doc .grid { gap: 2mm !important; }
 }
 
 .week-card { transition: transform 0.3s ease, box-shadow 0.3s ease; }

@@ -7,7 +7,8 @@ import {
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
   collectLaboresPersons, collectMidweekPersons, computeMidweekConflicts, dedupPersons,
-  capitalize, capField, escapeHtml, escapeAttr, cryptoId,
+  LABORES_DEF, LABORE_ROLES, isLaborePerson,
+  capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
 } from './logic.js';
 
@@ -86,8 +87,8 @@ eq('orador texto libre no se incluye (no es ID)', collectWeekPersons({
 console.log('[computeConflicts]');
 const monthEmpty = { weeks: [{ type: 'normal', outings: [{ oradorSalida: '' }] }] };
 const c1 = computeConflicts(monthEmpty);
-ok('semana normal vacía tiene 6 missing', c1.perWeek[0].missing.length === 6, `got=${c1.perWeek[0].missing.length}`);
-ok('semana normal vacía genera 6 errors', c1.errors.length === 6);
+ok('semana normal vacía tiene 5 missing', c1.perWeek[0].missing.length === 5, `got=${c1.perWeek[0].missing.length}`);
+ok('semana normal vacía genera 5 errors', c1.errors.length === 5);
 
 // Duplicado intra-semana: presidente = oradorSalida
 const monthDup = { weeks: [{
@@ -171,11 +172,10 @@ eq('escapeHtml undefined', escapeHtml(undefined), '');
 eq('escapeAttr "', escapeAttr('"'), '&quot;');
 eq('escapeAttr <', escapeAttr('<'), '&lt;');
 
-// --- capitalize / capField ---
-console.log('[capitalize / capField]');
+// --- capitalize ---
+console.log('[capitalize]');
 eq('capitalize', capitalize('hola mundo'), 'Hola mundo');
 eq('capitalize vacío', capitalize(''), '');
-eq('capField', capField('título'), 'Título');
 
 // --- cryptoId ---
 console.log('[cryptoId]');
@@ -188,8 +188,10 @@ ok('cryptoId prefijo w_', id1.startsWith('w_'));
 console.log('[constants]');
 ok('MONTHS_ES 12 meses', MONTHS_ES.length === 12);
 ok('WEEK_TYPES 4 tipos', Object.keys(WEEK_TYPES).length === 4);
-ok('FIELD_ROLE mapea estudioSinLectura a conductor', FIELD_ROLE.estudioSinLectura === 'conductor');
+ok('FIELD_ROLE mapea estudioSinLectura a conductor1', FIELD_ROLE.estudioSinLectura === 'conductor1');
 ok('FIELD_ROLE mapea oradorSalida a orador', FIELD_ROLE.oradorSalida === 'orador');
+ok('FIELD_ROLE mapea conductor a conductor1', FIELD_ROLE.conductor === 'conductor1');
+ok('FIELD_ROLE mapea lector a lector1', FIELD_ROLE.lector === 'lector1');
 
 // --- isoDate ---
 console.log('[isoDate]');
@@ -292,7 +294,13 @@ const mwkDup = {
   labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' },
 };
 ok('entresemana detecta persona repetida en 2 partes', computeMidweekConflicts(mwkDup).errors.length > 0);
-ok('dupKeys incluye ambas partes', computeMidweekConflicts(mwkDup).dupKeys.has('mw_0_1_lector'));
+ok('dupKeys incluye ambas partes', computeMidweekConflicts(mwkDup).dupKeys.has('mw_0_3_lector'));
+ok('recoge el presidente de entre semana', collectMidweekPersons({ presidente: '20', sections: [], labores: {} }).some(p => p.key === 'mw_presidente' && p.value === '20'));
+ok('presidente repetido con una parte se detecta', computeMidweekConflicts({
+  presidente: '10',
+  sections: [{ title: 'TESOROS', parts: [{ num: 1, assignments: { conductor: '10' } }] }],
+  labores: {},
+}).dupKeys.has('mw_presidente'));
 const mwkOk = {
   sections: [{ title: 'TESOROS', parts: [
     { num: 1, assignments: { conductor: '10' } },
@@ -306,6 +314,14 @@ ok('entresemana sin duplicados: 0 errors', computeMidweekConflicts(mwkOk).errors
 console.log('[labelOfKey labores]');
 ok('etiqueta de labores acomodacion 2', labelOfKey('labores_acomodacion_1') === 'labores de acomodación 2');
 ok('etiqueta de labores plataforma (1 solo)', labelOfKey('labores_plataforma_0') === 'labores de plataforma');
+
+// --- LABORES_DEF / LABORE_ROLES / isLaborePerson ---
+console.log('[LABORES_DEF / labore roles]');
+eq('LABORES_DEF 4 roles con icono y cantidad', LABORES_DEF.map(d => `${d.key}:${d.count}:${!!d.icon}`), ['acomodacion:2:true', 'microfono:2:true', 'plataforma:1:true', 'sonido:1:true']);
+ok('LABORE_ROLES incluye roles de atención', ['audio', 'microf', 'plataforma', 'acomodador'].every(r => LABORE_ROLES.includes(r)));
+ok('isLaborePerson con rol de atención', isLaborePerson({ name: 'X', roles: ['audio'] }));
+ok('isLaborePerson sin roles incluida', isLaborePerson({ name: 'X' }));
+ok('isLaborePerson con roles ajenos excluida', !isLaborePerson({ name: 'X', roles: ['presidente'] }));
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===\n`);
 process.exit(fail > 0 ? 1 : 0);

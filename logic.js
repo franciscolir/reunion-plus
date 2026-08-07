@@ -14,9 +14,9 @@ export const WEEK_TYPES = {
 // Si un campo no está aquí (ej. orador de reunión normal), es texto libre.
 export const FIELD_ROLE = {
   presidente:        'presidente',
-  conductor:         'conductor',
-  lector:            'lector',
-  estudioSinLectura: 'conductor',
+  conductor:         'conductor1',   // Conductor Atalaya (fin de semana)
+  lector:            'lector1',      // Lector Atalaya (fin de semana)
+  estudioSinLectura: 'conductor1',
   oradorSalida:      'orador',
 };
 
@@ -92,8 +92,7 @@ export function eventTypeForDate(events, iso) {
   return 'normal';
 }
 
-const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-export const DAYS_ES_NAMES = DAYS_ES;
+export const DAYS_ES_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 // Suma días a una fecha "YYYY-MM-DD" y devuelve otra "YYYY-MM-DD".
 export function addDays(iso, days) {
@@ -107,8 +106,9 @@ export function addDays(iso, days) {
 // Último día de un evento (rango desde/hasta, o fecha + días).
 export function eventEndDate(ev) {
   if (!ev) return null;
+  const from = ev.from || ev.date || null;
   if (ev.to) return ev.to;
-  if (ev.date) return addDays(ev.date, (Number(ev.days) || 1) - 1);
+  if (from) return addDays(from, (Number(ev.days) || 1) - 1);
   return null;
 }
 
@@ -120,19 +120,9 @@ export function upcomingEvents(events, fromIso, max = 5) {
   const out = [];
   const push = (date, type, end) => { if (date && date >= fromIso) out.push({ type, date, end: end && end !== date ? end : null }); };
   (events.commemorations || []).forEach(d => push(d, 'commemoration'));
-  (events.visits || []).forEach(v => push(v.from || v.date, 'supervisor', visitEnd(v)));
-  (events.assemblies || []).forEach(a => push(a.from || a.date, 'assembly', assemblyEnd(a)));
+  (events.visits || []).forEach(v => push(v.from || v.date, 'supervisor', eventEndDate(v)));
+  (events.assemblies || []).forEach(a => push(a.from || a.date, 'assembly', eventEndDate(a)));
   return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, max);
-}
-
-function visitEnd(v) {
-  return v.to || (v.days ? addDays(v.from, (Number(v.days) || 1) - 1) : (v.from ? v.from : null));
-}
-
-function assemblyEnd(a) {
-  if (a.to) return a.to;
-  if (a.date) return addDays(a.date, (Number(a.days) || 1) - 1);
-  return null;
 }
 
 // ¿Hay un evento programado para la fecha exacta `date`?
@@ -167,13 +157,26 @@ export function collectWeekPersons(w) {
 }
 
 // Labores operativas (tras bambalinas) que también cuentan para detectar
-// personas duplicadas dentro de una reunión.
+// personas duplicadas dentro de una reunión. Fuente única de verdad: el editor
+// (app.js) y la validación (aquí) usan esta misma definición.
 export const LABORES_DEF = [
-  { key: 'acomodacion', label: 'Acomodación', count: 2 },
-  { key: 'microfono',   label: 'Micrófono',   count: 2 },
-  { key: 'plataforma',  label: 'Plataforma',  count: 1 },
-  { key: 'sonido',      label: 'Sonido',      count: 1 },
+  { key: 'acomodacion', label: 'Acomodación', icon: 'weekend', count: 2 },
+  { key: 'microfono',   label: 'Micrófono',   icon: 'mic', count: 2 },
+  { key: 'plataforma',  label: 'Plataforma',  icon: 'grid_on', count: 1 },
+  { key: 'sonido',      label: 'Sonido',      icon: 'volume_up', count: 1 },
 ];
+
+// Roles considerados de atención (sostienen la reunión). Filtran quién aparece
+// en los selectores de labores, igual que el resto de filtros por rol.
+export const LABORE_ROLES = [
+  'audio', 'microf', 'plataforma', 'acomodador',
+];
+
+// ¿La persona puede asignarse a labores? Sin roles (datos antiguos) se incluye,
+// igual que hacen el resto de selectores filtrados por rol.
+export function isLaborePerson(p) {
+  return !Array.isArray(p?.roles) || p.roles.length === 0 || p.roles.some(r => LABORE_ROLES.includes(r));
+}
 
 // Recolecta las personas asignadas a labores → [{value, key}].
 // key: "labores_<clave>_<slotIdx>".
@@ -193,14 +196,15 @@ export function collectLaboresPersons(labores) {
 
 // Recolecta TODAS las personas de una reunión de entresemana:
 // todos los "pads" con asignación en todas las secciones + labores.
-// key: "mw_<si>_<pi>_<slot>" (si=sección, pi=parte).
+// key: "mw_<si>_<num>_<slot>" (si=sección, num=nº de parte, slot=rol).
 export function collectMidweekPersons(week) {
   const out = [];
+  if (week.presidente) out.push({ value: String(week.presidente), key: 'mw_presidente' });
   (week.sections || []).forEach((sec, si) => {
-    (sec.parts || []).forEach((p, pi) => {
+    (sec.parts || []).forEach(p => {
       const ap = p.assignments || {};
       Object.entries(ap).forEach(([slot, id]) => {
-        if (id) out.push({ value: String(id), key: `mw_${si}_${pi}_${slot}`, sectionTitle: sec.title, partNum: p.num, slot });
+        if (id) out.push({ value: String(id), key: `mw_${si}_${p.num}_${slot}`, sectionTitle: sec.title, partNum: p.num, slot });
       });
     });
   });
@@ -242,7 +246,7 @@ export function computeConflicts(month) {
   month.weeks.forEach((w, i) => {
     let required = [];
     if (w.type === 'normal') {
-      required = ['presidente', 'tituloDiscurso', 'orador', 'conductor', 'lector', 'departamento'];
+      required = ['presidente', 'tituloDiscurso', 'orador', 'conductor', 'lector'];
     } else if (w.type === 'supervisor') {
       required = ['presidente', 'nombreSupervisor', 'discursoSupervisor1', 'estudioSinLectura'];
     } else if (w.type === 'commemoration') {
@@ -339,7 +343,6 @@ export function weekComplete(w) {
 }
 
 export function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-export function capField(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));

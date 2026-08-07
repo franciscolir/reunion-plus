@@ -5,15 +5,15 @@ import {
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
-  computeMidweekConflicts, collectMidweekPersons,
-  capitalize, capField, escapeHtml, escapeAttr, cryptoId,
-  isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays,
+  dedupPersons, isLaborePerson, LABORES_DEF,
+  capitalize, escapeHtml, escapeAttr, cryptoId,
+  isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
 const state = {
-  view: 'home',           // home | new | edit | preview | lists | settings | about | midweeks | midweek
-  newTab: 'fin',          // 'fin' | 'entre' (en Nuevo Programa)
+  view: 'home',           // home | new | edit | preview | outings | lists | uploads | labores | laboresGrupo | general | settings | about | midweeks | midweek | midweekPreview | midweekMonthPreview | midweekList
+  newTab: 'fin',          // 'fin' | 'entre' | 'labores' | 'laboresGrupo' | 'general' (en Programas)
   monthId: null,          // "YYYY-MM"
   month: null,
   previewMode: 'lista',   // lista | tabla
@@ -24,6 +24,7 @@ const state = {
   midweeks: [],           // reuniones de entre semana
   config: null,           // configuración general
   toastsOpen: new Set(),
+  mwMonth: null,          // mes seleccionado en la vista mensual de entre semana
 };
 
 /* ---------- INIT ---------- */
@@ -118,6 +119,11 @@ function router() {
     case 'midweeks': renderMidweeks(); break;
     case 'midweek':  renderMidweek(segs[1]); break;
     case 'midweekPreview': renderMidweekPreview(segs[1]); break;
+    case 'midweekMonthPreview': renderMidweekMonthPreview(segs[1]); break;
+    case 'midweekList': renderMidweekList(); break;
+    case 'labores':  renderLabores(segs[1]); break;
+    case 'laboresGrupo': renderLaboresGrupo(segs[1]); break;
+    case 'general':  renderGeneralMonth(segs[1]); break;
     case 'settings': renderSettings(); break;
     case 'about':    renderAbout(); break;
     default:         renderHome();
@@ -310,7 +316,6 @@ async function renderHome() {
 // ---- Helpers de la semana en curso para el tablero ----
 // Almacena los meses cargados para las tarjetas de resumen.
 let _homeMonths = [];
-function homeMonths() { return _homeMonths; }
 
 // Devuelve lunes y sábado (YYYY-MM-DD) de la semana en curso.
 function currentWeekDates() {
@@ -360,13 +365,13 @@ function finWeekAssign() {
     if (w.date === cur.week.date) break;
   }
   const grupo = ((start - 1 + Math.max(k, 0)) % n) + 1;
-  return ` ${grupo}`;
+  return `${grupo}`;
 }
 function finWeekAssignDetail() {
   const labores = state.config?.groups?.labores;
   if (labores) return labores;
   const cur = findCurrentFinWeek();
-  if (cur) return `${capField(WEEK_TYPES[cur.week.type]?.label || 'Normal')} de la semana`;
+  if (cur) return `${capitalize(WEEK_TYPES[cur.week.type]?.label || 'Normal')} de la semana`;
   return 'Seleccione el programa del mes en curso';
 }
 function betweenSemanaReading() {
@@ -395,12 +400,17 @@ function renderHomeEvents(container) {
 
   const MON = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
   const dayNum = (iso) => ({ m: +iso.slice(5, 7), d: +iso.slice(8, 10) });
+  const fmt = (iso) => { const { m, d } = dayNum(iso); return `${d} ${MON[m]}`; };
 
   const raw = [ ...upcoming ];
   container.innerHTML = raw.map((ev, idx) => {
     const meta = TYPE_META[ev.type] || TYPE_META.commemoration;
     const { m, d } = dayNum(ev.date);
-    const days = ev.end ? ((dayNum(ev.end).d - d) + 1) : 1;
+    const startDate = new Date(ev.date + 'T00:00:00');
+    const endDate = ev.end ? new Date(ev.end + 'T00:00:00') : null;
+    const days = endDate ? (Math.round((endDate - startDate) / 86400000) + 1) : 1;
+    const multi = !!endDate && ev.end !== ev.date;
+    const range = multi ? `${fmt(ev.date)} – ${fmt(ev.end)}` : null;
     const sub = ev.type === 'assembly'
       ? `${days} ${days === 1 ? 'día' : 'días'} de programa`
       : meta.sub;
@@ -410,7 +420,13 @@ function renderHomeEvents(container) {
         <span class="font-headline-md text-headline-md leading-none">${d}</span>
       </div>
       <div class="pt-1">
-        <h3 class="font-headline-md text-headline-md text-on-surface mb-1">${meta.label}</h3>
+        <div class="flex items-center gap-2 flex-wrap">
+          <h3 class="font-headline-md text-headline-md text-on-surface mb-1">${meta.label}</h3>
+          ${range ? `<span class="flex items-center gap-1 font-label-md text-label-md text-on-surface-variant mb-1">
+            <span class="material-symbols-outlined text-[15px]">date_range</span>
+            ${range}
+          </span>` : ''}
+        </div>
         <p class="font-body-md text-body-md text-on-surface-variant flex items-center gap-2">
           <span class="material-symbols-outlined text-[18px]">${meta.icon}</span>
           ${sub}
@@ -426,10 +442,13 @@ async function renderNew() {
   renderTop();
   const app = $('#app');
   app.innerHTML = `
-    <h1 class="font-headline-lg text-headline-lg text-primary mb-6">Nuevo Programa</h1>
+    <h1 class="font-headline-lg text-headline-lg text-primary mb-6">Programas</h1>
     <div class="flex gap-2 mb-8 border-b border-outline-variant">
       <button data-tab="fin" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Reunión de Fin de Semana</button>
       <button data-tab="entre" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Reunión de Entre Semana</button>
+      <button data-tab="labores" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Labores</button>
+      <button data-tab="laboresGrupo" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Labor Grupo</button>
+      <button data-tab="general" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">General Mensual</button>
     </div>
     <div id="newBody"></div>
   `;
@@ -456,6 +475,9 @@ async function renderNewBody() {
   const body = $('#newBody');
   if (!body) return;
   if (state.newTab === 'entre') { renderMidweeks({ embed: body }); return; }
+  if (state.newTab === 'labores') { renderLabores(undefined, { embed: body }); return; }
+  if (state.newTab === 'laboresGrupo') { renderLaboresGrupo(undefined, { embed: body }); return; }
+  if (state.newTab === 'general') { renderGeneralMonth(undefined, { embed: body }); return; }
   renderNewFin(body);
 }
 
@@ -512,7 +534,7 @@ async function renderNewFin(body) {
     </div>`;
   } else {
     list.innerHTML = months.map(m => {
-      const filled = m.weeks.filter(w => w.type === 'assembly' || weekComplete(w, m)).length;
+      const filled = m.weeks.filter(w => w.type === 'assembly' || weekComplete(w)).length;
       const pct = Math.round((filled / m.weeks.length) * 100);
       const label = m.published ? 'Final' : (pct === 0 ? 'Nuevo programa' : 'Borrador');
       return `<article class="week-card-accent bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 border border-outline-variant hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow flex flex-col gap-4">
@@ -583,7 +605,7 @@ async function renderNewFin(body) {
       }
     }
     applyConfigWeekTypes(weeks);
-    moduleApplyGroupRotation(weeks, state.config?.groups?.cantidad || 0, Number(state.config?.groups?.start) || 1);
+    applyGroupRotationToWeeks(weeks, state.config?.groups?.cantidad || 0, Number(state.config?.groups?.start) || 1);
     const month = { id, year: y, month: m, weeks, published: false };
     await db.putMonth(month);
     toast('Programa creado', 'success');
@@ -611,7 +633,7 @@ function applyConfigWeekTypes(weeks) {
 // correlativa (rotación). `n` es la cantidad de grupos y `start` (1-based) el
 // grupo inicial. Reutiliza los grupos ya existentes en la DB (por nombre "Grupo i"
 // o número "i"), creándolos si hiciera falta. Devuelve cuántas semanas se asignaron.
-function moduleApplyGroupRotation(weeks, n, start) {
+function applyGroupRotationToWeeks(weeks, n, start) {
   n = Math.max(n || 0, 0);
   if (!n) { for (const w of weeks) { if (w.type === 'normal') w.departamento = ''; } return 0; }
   const deptFor = (i) => {
@@ -752,16 +774,12 @@ function renderWeeks() {
   container.querySelectorAll('[data-field]').forEach(bindFieldChange);
   container.querySelectorAll('select[data-labore]').forEach(bindLaboreChange);
   container.querySelectorAll('select[data-people]').forEach(fillPeople);
-  container.querySelectorAll('select[data-dept]').forEach(fillDepartments);
   container.querySelectorAll('[data-add-person]').forEach(b => {
     b.onclick = () => {
       const sel = b.parentElement?.querySelector('select[data-people]');
       const role = sel?.dataset.role || '';
       quickAddPerson(role).then(refreshPeopleSelects);
     };
-  });
-  container.querySelectorAll('[data-add-dept]').forEach(b => {
-    b.onclick = () => quickAddDepartment().then(refreshDeptSelects);
   });
   container.querySelectorAll('[data-talkpicker]').forEach(bindTalkPicker);
   bindOutingControls(container);
@@ -836,7 +854,7 @@ function weekCard(w, i, conflicts) {
       </div>
       <div class="flex-1 space-y-6" data-fields="${i}">${fieldsFor(w, i, conflicts)}</div>
     </div>
-    <div class="mt-6 pt-6 border-t-2 border-dashed border-secondary/40">${laboresEditor(w, i, conflicts)}</div>
+    ${w.type === 'assembly' ? '' : `<div class="mt-6 pt-6 border-t-2 border-dashed border-secondary/40">${laboresEditor(w, i, conflicts)}</div>`}
     ${w.type === 'normal' ? outingsSection(w, i) : ''}
   </section>`;
 }
@@ -846,7 +864,7 @@ function laboresEditor(w, i, conflicts) {
   ensureLabores(w);
   const l = w.labores;
   const dups = conflicts?.duplicates || [];
-  const rows = LABORES_DEFS.map(({ key, label, icon, count }) => {
+  const rows = LABORES_DEF.map(({ key, label, icon, count }) => {
     const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
       ? l[key]
       : [l[key] || ''];
@@ -856,7 +874,7 @@ function laboresEditor(w, i, conflicts) {
       const errClass = hasConflict ? 'bg-error-container/20 border-error' : 'border-outline-variant';
       const opts = `<option value="">— Sin asignar —</option>` +
         state.people
-          .filter(p => ['hermano', 'hermana'].includes(p.role))
+          .filter(isLaborePerson)
           .map(p => `<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
           .join('');
       return `<div class="flex-1 min-w-[130px]">
@@ -1048,15 +1066,14 @@ function fieldsFor(w, i, conflicts) {
       ${peopleSelect('presidente', i, w.presidente, 'Presidente', conflicts)}
       ${textInput('orador', i, w.orador || '', 'Nombre del orador (a mano)', conflicts)}
       ${peopleSelect('conductor', i, w.conductor, 'Conductor Atalaya', conflicts)}
-      ${peopleSelect('lector', i, w.lector, 'Lector', conflicts)}
-      ${deptSelect('departamento', i, w.departamento, 'Aseo y Hospitalidad', conflicts)}
+      ${peopleSelect('lector', i, w.lector, 'Lector Atalaya', conflicts)}
     </div>`;
 }
 
 function textInput(name, idx, val, placeholder, conflicts) {
   const ok = !conflicts.missing?.includes(name);
   return `<div class="space-y-2">
-    <label class="font-label-md text-label-md text-on-surface-variant">${capField(labelOf(name))}</label>
+    <label class="font-label-md text-label-md text-on-surface-variant">${capitalize(labelOf(name))}</label>
     <input data-field="${name}" data-idx="${idx}" type="text" placeholder="${placeholder}" value="${escapeAttr(val)}"
       class="w-full bg-surface-bright border ${ok ? 'border-outline-variant' : 'border-error'} rounded-lg p-3 text-body-md focus:border-2 focus:border-primary outline-none transition-all">
   </div>`;
@@ -1069,7 +1086,7 @@ function talkPicker(name, idx, val, placeholder, conflicts) {
   const talksCount = state.talks.length;
   return `<div class="space-y-2 relative" data-talkpicker="${name}" data-idx="${idx}">
     <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between">
-      ${capField(labelOf(name))}
+      ${capitalize(labelOf(name))}
       ${talksCount ? `<span class="text-on-surface-variant text-caption normal-case font-normal flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">search</span>Buscar por nº o palabra</span>` : ''}
     </label>
     <div class="relative">
@@ -1095,19 +1112,6 @@ function peopleSelect(name, idx, val, label, conflicts) {
         <option value="">— Sin asignar —</option>
       </select>
    </div>
-  </div>`;
-}
-
-function deptSelect(name, idx, val, label, conflicts) {
-  const missing = conflicts.missing?.includes(name);
-  const errClass = missing ? 'border-error' : 'border-outline-variant';
-  return `<div class="space-y-2">
-    <label class="font-label-md text-label-md text-on-surface-variant">${label}</label>
-    <div class="flex gap-2">
-      <select data-field="${name}" data-idx="${idx}" data-dept class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
-        <option value="">— Sin asignar —</option>
-      </select>
-    </div>
   </div>`;
 }
 
@@ -1137,20 +1141,9 @@ function fillOutingPeople(sel) {
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
-function fillDepartments(sel) {
-  if (sel.dataset.idx === undefined) return;
-  const current = parseInt(sel.dataset.idx, 10);
-  if (!state.month || !state.month.weeks[current]) return;
-  const field = sel.dataset.field;
-  const val = state.month.weeks[current][field];
-  sel.innerHTML = `<option value="">— Sin asignar —</option>` +
-    state.departments.map(d => `<option value="${d.id}" ${String(d.id) === String(val) ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
-}
+
 function refreshPeopleSelects() {
   document.querySelectorAll('select[data-people]').forEach(fillPeople);
-}
-function refreshDeptSelects() {
-  document.querySelectorAll('select[data-dept]').forEach(fillDepartments);
 }
 
 function bindFieldChange(node) {
@@ -1289,8 +1282,7 @@ function weekCardList(w, i) {
   const date = new Date(w.date + 'T00:00:00');
   const day = date.getDate();
   const monthName = MONTHS_ES[state.month.month - 1].toUpperCase();
-   const superintendente = (['Superintendente', w.nombreSupervisor || '—', 'supervisor_account']);
-   
+
   const icon = WEEK_TYPES[w.type].icon;
   if (w.type === 'assembly') {
     return `<div class="week-card bg-surface-container-low border-l-4 p-8 rounded-lg bg-surface-dim">
@@ -1343,7 +1335,7 @@ function weekCardList(w, i) {
       <span class="material-symbols-outlined text-primary text-4xl">${icon}</span>
     </div>
     ${rowsHtml}
-    ${previewLaboresBox(w, 'box-bottom')}
+    ${previewLaboresBox(w)}
   </div>`;
 }
 
@@ -1351,8 +1343,8 @@ function previewTabla() {
   const rows = state.month.weeks.map((w, i) => {
     const date = new Date(w.date + 'T00:00:00');
     const dateStr = date.toLocaleDateString('es', { day: '2-digit' });
-     const dateAsam = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
-   
+    const dateAsam = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
+
     if (w.type === 'assembly' || w.type === 'commemoration') {
       const label = w.type === 'assembly' ? 'Asamblea' : 'Conmemoración';
       return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7">
@@ -1374,10 +1366,9 @@ function previewTabla() {
       cells.title = `${escapeHtml(w.discursoSupervisor1 || '—')}<div class="text-caption text-secondary mt-0.5">Discurso público</div>${w.discursoSupervisor2 ? `<div class="mt-1.5">${escapeHtml(w.discursoSupervisor2)}<div class="text-caption text-secondary">Discurso de servicio</div></div>` : ''}`;
       cells.chairman = escapeHtml(personNameOf(w.presidente));
       cells.speaker = `${escapeHtml(w.nombreSupervisor || '—')}<div class="text-caption text-on-surface-variant">Superintendente</div>`;
-      cells.conductor = `${escapeHtml(personNameOf(w.estudioSinLectura))}<div class="text-caption text-on-surface-variant"></div>`;
-      //cells.reader = `${WEEK_TYPES[w.type].label}`;
-      cells.reader = `Sin lectura`;
-     cells.attendance = escapeHtml(deptNameOf(w.departamento));
+      cells.conductor = escapeHtml(personNameOf(w.estudioSinLectura));
+      cells.reader = 'Sin lectura';
+      cells.attendance = escapeHtml(deptNameOf(w.departamento));
     } else if (w.type === 'commemoration') {
       cells.title = escapeHtml(w.tituloDiscurso || '—');
       cells.chairman = escapeHtml(personNameOf(w.presidente));
@@ -1595,22 +1586,20 @@ async function imageOutings() {
 
 /* ---------- LISTAS: personas y grupos ---------- */
 const DEFAULT_ROLES = [
-  { id: 'presidente', label: 'Presidente' },
-  { id: 'conductor',  label: 'Conductor' },
-  { id: 'orador',     label: 'Orador' },
-  { id: 'lector',     label: 'Lector' },
-  { id: 'atencion',   label: 'Atención' },
-  { id: 'semanero',   label: 'Semanero' },
-  { id: 'audio',      label: 'Audio' },
-  { id: 'video',      label: 'Video' },
-  { id: 'microf1',    label: 'Microf. 1' },
-  { id: 'microf2',    label: 'Microf. 2' },
-  { id: 'plataforma', label: 'Plataforma' },
-  { id: 'acomodador', label: 'Acomodador' },
-  { id: 'limpieza',   label: 'Limpieza' },
-  { id: 'seguridad',  label: 'Seguridad' },
-  { id: 'cronometrador', label: 'Cronometrador' },
-  { id: 'auxiliar',   label: 'Auxiliar' },
+  { id: 'presidente',   label: 'Presidente' },
+  { id: 'conductor1',   label: 'Conductor Atalaya' },
+  { id: 'conductor2',   label: 'Conductor Libro' },
+  { id: 'orador',       label: 'Orador' },
+  { id: 'lector1',      label: 'Lector Atalaya' },
+  { id: 'lector2',      label: 'Lector Libro' },
+  { id: 'audio',        label: 'Audio' },
+  { id: 'microf',       label: 'Micrófono' },
+  { id: 'plataforma',   label: 'Plataforma' },
+  { id: 'acomodador',   label: 'Acomodador' },
+  { id: 'asignacion1',  label: 'Lectura' },
+  { id: 'asignacion2',  label: 'Presentación' },
+  { id: 'asignacion3',  label: 'Discurso Estudiantil' },
+  { id: 'asignacion4',  label: 'Discurso Reunión' },
 ];
 
 async function renderLists() {
@@ -1649,9 +1638,6 @@ async function renderLists() {
       <div class="flex flex-wrap gap-3">
         <button id="manageRolesBtn" class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
           <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Roles
-        </button>
-        <button id="addGroupBtn" class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
-          <span class="material-symbols-outlined text-[18px]">group_add</span> Gestionar Grupos
         </button>
       </div>
       <button id="addMemberBtn" class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2">
@@ -1710,7 +1696,6 @@ async function renderLists() {
     };
   };
 
-  $('#addGroupBtn').onclick = renderGroupsModal;
   $('#manageRolesBtn').onclick = renderRolesModal;
 
   const search = $('#pSearch');
@@ -1769,36 +1754,6 @@ function renderRowsBindings() {
     await db.setPersonRoles(pid, roles);
     person.roles = roles;
   });
-}
-
-function renderGroupsModal() {
-  openModal(`
-    <h3 class="font-headline-md text-headline-md text-primary mb-2">Grupos</h3>
-    <p class="text-on-surface-variant font-body-md text-body-md mb-4">Añadir o eliminar grupos de atención a la congregación.</p>
-    <form id="dForm" class="flex gap-2 mb-4">
-      <input id="dName" type="text" placeholder="Nombre del grupo" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-      <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Agregar</button>
-    </form>
-    <ul id="dList" class="divide-y divide-outline-variant max-h-80 overflow-y-auto"></ul>
-    <button id="mdCloseG" class="mt-5 w-full px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
-  `);
-  $('#dList').innerHTML = state.departments.map(d => `<li class="flex items-center justify-between py-3 group">
-    <span class="font-body-md text-body-md">${escapeHtml(d.name)}</span>
-    <button data-ddel="${d.id}" class="text-error opacity-0 group-hover:opacity-100 transition-opacity"><span class="material-symbols-outlined text-[18px]">delete</span></button>
-  </li>`).join('') || `<li class="py-3 text-on-surface-variant text-sm">Sin grupos.</li>`;
-  $('#dList').querySelectorAll('[data-ddel]').forEach(b => b.onclick = async () => {
-    if (await confirmDialog('¿Eliminar este grupo?')) { await db.deleteDepartment(parseInt(b.dataset.ddel, 10)); state.departments = await db.listDepartments(); renderGroupsModal(); }
-  });
-  $('#dForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const name = $('#dName').value.trim();
-    if (!name) return;
-    try { await db.addDepartment(name); $('#dName').value = ''; toast('Grupo agregado', 'success'); }
-    catch (err) { toast(err.message, 'error'); }
-    state.departments = await db.listDepartments();
-    renderGroupsModal();
-  };
-  $('#mdCloseG').onclick = closeModal;
 }
 
 function renderRolesModal() {
@@ -1970,7 +1925,7 @@ async function renderUploads() {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        openJsonReview(type, await loadSerialized(data, type), uiRawText(text, type));
+        openJsonReview(type, await loadSerialized(data, type), text);
       } catch (e) {
         showStatus(status, `Error: ${e.message}. Verifique el formato del archivo.`, 'text-error');
       }
@@ -1989,7 +1944,7 @@ async function renderUploads() {
         const text = await extractPdfText(file);
         const { data, warnings } = convertPdfToData(type, text);
         if (!data) { showStatus(status, 'No se pudo interpretar este PDF. Revíselo a mano en la vista "Revisar PDF".', 'text-error'); openPdfTextReview(type, text); return; }
-        openJsonReview(type, JSON.stringify(data, null, 2), text);
+        openJsonReview(type, JSON.stringify(data, null, 2), text, warnings);
       } catch (e) {
         showStatus(status, `Error al leer PDF: ${e.message}`, 'text-error');
       }
@@ -2047,16 +2002,14 @@ function loadSerialized(data, type) {
   return JSON.stringify(data, null, 2);
 }
 
-function uiRawText(text) { return text; }
-
-// ---- Revisión de datos (modal) ----
-function openJsonReview(type, jsonText, rawText) {
+function openJsonReview(type, jsonText, rawText, warnings = []) {
   const label = (UPLOAD_TYPES.find(t => t.key === type) || { title: 'datos' }).title;
   openModal(`<div class="min-w-[80vw]">
     <h3 class="font-headline-md text-headline-md text-primary mb-2">Revisar ${label}</h3>
     <p class="font-body-md text-body-md text-on-surface-variant mb-4">Revise y edite el JSON. Al guardar se reemplazará la base de datos local de este tipo.</p>
     <div class="flex gap-3 items-center mb-3">
       <button id="rvFormat" class="px-3 py-1.5 rounded border border-outline font-label-md text-label-md text-on-surface-variant hover:bg-surface-container">Formatear</button>
+      ${(warnings || []).length ? `<span class="font-label-md text-label-md text-on-surface-variant">${warnings.map(escapeHtml).join(' · ')}</span>` : ''}
     </div>
     <textarea id="rvJson" spellcheck="false" class="w-full h-[50vh] font-mono text-sm p-4 bg-surface-container border border-outline-variant rounded-lg focus:border-primary outline-none">${escapeHtml(jsonText)}</textarea>
     ${rawText ? `<details class="mt-3"><summary class="font-label-md text-label-md text-primary cursor-pointer">Ver texto extraído del PDF</summary><pre class="mt-2 p-3 rounded bg-surface-container text-xs whitespace-pre-wrap max-h-48 overflow-auto">${escapeHtml(rawText)}</pre></details>` : ''}
@@ -2563,7 +2516,7 @@ async function renderSettings() {
   const applyGroupRotation = (weeks) => {
     const n = Math.max(parseInt(grpCant.value, 10) || curCant, 1);
     const start = Math.max(parseInt(grpStart.value, 10) || curStart, 1);
-    return moduleApplyGroupRotation(weeks, n, start);
+    return applyGroupRotationToWeeks(weeks, n, start);
   };
 
   const saveGroups = async () => {
@@ -2660,7 +2613,19 @@ async function renderMidweeks(opts = {}) {
   renderTop();
   const embed = opts.embed;
   const container = embed || $('#app');
-  const weeks = state.midweeks.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const allWeeks = state.midweeks.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  // Vista mensual: meses con reuniones de entre semana + filtrado por mes.
+  const mwMonths = [...new Set(allWeeks.map(m => String(m.id).slice(0, 7)))].sort((a, b) => b.localeCompare(a));
+  const cur = (opts.month && mwMonths.includes(opts.month))
+    ? opts.month
+    : (state.mwMonth && mwMonths.includes(state.mwMonth) ? state.mwMonth : (mwMonths[0] || ''));
+  state.mwMonth = cur;
+  const weeks = cur ? allWeeks.filter(m => String(m.id).startsWith(cur)) : allWeeks;
+
+  const monthSel = `<select id="mwMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+      ${mwMonths.map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}
+    </select>`;
 
   const summary = (w) => {
     let total = 0, done = 0;
@@ -2676,6 +2641,13 @@ async function renderMidweeks(opts = {}) {
 
   if (embed) {
     embed.innerHTML = `
+      <div class="flex items-center gap-3 mb-6 flex-wrap">
+        <label class="font-label-md text-label-md text-on-surface-variant">Mes</label>
+        ${monthSel}
+        <button id="mwMonthPrevBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all whitespace-nowrap">
+          <span class="material-symbols-outlined text-[18px]">description</span> Vista Final Mensual
+        </button>
+      </div>
       <div id="mwList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter"></div>
     `;
   } else {
@@ -2683,9 +2655,18 @@ async function renderMidweeks(opts = {}) {
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10">
       <div>
         <h1 class="font-display-lg text-display-lg text-primary mb-2">Reunión de Entre Semana</h1>
-        <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">Programa de la reunión de entre semana. Revise cada semana y asigne los participantes a cada parte.</p>
+        <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">Programa mensual de la reunión de entre semana. Revise cada semana y asigne los participantes a cada parte.</p>
       </div>
-      <div id="mwTotals" class="text-right text-sm text-on-surface-variant"></div>
+      <div class="flex items-center gap-3 flex-wrap">
+        ${monthSel}
+        <div id="mwTotals" class="text-right text-sm text-on-surface-variant"></div>
+        <button id="mwListaBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all whitespace-nowrap">
+          <span class="material-symbols-outlined text-[18px]">view_list</span> Vista Lista
+        </button>
+        <button id="mwMonthPrevBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container transition-all whitespace-nowrap">
+          <span class="material-symbols-outlined text-[18px]">description</span> Vista Final Mensual
+        </button>
+      </div>
     </div>
     <div id="mwList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter"></div>
   `;
@@ -2693,6 +2674,9 @@ async function renderMidweeks(opts = {}) {
 
   const list = embed ? embed.querySelector('#mwList') : $('#mwList');
   if (!list) return;
+
+  const monthNode = embed ? embed.querySelector('#mwMonth') : $('#mwMonth');
+  if (monthNode) monthNode.onchange = (e) => renderMidweeks({ embed, month: e.target.value });
 
   if (weeks.length === 0) {
     list.innerHTML = `<div class="col-span-full text-center py-16 border-2 border-dashed border-outline-variant rounded-xl">
@@ -2731,21 +2715,566 @@ async function renderMidweeks(opts = {}) {
 
   list.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('midweek', { monthId: b.dataset.open }));
   list.querySelectorAll('[data-preview]').forEach(b => b.onclick = () => go('midweekPreview', { monthId: b.dataset.preview }));
+  const monthPrevBtn = embed ? embed.querySelector('#mwMonthPrevBtn') : $('#mwMonthPrevBtn');
+  if (monthPrevBtn) monthPrevBtn.onclick = () => go('midweekMonthPreview', { monthId: state.mwMonth });
+  if (!embed) {
+    const listaBtn = $('#mwListaBtn');
+    if (listaBtn) listaBtn.onclick = () => go('midweekList');
+  }
+}
+
+/* ---------- MIDWEEK: vista lista (cards por reunión, similar a fin de semana) ---------- */
+function renderMidweekList() {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
+  const weeks = state.midweeks.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const back = `<button data-back class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+    <span class="material-symbols-outlined text-[18px]">view_module</span> Vista Tarjetas
+  </button>`;
+  app.innerHTML = `
+    <div class="mb-8 text-center md:text-left">
+      <div class="flex items-center gap-3 mb-2 justify-center md:justify-start">
+        <span class="editorial-line w-12 hidden md:block"></span>
+        <p class="font-label-md text-label-md text-secondary uppercase tracking-widest">REUNIÓN DE ENTRE SEMANA</p>
+      </div>
+      <div class="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="font-display-lg text-display-lg text-primary mb-2 leading-tight">Vista Lista</h1>
+          <p class="font-body-lg text-body-lg text-on-surface-variant">Todas las reuniones de entre semana con sus asignaciones y labores.</p>
+        </div>
+        ${back}
+      </div>
+    </div>
+    <div id="mwLista" class="grid grid-cols-1 md:grid-cols-2 gap-gutter"></div>
+  `;
+  $('[data-back]').onclick = () => go('midweeks');
+  const list = $('#mwLista');
+  if (!weeks.length) {
+    list.innerHTML = `<div class="col-span-full text-center py-16 border-2 border-dashed border-outline-variant rounded-xl">
+      <span class="material-symbols-outlined text-primary text-6xl mb-4">event_available</span>
+      <p class="text-on-surface-variant font-body-lg">No hay semanas cargadas para la reunión de entre semana.</p>
+    </div>`;
+    return;
+  }
+  list.innerHTML = weeks.map((w, i) => midweekCardList(w, i)).join('');
+}
+
+function midweekCardList(w, i) {
+  const date = new Date(w.id + 'T00:00:00');
+  const day = date.getDate();
+  const monthName = MONTHS_ES[date.getMonth()].toUpperCase();
+  const assigned = (sec, p) => {
+    const ap = p.assignments || {};
+    const names = mwSlotsFor(sec, p).map(s => {
+      const v = ap[s.key];
+      return v ? personNameOf(v) : null;
+    }).filter(Boolean);
+    return names.length ? escapeHtml(names.join(' · ')) : '—';
+  };
+  const sectionsHtml = (w.sections || []).map(sec => {
+    const parts = (sec.parts || []).map(p => `
+      <div class="flex items-start justify-between gap-3 py-2 ${p !== (sec.parts || []).at(-1) ? 'border-b border-outline-variant/20' : ''}">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="font-body-md text-body-md font-semibold text-primary shrink-0">${p.num}.</span>
+          <span class="font-body-md text-body-md text-on-surface">${escapeHtml(p.title)} <span class="text-caption text-on-surface-variant">(${p.mins} min)</span></span>
+        </div>
+        <span class="font-body-md text-body-md font-semibold text-on-surface text-right shrink-0">${assigned(sec, p)}</span>
+      </div>`).join('');
+    return `<div class="mt-4">
+      <p class="font-label-md text-label-md text-secondary uppercase tracking-wider mb-1">${escapeHtml(sec.title)}</p>
+      <div>${parts || '<p class="text-on-surface-variant text-sm">Sin partes.</p>'}</div>
+    </div>`;
+  }).join('');
+  return `<div class="week-card bg-surface-container-low border-l-4 border-primary p-8 rounded-lg">
+    <div class="flex justify-between items-start mb-4">
+      <div>
+        <div class="flex gap-2 items-center mb-3 flex-wrap">
+          <span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana ${i + 1}</span>
+          <span class="font-label-md text-label-md text-on-primary bg-primary px-3 py-1 rounded-full uppercase">${escapeHtml(w.header)}</span>
+        </div>
+        <h2 class="font-headline-lg text-headline-lg text-primary">${day} ${monthName}</h2>
+        <p class="font-body-md text-body-md text-on-surface-variant mt-1">Lectura: ${escapeHtml(w.reading || '—')}</p>
+        <p class="font-body-md text-body-md text-on-surface-variant">Presidente: ${escapeHtml(personNameOf(w.presidente))}</p>
+      </div>
+      <span class="material-symbols-outlined text-primary text-4xl">auto_stories</span>
+    </div>
+    ${sectionsHtml}
+    ${previewLaboresBox(w)}
+  </div>`;
+}
+
+/* ---------- LABORES: vista mensual que combina ambas reuniones ---------- */
+async function renderLabores(monthId, opts = {}) {
+  const embed = opts.embed;
+  if (!embed) {
+    state.month = null;
+    renderTop();
+  }
+  const root = embed || $('#app');
+  const months = await db.listMonths();
+  months.sort((a, b) => b.id.localeCompare(a.id));
+
+  // Meses disponibles: programas de fin de semana + meses con reuniones de entre semana.
+  const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
+  const allMonths = [...new Set([...months.map(m => m.id), ...mwMonths])].sort((a, b) => b.localeCompare(a));
+  const cur = (monthId && allMonths.includes(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
+  const month = months.find(m => m.id === cur) || null;
+
+  // Cada columna es una semana de la organización (domingo que cierra la semana).
+  // La reunión de fin de semana (sábado) y la de entre semana (lunes) de la misma
+  // semana comparten ese domingo, así ambas se alinean en una única matriz.
+  const weekSunday = (iso) => {
+    const d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6); // lunes → domingo de la semana
+    return isoDate(d);
+  };
+  const finBySunday = new Map();
+  ((month && month.weeks) || []).forEach(w => finBySunday.set(weekSunday(w.date), w));
+  const mwBySunday = new Map();
+  state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
+  const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])]
+    .filter(s => s.startsWith(cur))
+    .sort();
+
+  const slotValue = (week, key, si) => {
+    const l = ensureLabores(week).labores;
+    return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
+  };
+  const fmtShort = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+
+  const columns = sundays.map((sunday, i) => {
+    const fin = finBySunday.get(sunday);
+    const mw = mwBySunday.get(sunday);
+    const cell = (finName, mwName) => {
+      const bits = [];
+      if (finName) bits.push(`<div class="flex items-center justify-center gap-1"><span class="truncate font-semibold text-on-surface">${escapeHtml(finName)}</span><span class="text-[9px] uppercase tracking-wider text-on-surface-variant" title="Reunión de fin de semana">FS</span></div>`);
+      if (mwName) bits.push(`<div class="flex items-center justify-center gap-1"><span class="truncate font-semibold text-on-surface">${escapeHtml(mwName)}</span><span class="text-[9px] uppercase tracking-wider text-on-surface-variant" title="Reunión de entre semana">ES</span></div>`);
+      return bits.length ? bits.join('') : '<span class="text-on-surface-variant">—</span>';
+    };
+    return {
+      i,
+      fin,
+      mw,
+      sub: mw ? mw.header : (fin ? fmtShort(fin.date) : ''),
+      cell,
+    };
+  });
+
+  const thead = `<thead><tr class="bg-surface-container border-b border-outline-variant">
+    <th class="p-4 font-label-md text-label-md text-secondary uppercase text-left whitespace-nowrap">Labor</th>
+    ${columns.map(c => `<th class="p-4 font-label-md text-label-md text-secondary uppercase text-center whitespace-nowrap min-w-[130px]">
+      <div>Sem. ${c.i + 1}</div>
+      <div class="text-caption text-on-surface-variant normal-case font-normal">${escapeHtml(c.sub)}</div>
+    </th>`).join('')}
+  </tr></thead>`;
+  const rows = [];
+  for (const d of LABORES_DEF) {
+    for (let si = 0; si < d.count; si++) {
+      const cells = columns.map(c => {
+        const fin = c.fin ? slotValue(c.fin, d.key, si) : '';
+        const mw = c.mw ? slotValue(c.mw, d.key, si) : '';
+        return `<td class="p-4 text-center font-body-md text-body-md">${c.cell(fin ? personNameOf(fin) : null, mw ? personNameOf(mw) : null)}</td>`;
+      }).join('');
+      rows.push(`<tr class="border-b border-outline-variant/40">
+        <td class="p-4 font-body-md text-body-md text-on-surface whitespace-nowrap">${escapeHtml(d.label)}${d.count > 1 ? ` ${si + 1}` : ''}</td>
+        ${cells}
+      </tr>`);
+    }
+  }
+  const empty = columns.length === 0;
+  const title = embed
+    ? ''
+    : `<h1 class="font-display-lg text-display-lg text-primary mb-2">Labores del Mes</h1>
+      <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Asignaciones de atención (tras bambalinas) de ambas reuniones · ${MONTHS_ES[Number(cur.slice(5)) - 1]} ${cur.slice(0, 4)}.</p>`;
+
+  root.innerHTML = `
+    <div class="${embed ? 'mb-0' : 'mb-8'}">
+      ${title}
+      <div class="mt-4 max-w-xs">
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
+        <select id="labMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="mt-4 flex items-center gap-5 text-xs text-on-surface-variant">
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-full bg-primary"></span> Reunión de fin de semana</span>
+        <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-full bg-secondary"></span> Reunión de entre semana</span>
+      </div>
+    </div>
+    ${empty
+      ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">
+          <span class="material-symbols-outlined text-primary text-5xl mb-3 inline-block">work</span>
+          <p class="text-on-surface-variant font-body-lg">No hay programas ni reuniones de entre semana cargados para este mes.</p>
+        </div>`
+      : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 md:p-8 overflow-x-auto">
+          <table class="w-full text-left border-collapse min-w-[640px]">${thead}<tbody>${rows.join('')}</tbody></table>
+        </div>`}
+  `;
+  const monthSel = embed ? embed.querySelector('#labMonth') : $('#labMonth');
+  monthSel.onchange = (e) => {
+    if (embed) renderLabores(e.target.value, { embed });
+    else go('labores', { monthId: e.target.value });
+  };
+}
+
+/* ---------- LABOR GRUPO: asignación del grupo de atención por semana ---------- */
+async function renderLaboresGrupo(monthId, opts = {}) {
+  const embed = opts.embed;
+  if (!embed) {
+    state.month = null;
+    renderTop();
+  }
+  const root = embed || $('#app');
+  const months = await db.listMonths();
+  months.sort((a, b) => b.id.localeCompare(a.id));
+  const allMonths = months.map(m => m.id);
+  const cur = (monthId && allMonths.includes(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
+  const month = months.find(m => m.id === cur) || null;
+  const weeks = (month && month.weeks) || [];
+
+  // Grupos ordenados por número ("Grupo i" / "i"). El ciclo sigue la cantidad configurada.
+  const numbered = state.departments
+    .map(d => {
+      const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
+      return { d, num: m ? Number(m[1]) : null };
+    })
+    .sort((a, b) => (a.num ?? 999) - (b.num ?? 999));
+  const n = Number(state.config?.groups?.cantidad) || Math.max(numbered.filter(o => o.num !== null).length, 1) || state.departments.length || 1;
+  const numOfDept = (id) => {
+    const d = state.departments.find(x => String(x.id) === String(id));
+    const m = d && /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
+    return m ? Number(m[1]) : null;
+  };
+  const deptForNum = (num) => {
+    const byNum = numbered.find(o => o.num === num);
+    return byNum ? byNum.d.id : (numbered[(num - 1) % numbered.length]?.d.id || '');
+  };
+  const groupOpts = (curVal) => `<option value="">— Sin asignar —</option>` +
+    state.departments.map(d => `<option value="${d.id}" ${String(d.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
+
+  // Solo la primera semana con reunión (no asamblea) tiene selector; el resto se
+  // asigna en correlativo con ciclo (al llegar al grupo N vuelve al 1).
+  const startIdx = weeks.findIndex(w => w.type !== 'assembly');
+  const startId = startIdx >= 0 ? weeks[startIdx].departamento : '';
+  const assigned = [];
+  let prevNum = startId ? numOfDept(startId) : null;
+  weeks.forEach((w, i) => {
+    if (w.type === 'assembly') { assigned.push(null); return; }
+    if (i === startIdx) { assigned.push(startId); return; }
+    if (prevNum == null) { assigned.push(''); return; }
+    prevNum = (prevNum % n) + 1;
+    assigned.push(deptForNum(prevNum));
+  });
+
+  const rows = weeks.map((w, i) => {
+    const d = new Date(w.date + 'T00:00:00');
+    const dateStr = capitalize(d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }));
+    const typeBadge = w.type === 'normal' ? '' : `<span class="font-label-md text-label-md text-on-surface-variant uppercase text-[10px]">· ${WEEK_TYPES[w.type].label}</span>`;
+    let groupCell;
+    if (w.type === 'assembly') {
+      groupCell = '<span class="text-on-surface-variant text-sm">Asamblea · sin reunión local</span>';
+    } else if (i === startIdx) {
+      groupCell = `<select data-wgroup="${i}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${groupOpts(w.departamento)}</select>`;
+    } else {
+      const name = assigned[i] ? deptNameOf(assigned[i]) : '—';
+      groupCell = `<span class="font-body-md text-body-md font-semibold text-on-surface">${escapeHtml(name)}</span>`;
+    }
+    return `<tr class="border-b border-outline-variant/40">
+      <td class="p-4 whitespace-nowrap">
+        <div class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</div>
+      </td>
+      <td class="p-4 font-body-md text-body-md text-on-surface">${dateStr} ${typeBadge}</td>
+      <td class="p-4 min-w-[220px]">${groupCell}</td>
+    </tr>`;
+  }).join('');
+
+  const title = embed
+    ? ''
+    : `<h1 class="font-display-lg text-display-lg text-primary mb-2">Labor Grupo</h1>
+      <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Grupo de atención (aseo y hospitalidad) por semana · ${MONTHS_ES[Number(cur.slice(5)) - 1]} ${cur.slice(0, 4)}.</p>`;
+
+  root.innerHTML = `
+    <div class="${embed ? 'mb-0' : 'mb-8'}">
+      ${title}
+      <div class="mt-4 max-w-xs">
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
+        <select id="labGrupoMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    ${!month
+      ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">
+          <span class="material-symbols-outlined text-primary text-5xl mb-3 inline-block">handshake</span>
+          <p class="text-on-surface-variant font-body-lg">No hay programas de fin de semana para este mes.</p>
+        </div>`
+      : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[520px]">
+              <thead><tr class="bg-surface-container border-b border-outline-variant">
+                <th class="p-4 font-label-md text-label-md text-secondary uppercase">Semana</th>
+                <th class="p-4 font-label-md text-label-md text-secondary uppercase">Fecha</th>
+                <th class="p-4 font-label-md text-label-md text-secondary uppercase">Grupo de atención</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <p class="px-4 pb-4 text-on-surface-variant text-sm">Seleccione el grupo de la primera semana; las demás se asignan en correlativo (al llegar al grupo ${n} vuelve al 1).</p>
+        </div>`}
+  `;
+
+  const monthSel = embed ? embed.querySelector('#labGrupoMonth') : $('#labGrupoMonth');
+  monthSel.onchange = (e) => {
+    if (embed) renderLaboresGrupo(e.target.value, { embed });
+    else go('laboresGrupo', { monthId: e.target.value });
+  };
+
+  root.querySelectorAll('select[data-wgroup]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const idx = parseInt(sel.dataset.wgroup, 10);
+      const startId = sel.value === '' ? '' : parseInt(sel.value, 10);
+      let prevNum = startId ? numOfDept(startId) : null;
+      weeks.forEach((w, i) => {
+        if (w.type === 'assembly') return;
+        if (i === idx) { w.departamento = startId; return; }
+        if (prevNum == null) { w.departamento = ''; return; }
+        prevNum = (prevNum % n) + 1;
+        w.departamento = deptForNum(prevNum);
+      });
+      await db.putMonth(month);
+      toast('Rotación de grupos aplicada', 'success');
+      renderLaboresGrupo(cur, { embed });
+    });
+  });
+}
+
+/* ---------- VISTA MENSUAL GENERAL: agrupa ambas reuniones por semana ---------- */
+async function renderGeneralMonth(monthId, opts = {}) {
+  const embed = opts.embed;
+  if (!embed) { state.month = null; renderTop(); }
+  const root = embed || $('#app');
+  const months = await db.listMonths();
+  months.sort((a, b) => b.id.localeCompare(a.id));
+
+  const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
+  const allMonths = [...new Set([...months.map(m => m.id), ...mwMonths])].sort((a, b) => b.localeCompare(a));
+  const cur = (monthId && allMonths.includes(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
+  const month = months.find(m => m.id === cur) || null;
+
+  // Cada semana de la organización (domingo que la cierra) agrupa su reunión de
+  // entre semana (lunes) y su reunión de fin de semana (sábado).
+  const weekSunday = (iso) => {
+    const d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6);
+    return isoDate(d);
+  };
+  const finBySunday = new Map();
+  ((month && month.weeks) || []).forEach(w => finBySunday.set(weekSunday(w.date), w));
+  const mwBySunday = new Map();
+  state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
+  const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])]
+    .filter(s => s.startsWith(cur))
+    .sort();
+
+  const boxes = sundays.map((sunday, i) => generalWeekBox({
+    fin: finBySunday.get(sunday) || null,
+    mw: mwBySunday.get(sunday) || null,
+    i,
+  }));
+
+  const title = embed ? '' : `
+    <h1 class="font-display-lg text-display-lg text-primary mb-2">Vista Mensual General</h1>
+    <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Todas las reuniones del mes, semana por semana.</p>`;
+
+  root.innerHTML = `
+    <div class="${embed ? 'mb-0' : 'mb-8'}">
+      ${title}
+      <div class="mt-4 max-w-xs">
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
+        <select id="generalMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    ${boxes.length
+      ? `<div class="space-y-6">${boxes.join('')}</div>`
+      : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">
+          <span class="material-symbols-outlined text-primary text-5xl mb-3 inline-block">calendar_month</span>
+          <p class="text-on-surface-variant font-body-lg">No hay programas ni reuniones de entre semana cargados para este mes.</p>
+        </div>`}
+  `;
+  const monthSel = embed ? embed.querySelector('#generalMonth') : $('#generalMonth');
+  monthSel.onchange = (e) => {
+    if (embed) renderGeneralMonth(e.target.value, { embed });
+    else go('general', { monthId: e.target.value });
+  };
+}
+
+// Cuadro de una semana en la vista mensual general.
+function generalWeekBox({ fin, mw, i }) {
+  const header = mw ? mw.header : (fin ? new Date(fin.date + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
+  return `
+  <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
+    <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+      <h3 class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</h3>
+      <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="rounded-lg border border-outline-variant p-4">
+        <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">auto_stories</span> Entre Semana
+        </p>
+        ${mw ? generalEsContent(mw) : '<p class="text-sm text-on-surface-variant">Sin reunión de entre semana.</p>'}
+      </div>
+      <div class="rounded-lg border border-outline-variant p-4">
+        <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">record_voice_over</span> Fin de Semana
+        </p>
+        ${fin ? generalFsContent(fin) : '<p class="text-sm text-on-surface-variant">Sin programa de fin de semana.</p>'}
+      </div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div class="rounded-lg border border-outline-variant p-4">${generalLabores({ fin, mw })}</div>
+      <div class="rounded-lg border border-outline-variant p-4 flex flex-col justify-center">${generalGroup(fin)}</div>
+    </div>
+  </div>`;
+}
+
+// Reunión de entre semana compacta para el cuadro semanal.
+function generalEsContent(w) {
+  const assigned = (sec, p) => {
+    const ap = p.assignments || {};
+    return mwSlotsFor(sec, p).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+  };
+  const section = (sec) => {
+    const parts = (sec.parts || []).map(p => {
+      const nm = assigned(sec, p);
+      return `<div class="flex items-baseline justify-between gap-2 py-[2px]">
+        <span class="text-xs text-on-surface">${p.num}. ${escapeHtml(p.title)} <span class="text-on-surface-variant">(${p.mins})</span></span>
+        <span class="text-xs font-semibold text-on-surface text-right whitespace-nowrap">${nm ? escapeHtml(nm) : ''}</span>
+      </div>`;
+    }).join('');
+    return `<div class="mb-2">
+      <p class="font-label-md text-label-md text-secondary uppercase text-[10px] tracking-wider mb-0.5">${escapeHtml(sec.title)}</p>
+      ${parts}
+    </div>`;
+  };
+  const introSong = w.introSong || w.songIn;
+  return `
+    <div class="text-center mb-2">
+      <div class="font-bold text-on-surface text-sm">${escapeHtml(w.header)}</div>
+      <div class="text-xs text-on-surface-variant">Lectura: ${escapeHtml(w.reading || '—')}</div>
+      <div class="text-xs text-on-surface-variant">Presidente: ${escapeHtml(personNameOf(w.presidente))}</div>
+      <div class="text-[11px] text-on-surface-variant mt-1">♪ ${escapeHtml(introSong || '—')} · ${escapeHtml(w.introTitle || '')} (${w.introMins || 1} min.)</div>
+    </div>
+    ${section((w.sections || []).find(s => s.id === 'tesoros'))}
+    ${section((w.sections || []).find(s => s.id === 'maestros'))}
+    ${section((w.sections || []).find(s => s.id === 'vida'))}
+    <div class="text-[11px] text-on-surface-variant border-t border-outline-variant/30 pt-1 mt-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')} (${w.closingMins || 3} mins.) · ♪ ${escapeHtml(w.songOut || '—')}</div>`;
+}
+
+// Reunión de fin de semana compacta para el cuadro semanal.
+function generalFsContent(w) {
+  if (w.type === 'assembly') return `<div class="flex flex-col items-center justify-center py-6 text-center">
+    <span class="material-symbols-outlined text-primary text-4xl mb-2">event_busy</span>
+    <p class="text-on-surface-variant text-sm">Asamblea · sin reunión local.</p>
+  </div>`;
+  const rows = [];
+  if (w.type === 'normal') {
+    rows.push(['Presidente', personNameOf(w.presidente)]);
+    rows.push(['Discurso', w.tituloDiscurso || '—']);
+    rows.push(['Orador', w.orador || '—']);
+    rows.push(['Conductor', personNameOf(w.conductor)]);
+    rows.push(['Lector', personNameOf(w.lector)]);
+    (w.outings || []).forEach((o, j) => rows.push([`Salida ${j + 1}`, `${personNameOf(o.oradorSalida)}${o.tituloDiscurso ? ' · ' + o.tituloDiscurso : ''}`]));
+  } else if (w.type === 'supervisor') {
+    rows.push(['Presidente', personNameOf(w.presidente)]);
+    rows.push(['Superintendente', w.nombreSupervisor || '—']);
+    rows.push(['Discurso público', w.discursoSupervisor1 || '—']);
+    rows.push(['Estudio (sin lectura)', personNameOf(w.estudioSinLectura)]);
+    rows.push(['Discurso de servicio', w.discursoSupervisor2 || '—']);
+  } else if (w.type === 'commemoration') {
+    rows.push(['Discurso', w.tituloDiscurso || '—']);
+    rows.push(['Presidente', personNameOf(w.presidente)]);
+    rows.push(['Orador', w.orador || '—']);
+  }
+  return `<div class="flex items-center gap-2 mb-2">
+    <span class="material-symbols-outlined text-secondary text-[18px]">${WEEK_TYPES[w.type].icon}</span>
+    <span class="font-label-md text-label-md text-secondary uppercase">${WEEK_TYPES[w.type].label}</span>
+  </div>` +
+    rows.map(([k, v]) => `<div class="flex justify-between gap-3 py-1 border-b border-outline-variant/20 last:border-0">
+      <span class="text-xs text-on-surface-variant whitespace-nowrap">${k}</span>
+      <span class="text-sm font-semibold text-on-surface text-right">${escapeHtml(String(v))}</span>
+    </div>`).join('');
+}
+
+// Labores combinadas (fin de semana FS + entre semana ES) del cuadro semanal.
+function generalLabores({ fin, mw }) {
+  const slot = (week, key, si) => {
+    const l = ensureLabores(week).labores;
+    return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
+  };
+  const rows = LABORES_DEF.map(({ key, label, count }) => {
+    const bits = [];
+    for (let si = 0; si < count; si++) {
+      const finName = fin ? slot(fin, key, si) : '';
+      const mwName = mw ? slot(mw, key, si) : '';
+      const parts = [];
+      if (finName) parts.push(`${escapeHtml(personNameOf(finName))} <span class="text-[9px] uppercase text-on-surface-variant">FS</span>`);
+      if (mwName) parts.push(`${escapeHtml(personNameOf(mwName))} <span class="text-[9px] uppercase text-on-surface-variant">ES</span>`);
+      bits.push(`<div class="flex justify-between gap-2 text-xs">
+        <span class="text-on-surface-variant">${label}${count > 1 ? ` ${si + 1}` : ''}</span>
+        <span class="font-semibold text-on-surface text-right">${parts.length ? parts.join(' · ') : '—'}</span>
+      </div>`);
+    }
+    return bits.join('');
+  }).join('');
+  return `<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+    <span class="material-symbols-outlined text-[18px]">work</span> Labores
+  </div>${rows}`;
+}
+
+// Grupo de atención de la semana (a la derecha del cuadro).
+function generalGroup(fin) {
+  const grupo = (fin && fin.departamento) ? deptNameOf(fin.departamento) : '—';
+  const desc = state.config?.groups?.labores || '';
+  return `
+    <div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
+      <span class="material-symbols-outlined text-[18px]">handshake</span> Grupo de la semana
+    </div>
+    <div class="text-center">
+      <div class="font-headline-lg text-[40px] leading-none text-primary">${escapeHtml(grupo)}</div>
+      ${desc ? `<p class="text-xs text-on-surface-variant mt-2">${escapeHtml(desc)}</p>` : ''}
+    </div>`;
 }
 
 /* ---------- MIDWEEK: editor de una semana ---------- */
-const MW_SLOTS = {
-  1: () => [{ key: 'conductor', label: 'Conductor' }],
-  2: () => [{ key: 'conductor', label: 'Conductor de perlas' }],
-  3: () => [{ key: 'lector', label: 'Lector' }],
-  4: () => [{ key: 'estudiante', label: 'Estudiante' }, { key: 'ayudante', label: 'Ayudante' }],
-  5: () => [{ key: 'estudiante', label: 'Estudiante' }, { key: 'ayudante', label: 'Ayudante' }],
-  6: () => [{ key: 'estudiante', label: 'Estudiante' }, { key: 'ayudante', label: 'Ayudante' }],
-};
-
-function mwSlotsFor(part) {
-  const fn = MW_SLOTS[part.num] || (() => [{ key: 'conductor', label: 'Conductor' }]);
-  return fn();
+// Mapea cada parte de entre semana a sus puestos y al rol que la cubre.
+// Se basa en la sección y la posición (no en el número de parte, que puede
+// variar cuando "Seamos Mejores Maestros" tiene 4 asignaciones).
+function mwSlotsFor(sec, part) {
+  const secId = sec && sec.id;
+  const parts = (sec && sec.parts) || [];
+  const idx = parts.indexOf(part);
+  if (secId === 'tesoros') {
+    // Última parte = Lectura de la Biblia (asignacion1); el resto son discursos (asignacion4).
+    if (idx === parts.length - 1) return [{ key: 'lector', label: 'Lector', role: 'asignacion1' }];
+    return [{ key: 'conductor', label: idx === 0 ? 'Discurso' : 'Perlas', role: 'asignacion4' }];
+  }
+  if (secId === 'maestros') {
+    // "Seamos Mejores Maestros": las presentaciones son de 2 personas (asignacion2);
+    // si la parte dice "discurso" es de 1 persona (asignacion3).
+    if (/discurso/i.test(String(part.title || ''))) return [{ key: 'conductor', label: 'Discurso', role: 'asignacion3' }];
+    return [{ key: 'estudiante', label: 'Estudiante', role: 'asignacion2' }, { key: 'ayudante', label: 'Ayudante', role: 'asignacion2' }];
+  }
+  if (secId === 'vida') {
+    // Última parte = Estudio Bíblico de la Congregación (conductor2 + lector2);
+    // las anteriores son discursos de la reunión (asignacion4).
+    if (idx === parts.length - 1) return [{ key: 'conductor', label: 'Conductor', role: 'conductor2' }, { key: 'lector', label: 'Lector', role: 'lector2' }];
+    return [{ key: 'conductor', label: 'Discurso', role: 'asignacion4' }];
+  }
+  return [{ key: 'conductor', label: 'Conductor' }];
 }
 
 async function renderMidweek(id) {
@@ -2777,14 +3306,28 @@ async function renderMidweek(id) {
   $('#mwPreviewBtn').onclick = () => go('midweekPreview', { monthId: id });
 
   const editor = $('#mwEditor');
-  editor.innerHTML = (week.sections || []).map((sec, si) => {
+  const presOpts = ['<option value="">— Sin asignar —</option>'];
+  const presList = state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes('presidente'));
+  for (const person of presList) {
+    presOpts.push(`<option value="${person.id}" ${String(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
+  }
+  editor.innerHTML = `
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-headline-md text-headline-md text-primary">Presidente</h2>
+      </div>
+      <select data-mw-presidente class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${presOpts.join('')}</select>
+    </div>` + (week.sections || []).map((sec, si) => {
     const parts = (sec.parts || []).map(p => {
-      const slots = mwSlotsFor(p);
+      const slots = mwSlotsFor(sec, p);
       const ap = p.assignments || {};
       const slotFields = slots.map(s => {
         const cur = ap[s.key];
         const opts = ['<option value="">— Sin asignar —</option>'];
-        for (const person of state.people) {
+        const list = s.role
+          ? state.people.filter(per => !Array.isArray(per.roles) || per.roles.length === 0 || per.roles.includes(s.role))
+          : state.people;
+        for (const person of list) {
           opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
         }
         return `<div class="flex-1 min-w-[160px]">
@@ -2813,7 +3356,7 @@ async function renderMidweek(id) {
 
   editor.innerHTML += `<div class="mt-6">${midweekLaboresEditor(week)}</div>`;
   mwRefreshConflicts(editor, week);
-  editor.querySelectorAll('select[data-mw-labore], select.mwSel').forEach(bindMwChange);
+  editor.querySelectorAll('select[data-mw-presidente], select[data-mw-labore], select.mwSel').forEach(bindMwChange);
   editor.querySelectorAll('select[data-mw-labore]').forEach(bindMwLaboreChange);
 
   $('#mwSave').onclick = async () => {
@@ -2825,7 +3368,7 @@ async function renderMidweek(id) {
     }
     week.sections.forEach((sec, si) => {
       sec.parts.forEach(p => {
-        const slots = mwSlotsFor(p);
+        const slots = mwSlotsFor(sec, p);
         const ap = { ...(p.assignments || {}) };
         for (const f of slots) {
           const sel = editor.querySelector(`[data-sec="${si}"][data-part="${p.num}"][data-slot="${f.key}"]`);
@@ -2834,7 +3377,9 @@ async function renderMidweek(id) {
         p.assignments = ap;
       });
     });
-    week.labores = state.editingMidweek || ensureLabores(week).labores;
+    week.labores = ensureLabores(week).labores;
+    const presSel = editor.querySelector('select[data-mw-presidente]');
+    if (presSel) week.presidente = presSel.value;
     await db.putMidweek(week);
     state.midweeks = await db.listMidweeks();
     toast('Asignaciones guardadas', 'success');
@@ -2845,16 +3390,15 @@ async function renderMidweek(id) {
 /* Labores en el editor de midweek (se persisten en week.labores) */
 function midweekLaboresEditor(week) {
   const w = ensureLabores(week);
-  state.editingMidweek = w.labores;
   const l = w.labores;
-  const rows = LABORES_DEFS.map(({ key, label, icon, count }) => {
+  const rows = LABORES_DEF.map(({ key, label, icon, count }) => {
     const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
       ? l[key]
       : [l[key] || ''];
     const fields = Array.from({ length: count }, (_, si) => {
       const cur = slots[si] || '';
       const opts = ['<option value="">— Sin asignar —</option>'];
-      for (const p of state.people) {
+      for (const p of state.people.filter(isLaborePerson)) {
         opts.push(`<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`);
       }
       return `<div class="flex-1 min-w-[130px]">
@@ -2872,7 +3416,7 @@ function midweekLaboresEditor(week) {
   }).join('');
   return `<div class="rounded-lg border border-dashed border-on-surface-variant/40 bg-surface-bright/40 p-5">
     <div class="flex items-center gap-2 mb-1">
-     <h2 class="font-headline-md text-headline-md text-on-surface-variant">Atencion departamentos</h2>
+     <h2 class="font-headline-md text-headline-md text-on-surface-variant">Atención departamentos</h2>
     </div>
    <div class="space-y-4">${rows}</div>
   </div>`;
@@ -2880,9 +3424,13 @@ function midweekLaboresEditor(week) {
 
 function bindMwLaboreChange(node) {
   node.addEventListener('change', () => {
+    const editor = $('#mwEditor');
+    const id = editor?.dataset.mwid;
+    const wk = state.midweeks.find(w => String(w.id) === String(id));
+    if (!wk) return;
+    const labores = ensureLabores(wk).labores;
     const key = node.dataset.mwLabore;
     const slot = parseInt(node.dataset.mwLaboreIdx, 10);
-    const labores = state.editingMidweek;
     const val = node.value === '' ? '' : node.value;
     if (Array.isArray(labores[key])) labores[key][slot] = val;
     else labores[key] = val;
@@ -2895,6 +3443,8 @@ function bindMwLaboreChange(node) {
 // y devuelve el conjunto de keys con persona duplicada dentro de la reunión.
 function mwCurrentDupKeys(editor) {
   const persons = [];
+  const pres = editor.querySelector('select[data-mw-presidente]');
+  if (pres && pres.value) persons.push({ value: String(pres.value), key: 'mw_presidente' });
   editor.querySelectorAll('select.mwSel').forEach(sel => {
     if (sel.value) persons.push({
       value: String(sel.value),
@@ -2906,15 +3456,7 @@ function mwCurrentDupKeys(editor) {
     const slot = parseInt(sel.dataset.mwLaboreIdx, 10);
     if (sel.value) persons.push({ value: String(sel.value), key: `labores_${key}_${slot}` });
   });
-  return dedupKeys(persons);
-}
-
-function dedupKeys(persons) {
-  const byValue = {};
-  persons.forEach(p => { (byValue[p.value] ||= []).push(p.key); });
-  const dup = new Set();
-  Object.values(byValue).forEach(ks => { if (ks.length > 1) ks.forEach(k => dup.add(k)); });
-  return dup;
+  return dedupPersons(persons).dupKeys;
 }
 
 // Estiliza selects duplicados y muestra un rótulo "Conflicto" parpadeante junto
@@ -2933,10 +3475,11 @@ function mwRefreshConflicts(editor, week) {
   });
 
   // selects (pads + labores): borde rojo en duplicados
-  editor.querySelectorAll('select.mwSel, select[data-mw-labore]').forEach(sel => {
-    const key = sel.classList.contains('mwSel')
-      ? `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`
-      : `labores_${sel.dataset.mwLabore}_${sel.dataset.mwLaboreIdx}`;
+  editor.querySelectorAll('select.mwSel, select[data-mw-labore], select[data-mw-presidente]').forEach(sel => {
+    let key;
+    if (sel.classList.contains('mwSel')) key = `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`;
+    else if (sel.dataset.mwLabore !== undefined) key = `labores_${sel.dataset.mwLabore}_${sel.dataset.mwLaboreIdx}`;
+    else key = 'mw_presidente';
     const isDup = dup.has(key);
     sel.classList.toggle('border-error', isDup);
     sel.classList.toggle('border-outline-variant', !isDup);
@@ -2989,9 +3532,15 @@ async function renderMidweekPreview(id) {
 }
 
 function midweekPreviewDocument(w) {
-  const assigned = (p) => {
+  return `<div id="mwDoc" class="page-container rounded-lg" style="max-width:800px;margin:0 auto;background:#fff;padding:2rem 3rem;box-shadow:0 4px 6px -1px rgba(0,0,0,.1);">${midweekBlockContent(w)}</div>`;
+}
+
+// Contenido de una semana de entre semana (cabecera + secciones + conclusión).
+// Reutilizado por la vista final de una semana y por la vista final mensual.
+function midweekBlockContent(w) {
+  const assigned = (sec, p) => {
     const ap = p.assignments || {};
-    const slots = mwSlotsFor(p);
+    const slots = mwSlotsFor(sec, p);
     const names = slots.map(s => {
       const v = ap[s.key];
       return v ? personNameOf(v) : null;
@@ -3003,7 +3552,7 @@ function midweekPreviewDocument(w) {
     const parts = (sec.parts || []).map(p => `
       <div class="px-4 mb-4">
         <p class="font-bold" style="color:${color.strong}">${p.num}. ${escapeHtml(p.title)}</p>
-        <p class="text-gray-600 text-sm ml-4">(${p.mins} mins.) ${assigned(p)}</p>
+        <p class="text-gray-600 text-sm ml-4">(${p.mins} mins.) ${assigned(sec, p)}</p>
       </div>`).join('');
     const song = sec.song ? `
       <div class="flex items-center text-sm mb-6 ml-4">
@@ -3023,46 +3572,149 @@ function midweekPreviewDocument(w) {
   };
 
   const introSong = w.introSong || w.songIn;
-  const laboresBox = previewLaboresBox(w, 'box-side');
   return `
-    <div id="mwDoc" class="page-container rounded-lg" style="max-width:800px;margin:0 auto;background:#fff;padding:2rem 3rem;box-shadow:0 4px 6px -1px rgba(0,0,0,.1);">
-      <div class="flex gap-6 items-start">
-      <div class="flex-1 min-w-0">
-      <header class="mb-4">
-        <h1 class="text-2xl font-bold text-gray-600 mb-1">${escapeHtml(w.header)}</h1>
-        <p class="text-blue-custom font-bold text-lg mb-2">${escapeHtml(w.reading || '')}</p>
-        <div class="mw-sep mb-3"></div>
-        <div class="flex items-center text-sm mb-6">
-          <span class="text-blue-custom mr-2">♪</span>
-          <span class="font-bold text-blue-custom">Canción ${escapeHtml(introSong || '')}</span>
-          <span class="mx-1 text-gray-500">y oración |</span>
-          <span class="font-bold mr-1">${escapeHtml(w.introTitle || 'Palabras de introducción')}</span>
-          <span class="text-gray-500">(${w.introMins || 1} min.)</span>
-        </div>
-      </header>
-      ${sectionBlock((w.sections || []).find(s => s.id === 'tesoros'), { strong: '#0f7685', icon: '◆' })}
-      ${sectionBlock((w.sections || []).find(s => s.id === 'maestros'), { strong: '#b8860b', icon: '✚' })}
-      ${sectionBlock((w.sections || []).find(s => s.id === 'vida'), { strong: '#9e2a2b', icon: '▦' })}
-      <footer>
-        <div class="mw-sep mb-3"></div>
-        <div class="flex items-center text-sm">
-          <span class="font-bold mr-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')}</span>
-          <span class="text-gray-500 mr-1">(${w.closingMins || 3} mins.) |</span>
-          <span class="text-blue-custom mr-1">♪</span>
-          <span class="font-bold text-blue-custom">Canción ${escapeHtml(w.songOut || '')}</span>
-          <span class="font-bold mx-1">y oración</span>
-        </div>
-      </footer>
+    <header class="mb-4">
+      <h1 class="text-2xl font-bold text-gray-600 mb-1">${escapeHtml(w.header)}</h1>
+      <p class="text-blue-custom font-bold text-lg mb-2">${escapeHtml(w.reading || '')}</p>
+      <p class="text-gray-600 text-sm mb-2">Presidente: ${escapeHtml(personNameOf(w.presidente))}</p>
+      <div class="mw-sep mb-3"></div>
+      <div class="flex items-center text-sm mb-6">
+        <span class="text-blue-custom mr-2">♪</span>
+        <span class="font-bold text-blue-custom">Canción ${escapeHtml(introSong || '')}</span>
+        <span class="mx-1 text-gray-500">y oración |</span>
+        <span class="font-bold mr-1">${escapeHtml(w.introTitle || 'Palabras de introducción')}</span>
+        <span class="text-gray-500">(${w.introMins || 1} min.)</span>
       </div>
-      ${laboresBox}
+    </header>
+    ${sectionBlock((w.sections || []).find(s => s.id === 'tesoros'), { strong: '#0f7685', icon: '◆' })}
+    ${sectionBlock((w.sections || []).find(s => s.id === 'maestros'), { strong: '#b8860b', icon: '✚' })}
+    ${sectionBlock((w.sections || []).find(s => s.id === 'vida'), { strong: '#9e2a2b', icon: '▦' })}
+    <footer>
+      <div class="mw-sep mb-3"></div>
+      <div class="flex items-center text-sm">
+        <span class="font-bold mr-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')}</span>
+        <span class="text-gray-500 mr-1">(${w.closingMins || 3} mins.) |</span>
+        <span class="text-blue-custom mr-1">♪</span>
+        <span class="font-bold text-blue-custom">Canción ${escapeHtml(w.songOut || '')}</span>
+        <span class="font-bold mx-1">y oración</span>
       </div>
-    </div>`;
+    </footer>`;
 }
 
-/* Cuadro de Atencion departamentos en la vista final */
-function previewLaboresBox(w, variant) {
+/* ---------- MIDWEEK: vista final mensual (todas las reuniones del mes) ---------- */
+async function renderMidweekMonthPreview(monthId) {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
+  const cur = monthId || state.mwMonth || '';
+  const weeks = state.midweeks
+    .filter(m => String(m.id).startsWith(cur))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  if (!weeks.length) {
+    app.innerHTML = `<h1 class="font-headline-lg text-headline-lg text-primary mb-6">Vista Final Mensual</h1>
+      <p class="text-on-surface-variant font-body-lg text-body-lg mb-6">No hay reuniones de entre semana cargadas para este mes.</p>
+      <button class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md hover:opacity-90" onclick="location.hash='#/midweeks'">Volver</button>`;
+    return;
+  }
+  const monthLabel = `${MONTHS_ES[Number(cur.slice(5)) - 1]} ${cur.slice(0, 4)}`;
+  app.innerHTML = `
+    <div class="flex items-center justify-between gap-4 mb-6 no-print">
+      <div class="flex items-center gap-3">
+        <button data-back class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary rounded-full">arrow_back</button>
+        <h1 class="font-headline-lg text-headline-lg text-primary">Vista Final Mensual · ${monthLabel}</h1>
+      </div>
+      <div class="flex gap-2">
+        <button id="mwMPrint" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">print</span> Imprimir
+        </button>
+        <button id="mwMPdf" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">picture_as_pdf</span> Exportar PDF
+        </button>
+      </div>
+    </div>
+    <div id="mwMonthContent"></div>
+  `;
+  $('[data-back]').onclick = () => go('midweeks');
+  $('#mwMPrint').onclick = () => window.print();
+  $('#mwMPdf').onclick = () => window.print();
+  $('#mwMonthContent').innerHTML = midweekMonthDocument(weeks, monthLabel);
+}
+
+// Documento del mes: una sola hoja compacta con todas las semanas a 2 columnas
+// (aprovecha los espacios laterales y reduce el alto vertical).
+function midweekMonthDocument(weeks, monthLabel) {
+  return `
+  <div id="mwDoc" class="mw-month-doc" style="max-width:1100px;margin:0 auto;background:#fff;padding:1.5rem 2rem;box-shadow:0 4px 6px -1px rgba(0,0,0,.1);">
+    <header class="text-center mb-4">
+      <h1 class="text-xl font-bold text-gray-700 mb-1">${escapeHtml(monthLabel)}</h1>
+      <p class="text-[11px] text-gray-500">Reuniones de entre semana · lectura, partes y labores</p>
+      <div class="mw-sep mt-2"></div>
+    </header>
+    <div class="grid grid-cols-2 gap-3">
+      ${weeks.map(w => compactWeekCard(w)).join('')}
+    </div>
+  </div>`;
+}
+
+// Tarjeta compacta de una semana para la vista final mensual.
+function compactWeekCard(w) {
+  const assigned = (sec, p) => {
+    const ap = p.assignments || {};
+    return mwSlotsFor(sec, p).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+  };
+  const section = (sec, color) => {
+    const parts = (sec.parts || []).map(p => {
+      const nm = assigned(sec, p);
+      return `<div class="flex items-baseline justify-between gap-2 py-[1px]">
+        <span class="text-[10px] leading-tight" style="color:${color}"><b>${p.num}.</b> <span class="text-gray-800">${escapeHtml(p.title)}</span> <span class="text-gray-500">(${p.mins})</span></span>
+        <span class="text-[10px] font-semibold text-gray-700 text-right whitespace-nowrap">${nm ? escapeHtml(nm) : ''}</span>
+      </div>`;
+    }).join('');
+    return `<div class="mb-1.5">
+      <div class="text-[9px] font-bold uppercase tracking-widest mb-0.5" style="color:${color}">${escapeHtml(sec.title)}</div>
+      ${parts}
+    </div>`;
+  };
+  const introSong = w.introSong || w.songIn;
+  return `
+  <article class="border border-gray-300 rounded-md p-2.5" style="break-inside:avoid;page-break-inside:avoid;">
+    <div class="text-center mb-1.5">
+      <div class="font-bold text-sm text-gray-800">${escapeHtml(w.header)}</div>
+      <div class="text-[10px] text-gray-600">${escapeHtml(w.reading || '')}</div>
+      <div class="text-[10px] text-gray-600">Presidente: ${escapeHtml(personNameOf(w.presidente))}</div>
+      <div class="text-[9px] text-gray-500 mt-0.5">♪ Canción ${escapeHtml(introSong || '')} y oración · ${escapeHtml(w.introTitle || 'Palabras de introducción')} (${w.introMins || 1} min.)</div>
+    </div>
+    ${section((w.sections || []).find(s => s.id === 'tesoros'), '#0f7685')}
+    ${section((w.sections || []).find(s => s.id === 'maestros'), '#b8860b')}
+    ${section((w.sections || []).find(s => s.id === 'vida'), '#9e2a2b')}
+    <div class="text-[9px] text-gray-600 border-t border-gray-200 pt-1 mt-1">
+      ${escapeHtml(w.closingTitle || 'Palabras de conclusión')} (${w.closingMins || 3} mins.) · ♪ Canción ${escapeHtml(w.songOut || '')}
+    </div>
+    ${compactLabores(w)}
+  </article>`;
+}
+
+// Cuadro de labores compacto para la tarjeta mensual.
+function compactLabores(w) {
   const l = ensureLabores(w).labores;
-  const rows = LABORES_DEFS.map(({ key, label, icon, count }) => {
+  const rows = LABORES_DEF.map(({ key, label, count }) => {
+    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido' ? l[key] : [l[key] || ''];
+    const names = Array.from({ length: count }, (_, si) => { const v = slots[si] || ''; return v ? personNameOf(v) : null; }).filter(Boolean);
+    return `<div class="flex justify-between text-[9px] leading-tight">
+      <span class="text-gray-500">${label}</span>
+      <span class="font-semibold text-gray-700 text-right">${names.length ? escapeHtml(names.join(' · ')) : '—'}</span>
+    </div>`;
+  }).join('');
+  return `<div class="border-t border-dashed border-gray-300 mt-1.5 pt-1">
+    <div class="text-[8px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">LABORES · TRAS BAMBALINAS</div>
+    ${rows}
+  </div>`;
+}
+
+/* Cuadro de Atención departamentos (labores) para las vistas de lista */
+function previewLaboresBox(w) {
+  const l = ensureLabores(w).labores;
+  const rows = LABORES_DEF.map(({ key, label, count }) => {
     const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
       ? l[key]
       : [l[key] || ''];
@@ -3070,21 +3722,13 @@ function previewLaboresBox(w, variant) {
       const v = slots[si] || '';
       return v ? personNameOf(v) : null;
     }).filter(Boolean);
-    return `<div class="flex items-center justify-between text-xs ${variant === 'box-side' ? '' : 'mb-2'}">
+    return `<div class="flex items-center justify-between text-xs mb-2">
       <span class="text-gray-500">${label}</span>
       <span class="font-semibold text-gray-700 text-right">${names.length ? names.join(' · ') : '—'}</span>
     </div>`;
   }).join('');
-  const label = 'LABORES · TRAS BAMBALINAS';
-  if (variant === 'box-side') {
-    return `
-    <aside class="w-44 border border-dashed border-gray-400 rounded p-3" style="min-width:11rem">
-      <div class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 border-b border-gray-300 pb-2">${label}</div>
-      <div class="space-y-2">${rows}</div>
-    </aside>`;
-  }
   return `<div class="mt-6 pt-3 border-t-2 border-dashed border-gray-300">
-    <div class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">${label}</div>
+    <div class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">LABORES · TRAS BAMBALINAS</div>
     ${rows}
   </div>`;
 }
@@ -3140,30 +3784,6 @@ async function quickAddPerson(preselectRole = '') {
     $('#qpOk').onclick = submit;
     $('#qpName').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     $('#qpName').focus();
-  });
-}
-
-async function quickAddDepartment() {
-  return new Promise((resolve) => {
-    openModal(`<div>
-      <h3 class="font-headline-md text-headline-md text-primary mb-4">Agregar</h3>
-      <input id="qdName" type="text" placeholder="Nombre del grupo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-4">
-      <div class="flex gap-3 justify-end">
-        <button id="qdCancel" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
-        <button id="qdOk" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
-      </div>
-    </div>`);
-    const submit = async () => {
-      const name = $('#qdName').value.trim();
-      if (!name) { toast('Nombre vacío', 'error'); return; }
-      try { await db.addDepartment(name); await refreshCatalogs(); toast('Grupo agregado', 'success'); }
-      catch (err) { toast(err.message, 'error'); }
-      closeModal(); resolve();
-    };
-    $('#qdCancel').onclick = () => { closeModal(); resolve(); };
-    $('#qdOk').onclick = submit;
-    $('#qdName').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-    $('#qdName').focus();
   });
 }
 
@@ -3312,7 +3932,7 @@ function downloadBlob(blob, filename) {
 }
 
 /* ---------- Utilidades ---------- */
-// (saturdaysOf, cryptoId, capitalize, capField, escapeHtml, escapeAttr, labelOf
+// (saturdaysOf, cryptoId, capitalize, escapeHtml, escapeAttr, labelOf
 //  se importan de logic.js)
 
 function newWeek(date) {
@@ -3338,22 +3958,9 @@ function newWeek(date) {
   };
 }
 
-// Definición de labores: cada rol con su cantidad de puestos
-const LABORES_DEFS = [
-  { key: 'acomodacion', label: 'Acomodación', icon: 'weekend', count: 2 },
-  { key: 'microfono',   label: 'Micrófono',   icon: 'mic', count: 2 },
-  { key: 'plataforma',  label: 'Plataforma',  icon: 'grid_on', count: 1 },
-  { key: 'sonido',      label: 'Sonido',      icon: 'volume_up', count: 1 },
-];
-
-// Estructura por defecto de las labores de una semana
+// Estructura por defecto de las labores de una semana (derivada de LABORES_DEF)
 function newLabores() {
-  return {
-    acomodacion: ['', ''],
-    microfono:   ['', ''],
-    plataforma:  '',
-    sonido:      '',
-  };
+  return Object.fromEntries(LABORES_DEF.map(({ key, count }) => [key, count > 1 ? Array(count).fill('') : '']));
 }
 
 // Garantiza que una semana tenga su objeto de labores
@@ -3361,7 +3968,7 @@ function ensureLabores(w) {
   if (!w) w = {};
   if (!w.labores) w.labores = newLabores();
   const d = newLabores();
-  LABORES_DEFS.forEach(({ key }) => {
+  LABORES_DEF.forEach(({ key }) => {
     let cur = w.labores[key];
     const slotCount = (Array.isArray(d[key]) ? d[key].length : 1);
     if (Array.isArray(d[key])) {
