@@ -222,6 +222,23 @@ export function dedupPersons(persons) {
   return { byValue, dupKeys };
 }
 
+// Ids de personas ya asignadas en la semana (reunión + salidas + labores).
+// Para entre semana se pasa el colector collectMidweekPersons.
+export function assignedIds(week, collector) {
+  return new Set((collector || collectWeekPersons)(week).map(x => x.value));
+}
+
+// Personas elegibles para un puesto: deben cumplir el rol/predicado y NO estar ya
+// asignadas en la misma semana, salvo la que ya ocupa ese puesto (currentId).
+// `role` puede ser un id de rol o una función predicado (p.ej. isLaborePerson).
+export function eligiblePeople(week, people, role, currentId, collector) {
+  const assigned = assignedIds(week, collector);
+  const match = typeof role === 'function'
+    ? role
+    : (role ? (p) => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role) : () => true);
+  return people.filter(p => match(p) && (!assigned.has(String(p.id)) || String(p.id) === String(currentId)));
+}
+
 export function labelOf(f) { return FIELD_LABELS[f] || f; }
 
 // Etiqueta legible de un "key" de asignación (para mensajes de error).
@@ -353,3 +370,121 @@ export function escapeAttr(s) {
 }
 
 export function cryptoId() { return 'w_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
+
+/* ---------- Conversión de texto extraído de PDF (carga de archivos) ---------- */
+// Los PDF de la JW (Guía de Actividades, lista de discursos, etc.) separan los
+// caracteres ("6 -1 2 D E J U L I O"). Estas funciones convierten el texto
+// extraído a la estructura de datos de la app.
+
+// Convierte el texto extraído según el tipo. Devuelve { data, warnings }.
+export function convertPdfToData(type, text) {
+  if (type === 'talks') return convertPdfTalks(text);
+  if (type === 'midweeks') return convertPdfMidweeks(text);
+  if (type === 'people') return convertPdfPeople(text);
+  return { data: null, warnings: ['Tipo desconocido'] };
+}
+
+export function convertPdfTalks(text) {
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  const talks = [];
+  const re = /^(?:discurso\s*)?(\d{1,3})\s*[.:-]\s*(.+)$/i;
+  for (const ln of lines) {
+    const m = ln.match(re);
+    if (m) talks.push({ num: Number(m[1]), title: m[2].replace(/[_*\u2022•]/g, '').trim() });
+  }
+  if (!talks.length) return { data: null, warnings: ['No se detectaron discursos numerados'] };
+  return { data: { discursos: talks }, warnings: [] };
+}
+
+export function convertPdfPeople(text) {
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  const roles = {};
+  let currentRole = null;
+  const roleRe = /^(presidente|conductor|lector|orador|atencion|microf\w*|plataforma|audio|video|acomodador|limpieza|seguridad|cronometrador|auxiliar|semanero)s?\s*$/i;
+  const nameRe = /^[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ]?[a-záéíóúüñ]+){1,5}$/;
+  for (const ln of lines) {
+    const rm = ln.match(roleRe);
+    if (rm) { currentRole = rm[1].toLowerCase(); if (!roles[currentRole]) roles[currentRole] = []; continue; }
+    if (currentRole && nameRe.test(ln)) roles[currentRole].push(ln.replace(/[-–•.*]+$/g, '').trim());
+  }
+  const total = Object.values(roles).reduce((a, r) => a + r.length, 0);
+  if (!total) return { data: null, warnings: ['No se detectaron nombres de personas'] };
+  return { data: { roles }, warnings: ['Roles detectados: ' + (Object.keys(roles).join(', ') || 'revisar')] };
+}
+
+// Convierte el texto de la Guía de Actividades en semanas. Detecta la cabecera
+// de cada semana (rango + mes), su lectura y crea la estructura de secciones
+// (Tesoros / Mejores Maestros / Vida Cristiana) lista para completar en el editor.
+// El texto del PDF separa caracteres y fragmenta las partes en varias líneas,
+// por eso la lectura se reconstruye de forma compacta y los detalles de las
+// partes quedan para revisar/editar.
+export function convertPdfMidweeks(text) {
+  const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const clean = (s) => String(s).replace(/[\u0002\u0003]/g, ' ').replace(/\s+/g, ' ').trim();
+  const compact = (s) => String(s).replace(/[\s\u0002\u0003´`]/g, '');
+  const lines = text.split('\n').map(clean).filter(Boolean);
+
+  const headerOf = (c) => {
+    const monthRe = months.map(m => m).join('|');
+    const m = c.match(new RegExp(`^(\\d{1,2})-(\\d{1,2})DE(${monthRe})(.*)$`, 'i'));
+    if (!m) return null;
+    const mt = months.indexOf(m[3].toUpperCase());
+    if (mt < 0) return null;
+    return { header: `${m[1]}-${m[2]} DE ${months[mt]}`, rest: m[4] };
+  };
+
+  // Da una forma legible a la lectura compacta. Ej: "JEREMIAS13-15" → "JEREMIAS 13-15".
+  const tidyReading = (s) => {
+    s = String(s || '').replace(/[´`]/g, '');
+    s = s.replace(/(\d{1,2})\s*[-–]\s*(\d{1,2})/g, (m, a, b) => `${a}-${b}`);
+    s = s.replace(/([A-Za-zÁÉÍÓÚÑáéíóúñ])(\d)/g, '$1 $2');
+    return s.replace(/^(\d+)/, '$1 ').trim();
+  };
+
+  const newWeek = (header) => ({
+    header,
+    reading: '',
+    songIn: 0, songOut: 0,
+    introTitle: 'Palabras de introducción', introMins: 1,
+    closingTitle: 'Palabras de conclusión', closingMins: 3,
+    sections: [
+      { id: 'tesoros', title: 'Tesoros de la Biblia', parts: [] },
+      { id: 'maestros', title: 'Seamos Mejores Maestros', parts: [] },
+      { id: 'vida', title: 'Nuestra Vida Cristiana', parts: [] },
+    ],
+  });
+
+  // La lectura termina en la primera sección o canción que aparece tras la cabecera.
+  const endOfReading = (buf) => {
+    const upper = buf.toUpperCase();
+    const cuts = ['TESOROS', 'SEAMOS', 'NUESTRAVIDA', 'CANCI'].map(k => {
+      const i = upper.indexOf(k);
+      return i === -1 ? Infinity : i;
+    });
+    return Math.min(...cuts);
+  };
+
+  const weeks = [];
+  let cur = null;
+  let buf = '';
+  for (const ln of lines) {
+    const c = compact(ln);
+    const h = headerOf(c);
+    if (h) {
+      if (cur) cur.reading = tidyReading(buf.slice(0, endOfReading(buf)));
+      cur = newWeek(h.header);
+      weeks.push(cur);
+      buf = h.rest || '';
+      continue;
+    }
+    if (!cur) continue;
+    buf += c;
+  }
+  if (cur) cur.reading = tidyReading(buf.slice(0, endOfReading(buf)));
+
+  if (!weeks.length) return { data: null, warnings: ['No se detectaron semanas (formato "D-D DE MES"). Revise el texto manualmente.'] };
+  // Quitar cabeceras repetidas (el texto del PDF repite la cabecera de cada página).
+  const seen = new Set();
+  const uniq = weeks.filter(w => { const k = w.header; if (seen.has(k)) return false; seen.add(k); return true; });
+  return { data: { weeks: uniq }, warnings: [`Se detectaron ${uniq.length} semanas; complete lecturas y partes en la revisión.`] };
+}

@@ -5,15 +5,16 @@ import {
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
-  dedupPersons, isLaborePerson, LABORES_DEF,
+  dedupPersons, eligiblePeople, isLaborePerson, LABORES_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
 const state = {
-  view: 'home',           // home | new | edit | preview | outings | lists | uploads | labores | laboresGrupo | general | settings | about | midweeks | midweek | midweekPreview | midweekMonthPreview | midweekList
-  newTab: 'fin',          // 'fin' | 'entre' | 'labores' | 'laboresGrupo' | 'general' (en Programas)
+  view: 'home',           // home | new | edit | preview | outings | lists | uploads | labores | laboresGrupo | salidas | general | settings | about | midweeks | midweek | midweekPreview | midweekMonthPreview | midweekList
+  newTab: 'fin',          // 'fin' | 'entre' | 'labores' | 'laboresGrupo' | 'salidas' | 'general' (en Programas)
   monthId: null,          // "YYYY-MM"
   month: null,
   previewMode: 'lista',   // lista | tabla
@@ -25,6 +26,7 @@ const state = {
   config: null,           // configuración general
   toastsOpen: new Set(),
   mwMonth: null,          // mes seleccionado en la vista mensual de entre semana
+  progMonth: null,        // mes seleccionado en Programas (selector global)
 };
 
 /* ---------- INIT ---------- */
@@ -123,6 +125,7 @@ function router() {
     case 'midweekList': renderMidweekList(); break;
     case 'labores':  renderLabores(segs[1]); break;
     case 'laboresGrupo': renderLaboresGrupo(segs[1]); break;
+    case 'salidas':  renderSalidas(segs[1]); break;
     case 'general':  renderGeneralMonth(segs[1]); break;
     case 'settings': renderSettings(); break;
     case 'about':    renderAbout(); break;
@@ -436,25 +439,59 @@ function renderHomeEvents(container) {
   }).join('');
 }
 
-/* ---------- NEW: selección de mes/año + opciones ---------- */
+/* ---------- NEW: Programas (selector de mes global + pestañas) ---------- */
 async function renderNew() {
   state.month = null;
   renderTop();
   const app = $('#app');
+  const months = await db.listMonths();
+  const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
+  const dataMonths = [...new Set([...months.map(m => m.id), ...mwMonths])];
+  if (!state.progMonth) {
+    const today = isoDate(new Date()).slice(0, 7);
+    state.progMonth = dataMonths.includes(today) ? today : (dataMonths[0] || today);
+  }
+  const allMonths = [...new Set([...dataMonths, state.progMonth])].sort((a, b) => b.localeCompare(a));
+
+  const tabs = [
+    { id: 'fin', label: 'Reunión de Fin de Semana' },
+    { id: 'entre', label: 'Reunión de Entre Semana' },
+    { id: 'labores', label: 'Acomodacion' },
+    { id: 'laboresGrupo', label: 'Aseo' },
+    { id: 'salidas', label: 'Salidas' },
+    { id: 'general', label: 'General Mensual' },
+  ];
+
   app.innerHTML = `
-    <h1 class="font-headline-lg text-headline-lg text-primary mb-6">Programas</h1>
-    <div class="flex gap-2 mb-8 border-b border-outline-variant">
-      <button data-tab="fin" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Reunión de Fin de Semana</button>
-      <button data-tab="entre" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Reunión de Entre Semana</button>
-      <button data-tab="labores" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Labores</button>
-      <button data-tab="laboresGrupo" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">Labor Grupo</button>
-      <button data-tab="general" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">General Mensual</button>
+    <div class="mb-3">
+      <h1 class="font-headline-lg text-headline-lg text-primary">Programas</h1>
+      <p class="text-on-surface-variant font-body-md text-body-md">Seleccione el mes; todas las vistas del programa se actualizan.</p>
+    </div>
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-6">
+      <div class="flex items-center gap-2 flex-wrap">
+        ${[-1, 0, 1].map(delta => {
+          const m = addMonths(state.progMonth, delta);
+          const isCur = delta === 0;
+          return `<button data-month="${m}" class="flex items-center justify-center px-4 py-2 rounded-lg font-label-md text-label-md transition-colors whitespace-nowrap ${isCur ? 'bg-primary text-on-primary shadow' : 'border border-outline hover:bg-surface-container'}">${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</button>`;
+        }).join('')}
+        <select id="progMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md font-semibold focus:border-primary" title="Buscar mes">
+          ${allMonths.map(id => `<option value="${id}" ${id === state.progMonth ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-2 mb-8 border-b border-outline-variant flex-wrap">
+      ${tabs.map(t => `<button data-tab="${t.id}" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">${t.label}</button>`).join('')}
     </div>
     <div id="newBody"></div>
   `;
-  const tabs = app.querySelectorAll('.newTab');
+
+  const goMonth = (m) => { state.progMonth = m; renderNew(); };
+  $('#progMonth').onchange = (e) => goMonth(e.target.value);
+  app.querySelectorAll('[data-month]').forEach(b => b.onclick = () => goMonth(b.dataset.month));
+
+  const tabNodes = app.querySelectorAll('.newTab');
   const setActive = () => {
-    tabs.forEach(t => {
+    tabNodes.forEach(t => {
       const on = t.dataset.tab === state.newTab;
       t.classList.toggle('border-b-2', on);
       t.classList.toggle('border-primary', on);
@@ -462,7 +499,7 @@ async function renderNew() {
       t.classList.toggle('text-on-surface-variant', !on);
     });
   };
-  tabs.forEach(t => t.onclick = () => {
+  tabNodes.forEach(t => t.onclick = () => {
     state.newTab = t.dataset.tab;
     setActive();
     renderNewBody();
@@ -474,48 +511,26 @@ async function renderNew() {
 async function renderNewBody() {
   const body = $('#newBody');
   if (!body) return;
-  if (state.newTab === 'entre') { renderMidweeks({ embed: body }); return; }
-  if (state.newTab === 'labores') { renderLabores(undefined, { embed: body }); return; }
-  if (state.newTab === 'laboresGrupo') { renderLaboresGrupo(undefined, { embed: body }); return; }
-  if (state.newTab === 'general') { renderGeneralMonth(undefined, { embed: body }); return; }
-  renderNewFin(body);
+  if (state.newTab === 'entre') { renderMidweeks({ embed: body, month: state.progMonth }); return; }
+  if (state.newTab === 'labores') { renderLabores(state.progMonth, { embed: body }); return; }
+  if (state.newTab === 'laboresGrupo') { renderLaboresGrupo(state.progMonth, { embed: body }); return; }
+  if (state.newTab === 'salidas') { renderSalidas(state.progMonth, { embed: body }); return; }
+  if (state.newTab === 'general') { renderGeneralMonth(state.progMonth, { embed: body }); return; }
+  renderNewFin(body, state.progMonth);
 }
 
-async function renderNewFin(body) {
+async function renderNewFin(body, progMonth) {
   const months = await db.listMonths();
-  const now = new Date();
-  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  const pm = progMonth || isoDate(new Date()).slice(0, 7);
+  const year = Number(pm.slice(0, 4));
+  const month = Number(pm.slice(5, 7));
+  const id = `${year}-${String(month).padStart(2, '0')}`;
   body.innerHTML = `
     <div class="max-w-xl bg-surface-container-lowest rounded-xl shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 md:p-8 border border-outline-variant">
-      <div class="grid grid-cols-2 gap-4 mb-6">
-        <div>
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
-          <select id="nmMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            ${MONTHS_ES.map((n, i) => `<option value="${i + 1}" ${i === now.getMonth() ? 'selected' : ''}>${n}</option>`).join('')}
-          </select>
-        </div>
-        <div>
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Año</label>
-          <select id="nmYear" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary"></select>
-        </div>
-      </div>
-
       <div class="bg-surface-container rounded-lg p-4 mb-6">
         <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-2">Sábados detectados</p>
         <div id="nmPreview" class="flex flex-wrap gap-2"></div>
       </div>
-
-      ${months.length > 0 ? `
-      <div class="border-t border-outline-variant pt-6 mb-6">
-        <label class="flex items-center gap-3 cursor-pointer">
-          <input type="checkbox" id="nmDuplicate" class="w-5 h-5 accent-primary">
-          <span class="font-body-lg text-body-lg text-on-surface">Usar el mes anterior como base</span>
-        </label>
-        <select id="nmDupFrom" class="w-full mt-3 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary disabled:opacity-50">
-          ${months.sort((a, b) => b.id.localeCompare(a.id)).map(m => `<option value="${m.id}">${MONTHS_ES[m.month - 1]} ${m.year}</option>`).join('')}
-        </select>
-      </div>` : ''}
-
       <button id="nmCreate" class="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:opacity-90 active:scale-95 transition-all">
         Crear Programa
       </button>
@@ -564,50 +579,25 @@ async function renderNewFin(body) {
       }
     });
   }
-  const yearSel = $('#nmYear');
-  yearSel.innerHTML = years.map(y => `<option value="${y}" ${y === now.getFullYear() ? 'selected' : ''}>${y}</option>`).join('');
 
   const preview = () => {
-    const m = parseInt($('#nmMonth').value, 10);
-    const y = parseInt(yearSel.value, 10);
-    const sats = saturdaysOf(y, m);
+    const sats = saturdaysOf(year, month);
     $('#nmPreview').innerHTML = sats.length
       ? sats.map(s => `<span class="px-3 py-1 bg-primary text-on-primary rounded font-label-md text-label-md">${formatShort(s)}</span>`).join('')
       : `<span class="text-error font-label-md">No hay sábados en este mes.</span>`;
   };
-  $('#nmMonth').onchange = preview;
-  yearSel.onchange = preview;
   preview();
 
-  const dupChk = $('#nmDuplicate');
-  const dupSel = $('#nmDupFrom');
-  if (dupChk) dupChk.onchange = () => dupSel.disabled = !dupChk.checked;
-  if (dupSel) dupSel.disabled = true;
-
   $('#nmCreate').onclick = async () => {
-    const m = parseInt($('#nmMonth').value, 10);
-    const y = parseInt(yearSel.value, 10);
-    const id = `${y}-${String(m).padStart(2, '0')}`;
     if (await db.getMonth(id)) {
-      if (!await confirmDialog(`Ya existe un programa para ${MONTHS_ES[m - 1]} ${y}. ¿Sobreescribirlo?`, 'Sobreescribir')) return;
+      if (!await confirmDialog(`Ya existe un programa para ${MONTHS_ES[month - 1]} ${year}. ¿Sobreescribirlo?`, 'Sobreescribir')) return;
     }
-    const sats = saturdaysOf(y, m);
-    let weeks = sats.map(d => newWeek(d));
-    if (dupChk?.checked && dupSel?.value) {
-      const src = await db.getMonth(dupSel.value);
-      if (src && src.weeks.length) {
-        // Copiar asignaciones del mes anterior, alineando por orden de semana
-        weeks = weeks.map((w, i) => {
-          const tpl = src.weeks[i] || src.weeks[src.weeks.length - 1];
-          return { ...tpl, date: w.date, id: w.id };
-        });
-        toast('Asignaciones copiadas del mes anterior', 'success');
-      }
-    }
+    const sats = saturdaysOf(year, month);
+    const weeks = sats.map(d => newWeek(d));
     applyConfigWeekTypes(weeks);
     applyGroupRotationToWeeks(weeks, state.config?.groups?.cantidad || 0, Number(state.config?.groups?.start) || 1);
-    const month = { id, year: y, month: m, weeks, published: false };
-    await db.putMonth(month);
+    const monthObj = { id, year, month, weeks, published: false };
+    await db.putMonth(monthObj);
     toast('Programa creado', 'success');
     go('edit', { monthId: id });
   };
@@ -669,10 +659,6 @@ async function renderEdit() {
         <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">Organice las sesiones y roles para ${MONTHS_ES[m.month - 1]} ${m.year}. Evite duplicidad de personas en la misma reunión.</p>
       </div>
       <div class="flex gap-3 w-full md:w-auto flex-wrap">
-        <button id="btnDupPrev" class="flex items-center justify-center gap-2 border border-outline px-4 py-2.5 rounded-lg font-label-md text-label-md hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-[20px]">content_copy</span>
-          Copiar Mes Anterior
-        </button>
         <button id="btnOutings" class="flex items-center justify-center gap-2 border border-secondary text-secondary px-4 py-2.5 rounded-lg font-label-md text-label-md hover:bg-secondary-container transition-colors">
           <span class="material-symbols-outlined text-[20px]">campaign</span>
           Vista de Salidas
@@ -683,7 +669,6 @@ async function renderEdit() {
         </button>
       </div>
     </div>
-    <div id="outingsBar"></div>
     <div id="weeksContainer" class="space-y-6"></div>
     <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-end no-print">
       <button id="btnSave" class="flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-bold hover:opacity-90 active:scale-95 transition-all">
@@ -691,49 +676,13 @@ async function renderEdit() {
       </button>
     </div>
   `;
-  renderOutingsBar();
   renderWeeks();
   $('#btnPreview').onclick = () => go('preview', { monthId: state.monthId });
   $('#btnOutings').onclick = () => go('outings', { monthId: state.monthId });
   $('#btnSave').onclick = saveMonth;
-  $('#btnDupPrev').onclick = duplicatePrev;
 }
 
-/* ---------- EDIT: barra de congregaciones (datos de salida) ---------- */
-function renderOutingsBar() {
-  const bar = $('#outingsBar');
-  if (!bar) return;
-  const outs = state.month.outings || [];
-  bar.innerHTML = `
-    <div class="bg-secondary-container/40 border border-secondary rounded-lg p-4 md:p-5 mb-6">
-      <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h2 class="font-headline-md text-headline-md text-secondary flex items-center gap-2">
-          <span class="material-symbols-outlined">campaign</span> Datos de Salida
-        </h2>
-        <button id="addCongBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed/60 transition-colors">
-          <span class="material-symbols-outlined text-[18px]">add</span> Agregar
-        </button>
-      </div>
-      <div id="congList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      <p class="text-on-surface-variant text-caption mt-3">Estos datos se incluirán en la Vista de Salidas. Puede haber varias congregaciones visitadas en el mes.</p>
-    </div>
-  `;
-  const list = $('#congList');
-  list.innerHTML = outs.map((c, i) => congCard(c, i)).join('');
-  list.querySelectorAll('[data-cong-field]').forEach(bindCongFieldChange);
-  list.querySelectorAll('[data-cong-del]').forEach(b => b.onclick = async () => {
-    if (state.month.outings.length <= 1) { toast('Debe haber al menos una congregación', 'error'); return; }
-    if (await confirmDialog('¿Eliminar esta congregación?')) {
-      state.month.outings.splice(parseInt(b.dataset.congDel, 10), 1);
-      renderOutingsBar();
-    }
-  });
-  $('#addCongBtn').onclick = () => {
-    state.month.outings.push(newCongregation());
-    renderOutingsBar();
-  };
-}
-
+/* ---------- EDIT: congregaciones (datos de salida) ---------- */
 function congCard(c, i) {
   return `<div class="bg-surface-container-lowest rounded-lg p-4 border border-outline-variant space-y-3" data-cong-idx="${i}">
     <div class="flex items-center justify-between">
@@ -772,7 +721,6 @@ function renderWeeks() {
   const conflicts = computeConflicts(state.month);
   container.innerHTML = state.month.weeks.map((w, i) => weekCard(w, i, conflicts.perWeek[i] || {})).join('');
   container.querySelectorAll('[data-field]').forEach(bindFieldChange);
-  container.querySelectorAll('select[data-labore]').forEach(bindLaboreChange);
   container.querySelectorAll('select[data-people]').forEach(fillPeople);
   container.querySelectorAll('[data-add-person]').forEach(b => {
     b.onclick = () => {
@@ -782,7 +730,6 @@ function renderWeeks() {
     };
   });
   container.querySelectorAll('[data-talkpicker]').forEach(bindTalkPicker);
-  bindOutingControls(container);
 }
 
 /* ---------- Talk Picker: buscador de discurso por nº o palabra clave ---------- */
@@ -854,69 +801,11 @@ function weekCard(w, i, conflicts) {
       </div>
       <div class="flex-1 space-y-6" data-fields="${i}">${fieldsFor(w, i, conflicts)}</div>
     </div>
-    ${w.type === 'assembly' ? '' : `<div class="mt-6 pt-6 border-t-2 border-dashed border-secondary/40">${laboresEditor(w, i, conflicts)}</div>`}
-    ${w.type === 'normal' ? outingsSection(w, i) : ''}
   </section>`;
 }
 
 /* ---------- Labores: editor (tras bambalinas, no asignaciones de reunión) ---------- */
-function laboresEditor(w, i, conflicts) {
-  ensureLabores(w);
-  const l = w.labores;
-  const dups = conflicts?.duplicates || [];
-  const rows = LABORES_DEF.map(({ key, label, icon, count }) => {
-    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
-      ? l[key]
-      : [l[key] || ''];
-    const fields = Array.from({ length: count }, (_, si) => {
-      const cur = slots[si] || '';
-      const hasConflict = dups.includes(`labores_${key}_${si}`);
-      const errClass = hasConflict ? 'bg-error-container/20 border-error' : 'border-outline-variant';
-      const opts = `<option value="">— Sin asignar —</option>` +
-        state.people
-          .filter(isLaborePerson)
-          .map(p => `<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
-          .join('');
-      return `<div class="flex-1 min-w-[130px]">
-        <select data-labore="${key}" data-labore-idx="${si}" data-idx="${i}" data-people class="w-full bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">${opts}</select>
-      </div>`;
-    }).join('');
-    return `<div class="flex items-start gap-3">
-      <span class="material-symbols-outlined text-on-surface-variant mt-2.5">${icon}</span>
-      <div class="flex-1">
-        <label class="font-label-md text-label-md text-on-surface-variant mb-1 block">${label} <span class="text-caption text-on-surface-variant/70">×${count}</span></label>
-        <div class="flex flex-wrap gap-2">${fields}</div>
-      </div>
-    </div>`;
-  }).join('');
-  return `<div class="rounded-lg border border-dashed border-on-surface-variant/40 bg-surface-bright/40 p-5">
-    <div class="flex items-center gap-2 mb-1">
-      <h4 class="font-headline-md text-headline-md text-on-surface-variant">Atención departamentos</h4>
-    </div>
-    <p class="font-body-sm text-body-sm text-on-surface-variant/70 mb-4">Tareas operativas que sostienen la reunión, no forman parte del programa de asignaciones de la plataforma.</p>
-    <div class="space-y-4">${rows}</div>
-  </div>`;
-}
-
 /* ---------- EDIT: sección Salidas (sólo semanas normales) ---------- */
-function outingsSection(w, i) {
-  const outs = Array.isArray(w.outings) ? w.outings : [newOuting()];
-  const occConflicts = computeOutingConflicts(state.month, i);
-  const rows = outs.map((o, j) => outingRow(o, i, j, occConflicts)).join('');
-  return `<div class="mt-6 pt-6 border-t-2 border-dashed border-secondary/40 rounded-lg">
-    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-      <div class="flex items-center gap-2">
-        <span class="material-symbols-outlined text-secondary">campaign</span>
-        <h4 class="font-headline-md text-headline-md text-secondary">Salidas de esta semana</h4>
-      </div>
-      <button data-outing-add="${i}" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:bg-secondary-container transition-colors">
-        <span class="material-symbols-outlined text-[18px]">person_add</span> Agregar orador
-      </button>
-    </div>
-    <div class="grid grid-cols-1 gap-4" data-outing-list="${i}">${rows}</div>
-  </div>`;
-}
-
 function outingRow(o, weekIdx, outIdx, conflicts) {
   const dup = conflicts.duplicates.includes(outIdx);
   const badge = dup ? `<span class="flex items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Repite en la semana</span>` : '';
@@ -949,36 +838,6 @@ function outingRow(o, weekIdx, outIdx, conflicts) {
       </div>
     </div>
   </div>`;
-}
-
-function bindOutingControls(scope) {
-  // selects de orador
-  scope.querySelectorAll('select[data-outing-field][data-people]').forEach(sel => {
-    fillOutingPeople(sel);
-    sel.addEventListener('change', () => {
-      const [wi, oi] = sel.dataset.outingIdx.split('.').map(Number);
-      let v = sel.value; v = v === '' ? '' : parseInt(v, 10);
-      state.month.weeks[wi].outings[oi].oradorSalida = v;
-      renderWeeks();
-    });
-  });
-  // input del discurso (talk picker reutilizado)
-  scope.querySelectorAll('[data-talkpicker-out]').forEach(bindTalkPickerOut);
-  // botón añadir orador
-  scope.querySelectorAll('[data-outing-add]').forEach(b => b.onclick = () => {
-    const wi = parseInt(b.dataset.outingAdd, 10);
-    state.month.weeks[wi].outings.push(newOuting());
-    renderWeeks();
-  });
-  // eliminar orador
-  scope.querySelectorAll('[data-outing-del]').forEach(b => b.onclick = async () => {
-    const [wi, oi] = b.dataset.outingDel.split('.').map(Number);
-    if (state.month.weeks[wi].outings.length <= 1) { toast('Debe haber al menos un orador por semana', 'error'); return; }
-    if (await confirmDialog('¿Eliminar este orador de la salida?')) {
-      state.month.weeks[wi].outings.splice(oi, 1);
-      renderWeeks();
-    }
-  });
 }
 
 // Talk picker para salidas (guarda en outings[oi].tituloDiscurso / talkNum)
@@ -1102,17 +961,32 @@ function peopleSelect(name, idx, val, label, conflicts) {
   const role = FIELD_ROLE[name] || '';
   const hasConflict = conflicts.duplicates?.includes(name);
   const missing = conflicts.missing?.includes(name);
-  const badge = hasConflict ? `<span class="flex items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Conflicto</span>` : '';
+  const repeated = sameFieldOtherWeek(name, idx);
+  const badge = hasConflict
+    ? `<span class="flex items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Conflicto</span>`
+    : repeated
+      ? `<span class="flex items-center gap-1 text-secondary font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">event_repeat</span> Ya designado este mes</span>`
+      : '';
   const errClass = (hasConflict || missing) ? 'bg-error-container/20 border-error' : 'border-outline-variant';
   const roleHint = role ? `data-role="${role}"` : '';
   return `<div class="space-y-2 relative">
-    <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between">${label} ${badge}</label>
+    <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between gap-2 flex-wrap">${label} ${badge}</label>
     <div class="flex gap-2">
       <select data-field="${name}" data-idx="${idx}" data-people ${roleHint} class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
         <option value="">— Sin asignar —</option>
       </select>
    </div>
   </div>`;
+}
+
+// ¿La persona elegida en esta semana para el campo `field` ya está designada para
+// el MISMO campo en otra semana del mes? (aviso, no bloquea)
+function sameFieldOtherWeek(field, weekIdx) {
+  const m = state.month;
+  if (!m || !Array.isArray(m.weeks)) return false;
+  const val = m.weeks[weekIdx] && m.weeks[weekIdx][field];
+  if (!val) return false;
+  return m.weeks.some((w, i) => i !== weekIdx && w[field] && String(w[field]) === String(val));
 }
 
 function fillPeople(sel) {
@@ -1122,9 +996,7 @@ function fillPeople(sel) {
   if (!state.month || !state.month.weeks[current]) return;
   const val = state.month.weeks[current][field];
   const role = sel.dataset.role || '';
-  const list = role
-    ? state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role))
-    : state.people;
+  const list = eligiblePeople(state.month.weeks[current], state.people, role, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
@@ -1137,7 +1009,7 @@ function fillOutingPeople(sel) {
   const outing = state.month.weeks[wi].outings?.[oi];
   const val = outing ? outing.oradorSalida : '';
   const role = sel.dataset.role || 'orador';
-  const list = state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role));
+  const list = eligiblePeople(state.month.weeks[wi], state.people, role, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
@@ -1166,20 +1038,6 @@ function bindFieldChange(node) {
   });
 }
 
-function bindLaboreChange(node) {
-  node.addEventListener('change', () => {
-    const idx = parseInt(node.dataset.idx, 10);
-    const key = node.dataset.labore;
-    const slot = parseInt(node.dataset.laboreIdx, 10);
-    const w = state.month.weeks[idx];
-    ensureLabores(w);
-    const val = node.value === '' ? '' : node.value;
-    if (Array.isArray(w.labores[key])) w.labores[key][slot] = val;
-    else w.labores[key] = val;
-    renderWeeks();
-  });
-}
-
 async function saveMonth() {
   const conflicts = computeConflicts(state.month);
   const hard = conflicts.errors;
@@ -1190,20 +1048,6 @@ async function saveMonth() {
   state.month.updatedAt = Date.now();
   await db.putMonth(state.month);
   toast('Cambios guardados', 'success');
-}
-
-async function duplicatePrev() {
-  const months = await db.listMonths();
-  const prev = months.filter(m => m.id < state.month.id).sort((a, b) => b.id.localeCompare(a.id))[0];
-  if (!prev) { toast('No hay mes anterior disponible', 'info'); return; }
-  if (!await confirmDialog(`¿Copiar las asignaciones de ${MONTHS_ES[prev.month - 1]} ${prev.year}? Se reemplazarán las asignaciones actuales.`, 'Copiar')) return;
-  state.month.weeks = state.month.weeks.map((w, i) => {
-    const tpl = prev.weeks[i] || prev.weeks[prev.weeks.length - 1];
-    return { ...tpl, date: w.date, id: w.id };
-  });
-  await db.putMonth(state.month);
-  toast('Asignaciones copiadas', 'success');
-  renderEdit();
 }
 
 /* ---------- Validación ---------- */
@@ -1587,8 +1431,8 @@ async function imageOutings() {
 /* ---------- LISTAS: personas y grupos ---------- */
 const DEFAULT_ROLES = [
   { id: 'presidente',   label: 'Presidente' },
-  { id: 'conductor1',   label: 'Conductor Atalaya' },
-  { id: 'conductor2',   label: 'Conductor Libro' },
+  { id: 'conductor1',   label: 'Cond. Atalaya' },
+  { id: 'conductor2',   label: 'Cond. Libro' },
   { id: 'orador',       label: 'Orador' },
   { id: 'lector1',      label: 'Lector Atalaya' },
   { id: 'lector2',      label: 'Lector Libro' },
@@ -1626,7 +1470,7 @@ async function renderLists() {
     </div>
 
     <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant overflow-hidden">
-      <div class="overflow-x-auto">
+      <div class="overflow-auto max-h-[70vh]">
         <table class="w-full text-left border-collapse" id="rolesTable">
           <thead><tr class="bg-surface-container border-b border-outline-variant"></tr></thead>
           <tbody class="divide-y divide-outline-variant/50" id="pList"></tbody>
@@ -1648,9 +1492,29 @@ async function renderLists() {
 
   const thead = app.querySelector('#rolesTable thead tr');
   thead.innerHTML = `
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 bg-surface-container z-10 min-w-[220px]">Miembro del Equipo</th>
-    ${state.roles.map(r => `<th class="p-4 font-label-md text-label-md text-on-surface-variant text-center w-14 whitespace-nowrap" title="${escapeAttr(r.label)}"><div class="rotate-180" style="writing-mode: vertical-rl; letter-spacing: 0.05em;">${r.label}</div></th>`).join('')}
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[220px]">Miembro del Equipo</th>
+    ${state.roles.map(r => `<th class="p-4 font-label-md text-label-md text-on-surface-variant text-center w-14 whitespace-nowrap sticky top-0 bg-surface-container z-20" title="${escapeAttr(r.label)}">
+      <button data-markrole="${r.id}" class="material-symbols-outlined text-[16px] hover:text-primary block mx-auto mb-1" title="Marcar ${escapeAttr(r.label)} para todos">select_all</button>
+      <div class="rotate-180" style="writing-mode: vertical-rl; letter-spacing: 0.05em;">${r.label}</div>
+    </th>`).join('')}
   `;
+
+  app.querySelectorAll('[data-markrole]').forEach(btn => btn.onclick = async () => {
+    const first = document.querySelector('#pList .role-checkbox');
+    if (first && first.disabled) { toast('Desbloquea la edición primero', 'info'); return; }
+    const role = btn.dataset.markrole;
+    const lbl = (state.roles.find(r => r.id === role) || {}).label || role;
+    const add = state.people.some(p => !(Array.isArray(p.roles) && p.roles.includes(role)));
+    for (const p of state.people) {
+      const roles = Array.isArray(p.roles) ? [...p.roles] : [];
+      if (add) { if (!roles.includes(role)) roles.push(role); }
+      else { const i = roles.indexOf(role); if (i !== -1) roles.splice(i, 1); }
+      await db.setPersonRoles(p.id, roles);
+      p.roles = roles;
+    }
+    document.querySelectorAll(`#pList .role-checkbox[data-prole="${role}"]`).forEach(cb => cb.checked = add);
+    toast(add ? `"${lbl}" marcado para todos` : `"${lbl}" desmarcado de todos`, 'success');
+  });
 
   let editMode = false;
   const toggleBtn = $('#toggleEditMode');
@@ -1732,13 +1596,28 @@ function renderRows(p) {
     <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10 border-l-4 border-l-transparent hover:border-l-primary">
       <div class="w-8 h-8 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold">${initialsOf(p.name)}</div>
       <span class="truncate">${escapeHtml(p.name)}</span>
-      <button data-pdel="${p.id}" class="ml-auto text-error opacity-0 group-hover:opacity-100 transition-opacity material-symbols-outlined text-[18px]">delete</button>
+      <button data-markall="${p.id}" class="ml-auto text-on-surface-variant hover:text-primary material-symbols-outlined text-[18px]" title="Marcar todos los roles">select_all</button>
+      <button data-pdel="${p.id}" class="text-error opacity-0 group-hover:opacity-100 transition-opacity material-symbols-outlined text-[18px]" title="Eliminar">delete</button>
     </td>
     ${checks}
   </tr>`;
 }
 
 function renderRowsBindings() {
+  $('#pList').querySelectorAll('[data-markall]').forEach(b => b.onclick = async () => {
+    const tr = b.closest('tr');
+    const cbs = [...tr.querySelectorAll('.role-checkbox')];
+    if (cbs.length && cbs[0].disabled) { toast('Desbloquea la edición primero', 'info'); return; }
+    const anyUnchecked = cbs.some(cb => !cb.checked);
+    const pid = parseInt(b.dataset.markall, 10);
+    const person = state.people.find(x => String(x.id) === String(pid));
+    if (!person) return;
+    const roles = anyUnchecked ? state.roles.map(r => r.id) : [];
+    await db.setPersonRoles(pid, roles);
+    person.roles = roles;
+    cbs.forEach(cb => cb.checked = anyUnchecked);
+    toast(anyUnchecked ? 'Todos los roles marcados' : 'Roles desmarcados', 'success');
+  });
   $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
     if (await confirmDialog('¿Eliminar esta persona?')) { await db.deletePerson(parseInt(b.dataset.pdel, 10)); renderLists(); }
   });
@@ -2087,84 +1966,8 @@ async function extractPdfText(file) {
 }
 
 // Convierte el texto extraído a la estructura por tipo. Devuelve { data, warnings }.
-function convertPdfToData(type, text) {
-  if (type === 'talks') return convertPdfTalks(text);
-  if (type === 'midweeks') return convertPdfMidweeks(text);
-  if (type === 'people') return convertPdfPeople(text);
-  return { data: null, warnings: ['Tipo desconocido'] };
-}
-
-function convertPdfTalks(text) {
-  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-  const talks = [];
-  const re = /^(?:discurso\s*)?(\d{1,3})\s*[.:-]\s*(.+)$/i;
-  for (const ln of lines) {
-    const m = ln.match(re);
-    if (m) talks.push({ num: Number(m[1]), title: m[2].replace(/[_*\u2022•]/g, '').trim() });
-  }
-  if (!talks.length) return { data: null, warnings: ['No se detectaron discursos numerados'] };
-  return { data: { discursos: talks }, warnings: [] };
-}
-
-function convertPdfPeople(text) {
-  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
-  const roles = {};
-  let currentRole = null;
-  const roleRe = /^(presidente|conductor|lector|orador|atencion|microf\w*|plataforma|audio|video|acomodador|limpieza|seguridad|cronometrador|auxiliar|semanero)s?\s*$/i;
-  const nameRe = /^[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ]?[a-záéíóúüñ]+){1,5}$/;
-  for (const ln of lines) {
-    const rm = ln.match(roleRe);
-    if (rm) { currentRole = rm[1].toLowerCase(); if (!roles[currentRole]) roles[currentRole] = []; continue; }
-    if (currentRole && nameRe.test(ln)) roles[currentRole].push(ln.replace(/[-–•.*]+$/g, '').trim());
-  }
-  const total = Object.values(roles).reduce((a, r) => a + r.length, 0);
-  if (!total) return { data: null, warnings: ['No se detectaron nombres de personas'] };
-  return { data: { roles }, warnings: ['Roles detectados: ' + (Object.keys(roles).join(', ') || 'revisar')] };
-}
-
-function convertPdfMidweeks(text) {
-  const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
-  // Los PDF de la JW usan letras separadas ("6 -1 2 D E J U L I O").
-  // Detección flexible: buscar "N FATURA.. - N DE MES" ignorando espacios entre caracteres.
-  const found = [];
-  const clean = (s) => s.replace(/[\u0002\u0003]/g, ' ').trim();
-  const compactLine = (s) => clean(s).replace(/\s+/g, '');
-  // Monograma del mes
-  const lines = text.split('\n').map(s => clean(s)).filter(Boolean);
-  for (const ln of lines) {
-    // colapsa guiones/saltos de la cadena buscando la cabecera estilo "6-12 DE JULIO"
-    const s = ln.replace(/\s*-\s*/g, '-');
-    const m = s.match(/^(\d{1,2})-(\d{1,2})\s*DE\s*([A-ZÁÉÍÓÚÑ]{3,})$/i);
-    if (m) {
-      const mt = months.indexOf(m[3].toUpperCase());
-      if (mt >= 0) found.push({ mIni: +m[1], mFin: +m[2], month: mt + 1 });
-    }
-  }
-  // Fallback: PDF de JW con caracteres separados → comparar el mes compactando
-  // los espacios ("6  -12 DE J U L I O" → "6-12DEJULIOJEREMIAS...").
-  if (!found.length) {
-    const seen = new Set();
-    for (const ln of lines) {
-      const compactNoSp = ln.replace(/[\s\u0002\u0003]/g, '');
-      const mDate = compactNoSp.match(/^(\d{1,2})\-(\d{1,2})/);
-      if (!mDate) continue;
-      const tail = compactNoSp.slice(mDate[0].length); // tras "6-12" → "DE..."
-      const rest = tail.replace(/^DE/i, ''); // quita "DE"
-      const mt = months.findIndex(m => rest.includes(m));
-      if (mt >= 0) {
-        const k = mDate[1] + '-' + mDate[2] + '-' + (mt + 1);
-        if (!seen.has(k)) { seen.add(k); found.push({ mIni: +mDate[1], mFin: +mDate[2], month: mt + 1 }); }
-      }
-    }
-  }
-  if (!found.length) return { data: null, warnings: ['No se detectaron semanas (formato "D-D DE MES"). Revise el texto manualmente.'] };
-  const weeksOut = found.map(f => ({ header: `${f.mIni}-${f.mFin} DE ${months[f.month - 1]}`, reading: '', songIn: 0, songOut: 0, introTitle: 'Palabras de introducción', introMins: 1, closingTitle: 'Palabras de conclusión', closingMins: 3, sections: [
-    { id: 'tesoros', title: 'TESOROS DE LA BIBLIA', parts: [] },
-    { id: 'maestros', title: 'SEAMOS MEJORES MAESTROS', parts: [] },
-    { id: 'vida', title: 'NUESTRA VIDA CRISTIANA', parts: [] },
-  ] }));
-  return { data: { weeks: weeksOut }, warnings: [`Se detectaron ${weeksOut.length} semanas; rellene lecturas y partes.`] };
-}
+// (convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks se
+//  importan de logic.js para poder probarse en Node.)
 
 /* ---------- SETTINGS ---------- */
 async function renderSettings() {
@@ -2617,8 +2420,8 @@ async function renderMidweeks(opts = {}) {
 
   // Vista mensual: meses con reuniones de entre semana + filtrado por mes.
   const mwMonths = [...new Set(allWeeks.map(m => String(m.id).slice(0, 7)))].sort((a, b) => b.localeCompare(a));
-  const cur = (opts.month && mwMonths.includes(opts.month))
-    ? opts.month
+  const cur = (opts.month && /^\d{4}-\d{2}$/.test(String(opts.month)))
+    ? String(opts.month)
     : (state.mwMonth && mwMonths.includes(state.mwMonth) ? state.mwMonth : (mwMonths[0] || ''));
   state.mwMonth = cur;
   const weeks = cur ? allWeeks.filter(m => String(m.id).startsWith(cur)) : allWeeks;
@@ -2642,8 +2445,6 @@ async function renderMidweeks(opts = {}) {
   if (embed) {
     embed.innerHTML = `
       <div class="flex items-center gap-3 mb-6 flex-wrap">
-        <label class="font-label-md text-label-md text-on-surface-variant">Mes</label>
-        ${monthSel}
         <button id="mwMonthPrevBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all whitespace-nowrap">
           <span class="material-symbols-outlined text-[18px]">description</span> Vista Final Mensual
         </button>
@@ -2682,7 +2483,12 @@ async function renderMidweeks(opts = {}) {
     list.innerHTML = `<div class="col-span-full text-center py-16 border-2 border-dashed border-outline-variant rounded-xl">
       <span class="material-symbols-outlined text-primary text-6xl mb-4">event_available</span>
       <p class="text-on-surface-variant font-body-lg">No hay semanas cargadas para la reunión de entre semana.</p>
+      <button id="mwUploadGuide" class="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
+        <span class="material-symbols-outlined text-[18px]">upload_file</span> Subir guía
+      </button>
     </div>`;
+    const uploadBtn = embed ? embed.querySelector('#mwUploadGuide') : $('#mwUploadGuide');
+    if (uploadBtn) uploadBtn.onclick = () => go('uploads');
     return;
   }
 
@@ -2754,7 +2560,12 @@ function renderMidweekList() {
     list.innerHTML = `<div class="col-span-full text-center py-16 border-2 border-dashed border-outline-variant rounded-xl">
       <span class="material-symbols-outlined text-primary text-6xl mb-4">event_available</span>
       <p class="text-on-surface-variant font-body-lg">No hay semanas cargadas para la reunión de entre semana.</p>
+      <button id="mwUploadGuide" class="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
+        <span class="material-symbols-outlined text-[18px]">upload_file</span> Subir guía
+      </button>
     </div>`;
+    const uploadBtn = $('#mwUploadGuide');
+    if (uploadBtn) uploadBtn.onclick = () => go('uploads');
     return;
   }
   list.innerHTML = weeks.map((w, i) => midweekCardList(w, i)).join('');
@@ -2818,7 +2629,7 @@ async function renderLabores(monthId, opts = {}) {
   // Meses disponibles: programas de fin de semana + meses con reuniones de entre semana.
   const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
   const allMonths = [...new Set([...months.map(m => m.id), ...mwMonths])].sort((a, b) => b.localeCompare(a));
-  const cur = (monthId && allMonths.includes(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
+  const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
   const month = months.find(m => m.id === cur) || null;
 
   // Cada columna es una semana de la organización (domingo que cierra la semana).
@@ -2830,7 +2641,7 @@ async function renderLabores(monthId, opts = {}) {
     return isoDate(d);
   };
   const finBySunday = new Map();
-  ((month && month.weeks) || []).forEach(w => finBySunday.set(weekSunday(w.date), w));
+  ((month && month.weeks) || []).forEach((w, wi) => finBySunday.set(weekSunday(w.date), { w, wi }));
   const mwBySunday = new Map();
   state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
   const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])]
@@ -2842,21 +2653,31 @@ async function renderLabores(monthId, opts = {}) {
     return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
   };
   const fmtShort = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+  const laboreOpts = (week, curVal) => `<option value="">— Sin asignar —</option>` +
+    eligiblePeople(week, state.people, isLaborePerson, curVal).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 
   const columns = sundays.map((sunday, i) => {
-    const fin = finBySunday.get(sunday);
+    const fin = finBySunday.get(sunday); // { w, wi } | undefined
     const mw = mwBySunday.get(sunday);
-    const cell = (finName, mwName) => {
+    // Cada celda: selector editable para el fin de semana y el nombre de entre
+    // semana como referencia (entre semana se edita en su propio editor).
+    const cell = (key, si) => {
+      const curVal = fin ? slotValue(fin.w, key, si) : '';
+      const mwName = mw ? slotValue(mw, key, si) : '';
       const bits = [];
-      if (finName) bits.push(`<div class="flex items-center justify-center gap-1"><span class="truncate font-semibold text-on-surface">${escapeHtml(finName)}</span><span class="text-[9px] uppercase tracking-wider text-on-surface-variant" title="Reunión de fin de semana">FS</span></div>`);
-      if (mwName) bits.push(`<div class="flex items-center justify-center gap-1"><span class="truncate font-semibold text-on-surface">${escapeHtml(mwName)}</span><span class="text-[9px] uppercase tracking-wider text-on-surface-variant" title="Reunión de entre semana">ES</span></div>`);
-      return bits.length ? bits.join('') : '<span class="text-on-surface-variant">—</span>';
+      if (fin && fin.w.type !== 'assembly') {
+        bits.push(`<select data-labore-wi="${fin.wi}" data-labore-key="${key}" data-labore-si="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${laboreOpts(fin.w, curVal)}</select>`);
+      } else if (curVal) {
+        bits.push(`<div class="text-sm font-semibold text-on-surface">${escapeHtml(personNameOf(curVal))} <span class="text-[9px] uppercase text-on-surface-variant">FS</span></div>`);
+      }
+      if (mwName) bits.push(`<div class="text-xs text-on-surface-variant mt-1">${escapeHtml(personNameOf(mwName))} <span class="text-[9px] uppercase">ES</span></div>`);
+      return bits.length ? bits.join('') : '<span class="text-on-surface-variant text-sm">—</span>';
     };
     return {
       i,
       fin,
       mw,
-      sub: mw ? mw.header : (fin ? fmtShort(fin.date) : ''),
+      sub: mw ? mw.header : (fin ? fmtShort(fin.w.date) : ''),
       cell,
     };
   });
@@ -2871,11 +2692,7 @@ async function renderLabores(monthId, opts = {}) {
   const rows = [];
   for (const d of LABORES_DEF) {
     for (let si = 0; si < d.count; si++) {
-      const cells = columns.map(c => {
-        const fin = c.fin ? slotValue(c.fin, d.key, si) : '';
-        const mw = c.mw ? slotValue(c.mw, d.key, si) : '';
-        return `<td class="p-4 text-center font-body-md text-body-md">${c.cell(fin ? personNameOf(fin) : null, mw ? personNameOf(mw) : null)}</td>`;
-      }).join('');
+      const cells = columns.map(c => `<td class="p-4 text-center font-body-md text-body-md align-top">${c.cell(d.key, si)}</td>`).join('');
       rows.push(`<tr class="border-b border-outline-variant/40">
         <td class="p-4 font-body-md text-body-md text-on-surface whitespace-nowrap">${escapeHtml(d.label)}${d.count > 1 ? ` ${si + 1}` : ''}</td>
         ${cells}
@@ -2888,16 +2705,19 @@ async function renderLabores(monthId, opts = {}) {
     : `<h1 class="font-display-lg text-display-lg text-primary mb-2">Labores del Mes</h1>
       <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Asignaciones de atención (tras bambalinas) de ambas reuniones · ${MONTHS_ES[Number(cur.slice(5)) - 1]} ${cur.slice(0, 4)}.</p>`;
 
+  const monthSelBlock = embed ? '' : `
+    <div class="mt-4 max-w-xs">
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
+      <select id="labMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+      </select>
+    </div>`;
+
   root.innerHTML = `
     <div class="${embed ? 'mb-0' : 'mb-8'}">
       ${title}
-      <div class="mt-4 max-w-xs">
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
-        <select id="labMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-          ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="mt-4 flex items-center gap-5 text-xs text-on-surface-variant">
+      ${monthSelBlock}
+      <div class="${embed ? '' : 'mt-4 '}flex items-center gap-5 text-xs text-on-surface-variant">
         <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-full bg-primary"></span> Reunión de fin de semana</span>
         <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-full bg-secondary"></span> Reunión de entre semana</span>
       </div>
@@ -2911,11 +2731,25 @@ async function renderLabores(monthId, opts = {}) {
           <table class="w-full text-left border-collapse min-w-[640px]">${thead}<tbody>${rows.join('')}</tbody></table>
         </div>`}
   `;
-  const monthSel = embed ? embed.querySelector('#labMonth') : $('#labMonth');
-  monthSel.onchange = (e) => {
-    if (embed) renderLabores(e.target.value, { embed });
-    else go('labores', { monthId: e.target.value });
-  };
+  const monthSel = $('#labMonth');
+  if (monthSel) monthSel.onchange = (e) => go('labores', { monthId: e.target.value });
+
+  root.querySelectorAll('select[data-labore-wi]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const wi = parseInt(sel.dataset.laboreWi, 10);
+      const key = sel.dataset.laboreKey;
+      const si = parseInt(sel.dataset.laboreSi, 10);
+      const week = month.weeks[wi];
+      if (!week) return;
+      ensureLabores(week);
+      const val = sel.value;
+      if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
+      else week.labores[key] = val;
+      await db.putMonth(month);
+      toast('Labor asignada', 'success');
+      renderLabores(cur, { embed });
+    });
+  });
 }
 
 /* ---------- LABOR GRUPO: asignación del grupo de atención por semana ---------- */
@@ -2929,7 +2763,7 @@ async function renderLaboresGrupo(monthId, opts = {}) {
   const months = await db.listMonths();
   months.sort((a, b) => b.id.localeCompare(a.id));
   const allMonths = months.map(m => m.id);
-  const cur = (monthId && allMonths.includes(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
+  const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
   const month = months.find(m => m.id === cur) || null;
   const weeks = (month && month.weeks) || [];
 
@@ -2994,15 +2828,18 @@ async function renderLaboresGrupo(monthId, opts = {}) {
     : `<h1 class="font-display-lg text-display-lg text-primary mb-2">Labor Grupo</h1>
       <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Grupo de atención (aseo y hospitalidad) por semana · ${MONTHS_ES[Number(cur.slice(5)) - 1]} ${cur.slice(0, 4)}.</p>`;
 
+  const monthSelBlock = embed ? '' : `
+    <div class="mt-4 max-w-xs">
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
+      <select id="labGrupoMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+      </select>
+    </div>`;
+
   root.innerHTML = `
     <div class="${embed ? 'mb-0' : 'mb-8'}">
       ${title}
-      <div class="mt-4 max-w-xs">
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
-        <select id="labGrupoMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-          ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
-        </select>
-      </div>
+      ${monthSelBlock}
     </div>
     ${!month
       ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">
@@ -3024,11 +2861,8 @@ async function renderLaboresGrupo(monthId, opts = {}) {
         </div>`}
   `;
 
-  const monthSel = embed ? embed.querySelector('#labGrupoMonth') : $('#labGrupoMonth');
-  monthSel.onchange = (e) => {
-    if (embed) renderLaboresGrupo(e.target.value, { embed });
-    else go('laboresGrupo', { monthId: e.target.value });
-  };
+  const monthSel = $('#labGrupoMonth');
+  if (monthSel) monthSel.onchange = (e) => go('laboresGrupo', { monthId: e.target.value });
 
   root.querySelectorAll('select[data-wgroup]').forEach(sel => {
     sel.addEventListener('change', async () => {
@@ -3049,6 +2883,136 @@ async function renderLaboresGrupo(monthId, opts = {}) {
   });
 }
 
+/* ---------- SALIDAS: programa de salidas del mes (oradores de fin de semana) ---------- */
+async function renderSalidas(monthId, opts = {}) {
+  const embed = opts.embed;
+  if (!embed) { state.month = null; renderTop(); }
+  const root = embed || $('#app');
+  const months = await db.listMonths();
+  months.sort((a, b) => b.id.localeCompare(a.id));
+  const allMonths = months.map(m => m.id);
+  const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
+  const month = months.find(m => m.id === cur) || null;
+  if (month) ensureOutings(month);
+  state.month = month; // reutiliza outingRow / computeOutingConflicts / talk picker
+
+  const render = () => {
+    const title = embed
+      ? ''
+      : `<h1 class="font-display-lg text-display-lg text-primary mb-2">Salidas</h1>
+        <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Programa de salidas a congregaciones · ${MONTHS_ES[Number(cur.slice(5)) - 1]} ${cur.slice(0, 4)}.</p>`;
+
+    const blocks = month ? month.weeks.map((w, i) => {
+      const date = new Date(w.date + 'T00:00:00');
+      const dateStr = capitalize(date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }));
+      let body;
+      if (w.type !== 'normal') {
+        body = `<p class="text-on-surface-variant text-sm">${WEEK_TYPES[w.type].label} · sin salidas.</p>`;
+      } else {
+        const occ = computeOutingConflicts(month, i);
+        const rows = (w.outings || []).map((o, j) => outingRow(o, i, j, occ)).join('');
+        body = `<div class="grid grid-cols-1 gap-4" data-outing-list="${i}">${rows}</div>
+          <div class="mt-4 flex justify-end">
+            <button data-outing-add="${i}" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:bg-secondary-container transition-colors">
+              <span class="material-symbols-outlined text-[18px]">person_add</span> Agregar orador
+            </button>
+          </div>`;
+      }
+      return `<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
+        <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <h3 class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</h3>
+          <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(dateStr)}</span>
+        </div>
+        ${body}
+      </section>`;
+    }).join('') : '';
+
+    const congs = month ? (month.outings || []).map((c, i) => congCard(c, i)).join('') : '';
+    const monthSelBlock = embed ? '' : `
+      <div class="mt-4 max-w-xs">
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
+        <select id="salidasMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+        </select>
+      </div>`;
+
+    root.innerHTML = `
+      <div class="${embed ? 'mb-0' : 'mb-8'}">
+        ${title}
+        ${monthSelBlock}
+      </div>
+      ${!month
+        ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">
+            <span class="material-symbols-outlined text-primary text-5xl mb-3 inline-block">campaign</span>
+            <p class="text-on-surface-variant font-body-lg">No hay programas de fin de semana para este mes.</p>
+          </div>`
+        : `<section id="salidasCong" class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6 mb-6">
+            <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
+                <span class="material-symbols-outlined text-secondary">campaign</span> Datos de Salida
+              </h2>
+              <button id="addCongBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed/60 transition-colors">
+                <span class="material-symbols-outlined text-[18px]">add</span> Agregar congregación
+              </button>
+            </div>
+            <div id="congList" class="grid grid-cols-1 md:grid-cols-2 gap-4">${congs}</div>
+            <p class="text-on-surface-variant text-caption mt-3">Congregaciones visitadas en el mes; se incluyen en el programa de salidas.</p>
+          </section>
+          <div id="salidasList" class="space-y-6">${blocks}</div>
+          <div class="mt-6 flex justify-end gap-3">
+            <button id="salidasProgram" class="px-4 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed">Ver programa</button>
+            <button id="salidasSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar cambios</button>
+          </div>`}
+    `;
+
+    const monthSel = $('#salidasMonth');
+    if (monthSel) monthSel.onchange = (e) => go('salidas', { monthId: e.target.value });
+    if (!month) return;
+
+    // Congregaciones (datos de salida)
+    const congWrap = embed ? embed.querySelector('#salidasCong') : $('#salidasCong');
+    congWrap.querySelectorAll('[data-cong-field]').forEach(bindCongFieldChange);
+    congWrap.querySelectorAll('[data-cong-del]').forEach(b => b.onclick = async () => {
+      const i = parseInt(b.dataset.congDel, 10);
+      if (month.outings.length <= 1) { toast('Debe haber al menos una congregación', 'error'); return; }
+      if (await confirmDialog('¿Eliminar esta congregación?')) { month.outings.splice(i, 1); render(); }
+    });
+    const addCong = congWrap.querySelector('#addCongBtn');
+    if (addCong) addCong.onclick = () => { month.outings.push(newCongregation()); render(); };
+
+    const list = embed ? embed.querySelector('#salidasList') : $('#salidasList');
+    list.querySelectorAll('select[data-outing-field][data-people]').forEach(sel => {
+      fillOutingPeople(sel);
+      sel.addEventListener('change', () => {
+        const [wi, oi] = sel.dataset.outingIdx.split('.').map(Number);
+        month.weeks[wi].outings[oi].oradorSalida = sel.value === '' ? '' : parseInt(sel.value, 10);
+        render();
+      });
+    });
+    list.querySelectorAll('[data-talkpicker-out]').forEach(bindTalkPickerOut);
+    list.querySelectorAll('[data-outing-add]').forEach(b => b.onclick = () => {
+      const wi = parseInt(b.dataset.outingAdd, 10);
+      month.weeks[wi].outings.push(newOuting());
+      render();
+    });
+    list.querySelectorAll('[data-outing-del]').forEach(b => b.onclick = async () => {
+      const [wi, oi] = b.dataset.outingDel.split('.').map(Number);
+      if (month.weeks[wi].outings.length <= 1) { toast('Debe haber al menos un orador por semana', 'error'); return; }
+      if (await confirmDialog('¿Eliminar este orador de la salida?')) {
+        month.weeks[wi].outings.splice(oi, 1);
+        render();
+      }
+    });
+
+    const programBtn = embed ? embed.querySelector('#salidasProgram') : $('#salidasProgram');
+    if (programBtn) programBtn.onclick = () => go('outings', { monthId: cur });
+    const saveBtn = embed ? embed.querySelector('#salidasSave') : $('#salidasSave');
+    if (saveBtn) saveBtn.onclick = async () => { await db.putMonth(month); toast('Salidas guardadas', 'success'); };
+  };
+
+  render();
+}
+
 /* ---------- VISTA MENSUAL GENERAL: agrupa ambas reuniones por semana ---------- */
 async function renderGeneralMonth(monthId, opts = {}) {
   const embed = opts.embed;
@@ -3059,7 +3023,7 @@ async function renderGeneralMonth(monthId, opts = {}) {
 
   const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
   const allMonths = [...new Set([...months.map(m => m.id), ...mwMonths])].sort((a, b) => b.localeCompare(a));
-  const cur = (monthId && allMonths.includes(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
+  const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
   const month = months.find(m => m.id === cur) || null;
 
   // Cada semana de la organización (domingo que la cierra) agrupa su reunión de
@@ -3087,15 +3051,18 @@ async function renderGeneralMonth(monthId, opts = {}) {
     <h1 class="font-display-lg text-display-lg text-primary mb-2">Vista Mensual General</h1>
     <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Todas las reuniones del mes, semana por semana.</p>`;
 
+  const monthSelBlock = embed ? '' : `
+    <div class="mt-4 max-w-xs">
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
+      <select id="generalMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
+      </select>
+    </div>`;
+
   root.innerHTML = `
     <div class="${embed ? 'mb-0' : 'mb-8'}">
       ${title}
-      <div class="mt-4 max-w-xs">
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Mes</label>
-        <select id="generalMonth" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-          ${allMonths.map(id => `<option value="${id}" ${id === cur ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
-        </select>
-      </div>
+      ${monthSelBlock}
     </div>
     ${boxes.length
       ? `<div class="space-y-6">${boxes.join('')}</div>`
@@ -3104,11 +3071,8 @@ async function renderGeneralMonth(monthId, opts = {}) {
           <p class="text-on-surface-variant font-body-lg">No hay programas ni reuniones de entre semana cargados para este mes.</p>
         </div>`}
   `;
-  const monthSel = embed ? embed.querySelector('#generalMonth') : $('#generalMonth');
-  monthSel.onchange = (e) => {
-    if (embed) renderGeneralMonth(e.target.value, { embed });
-    else go('general', { monthId: e.target.value });
-  };
+  const monthSel = $('#generalMonth');
+  if (monthSel) monthSel.onchange = (e) => go('general', { monthId: e.target.value });
 }
 
 // Cuadro de una semana en la vista mensual general.
@@ -3324,9 +3288,7 @@ async function renderMidweek(id) {
       const slotFields = slots.map(s => {
         const cur = ap[s.key];
         const opts = ['<option value="">— Sin asignar —</option>'];
-        const list = s.role
-          ? state.people.filter(per => !Array.isArray(per.roles) || per.roles.length === 0 || per.roles.includes(s.role))
-          : state.people;
+        const list = eligiblePeople(week, state.people, s.role, cur, collectMidweekPersons);
         for (const person of list) {
           opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
         }
@@ -3398,7 +3360,7 @@ function midweekLaboresEditor(week) {
     const fields = Array.from({ length: count }, (_, si) => {
       const cur = slots[si] || '';
       const opts = ['<option value="">— Sin asignar —</option>'];
-      for (const p of state.people.filter(isLaborePerson)) {
+      for (const p of eligiblePeople(w, state.people, isLaborePerson, cur, collectMidweekPersons)) {
         opts.push(`<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`);
       }
       return `<div class="flex-1 min-w-[130px]">
@@ -4017,6 +3979,13 @@ function newCongregation() {
 
 function formatShort(date) {
   return date.toLocaleDateString('es', { day: '2-digit', month: 'short' });
+}
+
+// Suma/resta meses a "YYYY-MM" y devuelve "YYYY-MM".
+function addMonths(iso, delta) {
+  const [y, m] = String(iso).split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function personNameOf(id) {

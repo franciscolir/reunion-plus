@@ -6,11 +6,13 @@ import {
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
-  collectLaboresPersons, collectMidweekPersons, computeMidweekConflicts, dedupPersons,
+  collectLaboresPersons, collectMidweekPersons, computeMidweekConflicts, dedupPersons, eligiblePeople,
   LABORES_DEF, LABORE_ROLES, isLaborePerson,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks,
 } from './logic.js';
+import { readFileSync } from 'node:fs';
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra = '') {
@@ -314,6 +316,80 @@ ok('entresemana sin duplicados: 0 errors', computeMidweekConflicts(mwkOk).errors
 console.log('[labelOfKey labores]');
 ok('etiqueta de labores acomodacion 2', labelOfKey('labores_acomodacion_1') === 'labores de acomodación 2');
 ok('etiqueta de labores plataforma (1 solo)', labelOfKey('labores_plataforma_0') === 'labores de plataforma');
+
+// --- eligiblePeople (dedupe de ya asignados en la semana) ---
+console.log('[eligiblePeople]');
+const peopleE = [
+  { id: 1, name: 'Luis', roles: ['presidente', 'lector', 'acomodador'] },
+  { id: 2, name: 'Pedro', roles: ['presidente', 'lector'] },
+  { id: 3, name: 'Juan', roles: ['lector'] },
+  { id: 4, name: 'Ana', roles: [] },
+];
+const weekLuis = { type: 'normal', presidente: 1, outings: [], labores: {} };
+ok('excluye a los ya asignados en la misma semana', eligiblePeople(weekLuis, peopleE, 'lector', '').map(p => p.name).sort().join(',') === 'Ana,Juan,Pedro');
+ok('mantiene al que ya ocupa el puesto', eligiblePeople(weekLuis, peopleE, 'presidente', 1).some(p => p.id === 1));
+ok('permite elegir en otra semana al asignado en esta (dedupe es intra-semana)', eligiblePeople({ type: 'normal', presidente: 2, outings: [], labores: {} }, peopleE, 'presidente', '').some(p => p.id === 1));
+ok('sin rol aplica solo el dedupe de asignados', eligiblePeople(weekLuis, peopleE, '', '').length === 3);
+ok('soporta predicado (labores) y excluye al asignado', eligiblePeople({ type: 'normal', labores: { acomodacion: ['1', ''] } }, peopleE, isLaborePerson, '').map(p => p.name).join(',') === 'Ana');
+
+// --- Convertidores de PDF (carga de archivos) ---
+console.log('[convertPdfMidweeks]');
+// Texto representativo del formato de la Guía de Actividades (letras separadas,
+// partes y lecturas fragmentadas en varias líneas).
+const guideText = [
+  '6 -1 2 D E J U L I O J E R E M',
+  '´ I A S 1 3 - 1 5',
+  'C a n c i',
+  '´',
+  'o n 1 2 3 y o r a c i',
+  '´',
+  'o n',
+  'T E S OROS',
+  'DE L A B I BL I A',
+  '1 . J eho v',
+  '´',
+  'a merece q ue le obedez c amos (1 0 m ins . )',
+  'S E A M OS',
+  'M E JORE S M A E S T ROS',
+  'N U E S T R A',
+  'V I D A C R I S T I A N A',
+  '1 3 -1 9 D E J U L I O',
+  'J E R E M I A S 1 6 , 1 7',
+].join('\n');
+const gd = convertPdfMidweeks(guideText);
+const gweeks = gd.data ? gd.data.weeks : [];
+ok('detecta 2 semanas', gweeks.length === 2, `got=${gweeks.length}`);
+ok('cabecera semana 1', gweeks[0] && gweeks[0].header === '6-12 DE JULIO');
+ok('cabecera semana 2', gweeks[1] && gweeks[1].header === '13-19 DE JULIO');
+ok('lectura semana 1', gweeks[0] && gweeks[0].reading === 'JEREMIAS 13-15', `got=${gweeks[0] && JSON.stringify(gweeks[0].reading)}`);
+ok('lectura semana 2', gweeks[1] && gweeks[1].reading === 'JEREMIAS 16,17');
+ok('cada semana tiene las 3 secciones', gweeks.every(w => w.sections.map(s => s.id).join(',') === 'tesoros,maestros,vida'));
+ok('sin cabeceras repetidas', new Set(gweeks.map(w => w.header)).size === gweeks.length);
+ok('sin texto deja datos nulos', convertPdfMidweeks('texto sin semanas').data === null);
+
+console.log('[convertPdfTalks]');
+ok('detecta discursos numerados', convertPdfTalks('1. La Biblia\n2- El Reino\n3: Esperanza').data.discursos.length === 3);
+ok('sin discursos devuelve nulo', convertPdfTalks('nada').data === null);
+
+console.log('[convertPdfPeople]');
+ok('detecta nombres por rol', convertPdfPeople('presidente\nJuan Pérez\nlector\nMaría López\n').data.roles.presidente.includes('Juan Pérez'));
+
+console.log('[convertPdfToData]');
+ok('despacha por tipo', convertPdfToData('midweeks', guideText).data.weeks.length === 2);
+ok('tipo desconocido devuelve nulo', convertPdfToData('otro', 'x').data === null);
+
+// --- Estructura de midweeks.json (datos para el análisis de reuniones) ---
+console.log('[estructura midweeks.json]');
+const mwJson = JSON.parse(readFileSync(new URL('./midweeks.json', import.meta.url), 'utf8'));
+const mwWeeks = mwJson.weeks || [];
+ok('midweeks.json tiene semanas', mwWeeks.length > 0);
+ok('cada semana tiene secciones tesoros/maestros/vida', mwWeeks.every(w => {
+  const ids = (w.sections || []).map(s => s.id).join(',');
+  return ids === 'tesoros,maestros,vida';
+}));
+ok('las partes tienen num, title y mins', mwWeeks.every(w => (w.sections || []).every(s => (s.parts || []).every(p => p.num && p.title && typeof p.mins === 'number'))));
+ok('cada semana tiene id y header', mwWeeks.every(w => w.id && w.header));
+ok('tesoros siempre tiene 3 partes', mwWeeks.every(w => (w.sections.find(s => s.id === 'tesoros') || {}).parts.length === 3));
 
 // --- LABORES_DEF / LABORE_ROLES / isLaborePerson ---
 console.log('[LABORES_DEF / labore roles]');

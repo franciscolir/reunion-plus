@@ -7,7 +7,12 @@
       "Mauricio Pareja",
       "Rigoberto Toledo",
       "Francisco Lira",
-      "Manuel Cabezas"
+      "Manuel Cabezas",
+      "Ángel Fuentes",
+      "Hugo Salazar",
+      "Raúl Cárdenas",
+      "Emilio Vera",
+      "Óscar Delgado"
     ],
     "lector1": [
       "Pablo Serpa",
@@ -16,12 +21,20 @@
       "Rigoberto Toledo",
       "Francisco Lira",
       "Claudio Cordova",
-      "Pablo Toledo"
+      "Pablo Toledo",
+      "Braulio Riquelme",
+      "Hernán Zúñiga",
+      "Edgardo Carvajal",
+      "Simón Pavez"
     ],
     "conductor1": [
       "Mauricio Pareja",
       "Francisco Lira",
-      "Manuel Cabezas"
+      "Manuel Cabezas",
+      "Tomás Rojas",
+      "Andrés Pino",
+      "Félix Mora",
+      "Rubén Cifuentes"
     ],
     "orador": [
       "Pablo Serpa",
@@ -32,7 +45,64 @@
       "Francisco Lira",
       "Manuel Cabezas",
       "Claudio Cordova",
-      "Pablo Toledo"
+      "Pablo Toledo",
+      "Sergio Núñez",
+      "Cristian Paredes",
+      "Javier Escobar",
+      "Rodrigo Fuenzalida"
+    ],
+    "conductor2": [
+      "Marcelo Ibáñez",
+      "Víctor Aravena",
+      "Patricio Campos",
+      "Luis Herrera"
+    ],
+    "lector2": [
+      "René Olguín",
+      "César Tapia",
+      "Marcos Yáñez",
+      "Sebastián Figueroa"
+    ],
+    "audio": [
+      "Carlos Ávila",
+      "Fernando Soto",
+      "Gonzalo Reyes"
+    ],
+    "microf": [
+      "Eduardo Salinas",
+      "Rodolfo Manríquez",
+      "Arturo Del Río"
+    ],
+    "plataforma": [
+      "Mauricio Leiva",
+      "Óscar Bascuñán",
+      "Darío Herrera"
+    ],
+    "acomodador": [
+      "Aldo Cáceres",
+      "Ernesto Barrios",
+      "Fabián Ríos"
+    ],
+    "asignacion1": [
+      "Iván Cortés",
+      "Pablo Gatica",
+      "Emilio Rojas"
+    ],
+    "asignacion2": [
+      "Jorge Muñoz",
+      "Esteban Alarcón",
+      "Gastón Pizarro"
+    ],
+    "asignacion3": [
+      "Mario Flores",
+      "Ramiro Villalobos",
+      "Vicente Navarro"
+    ],
+    "asignacion4": [
+      "Alonso Salgado",
+      "Cristóbal Fuentes",
+      "Tomás Gallardo",
+      "Diego Santana"
     ]
   }
 }
