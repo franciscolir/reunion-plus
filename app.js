@@ -8,7 +8,9 @@ import {
   dedupPersons, eligiblePeople, isLaborePerson, LABORES_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
-  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary,
+  computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
+  automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
@@ -251,7 +253,7 @@ async function renderHome() {
       <!-- Columna izquierda: reuniones -->
       <div class="md:col-span-8 md:grid-rows-1 flex flex-col gap-4">
         <!-- Entre Semana -->
-        <div class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+        <div data-go-mw class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)] cursor-pointer hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] hover:border-primary transition-all" title="Abrir la reunión de entre semana de esta semana">
           <div class="flex items-center justify-between mb-6 gap-3">
             <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
               <span class="material-symbols-outlined">auto_stories</span>
@@ -263,9 +265,10 @@ async function renderHome() {
             <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Lectura de la semana</p>
             <p class="font-headline-md text-headline-md text-on-surface">${betweenSemanaReading()}</p>
           </div>
+          <p class="mt-3 text-sm text-primary flex items-center gap-1 font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">open_in_new</span> Ver detalle</p>
         </div>
         <!-- Fin de Semana -->
-        <div class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+        <div data-go-fin class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)] cursor-pointer hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] hover:border-secondary transition-all" title="Abrir el programa de fin de semana del mes en curso">
           <div class="flex items-center justify-between mb-6 gap-3">
             <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
               <span class="material-symbols-outlined">record_voice_over</span>
@@ -277,6 +280,7 @@ async function renderHome() {
             <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Título del Discurso</p>
             <p class="font-body-lg text-body-lg font-semibold text-on-surface italic">${finSemanaTitle()}</p>
           </div>
+          <p class="mt-3 text-sm text-secondary flex items-center gap-1 font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">open_in_new</span> Ver detalle</p>
         </div>
       </div>
 
@@ -316,6 +320,17 @@ async function renderHome() {
   `;
   $('#btnNew').onclick = () => go('new');
   document.querySelectorAll('[data-go-settings]').forEach(b => b.onclick = () => go('eventos'));
+  document.querySelectorAll('[data-go-mw]').forEach(c => c.onclick = () => {
+    const { monday } = currentWeekDates();
+    const wk = state.midweeks.find(m => String(m.id) === monday);
+    if (wk) go('midweek', { monthId: wk.id });
+    else go('midweeks');
+  });
+  document.querySelectorAll('[data-go-fin]').forEach(c => c.onclick = () => {
+    const cur = findCurrentFinWeek();
+    if (cur) go('edit', { monthId: cur.month.id });
+    else go('new');
+  });
 
   renderHomeEvents($('#homeEvents'));
 }
@@ -438,9 +453,14 @@ async function renderNew() {
   state.month = null;
   renderTop();
   const app = $('#app');
-  const months = await db.listMonths();
+  const [months, aseos, salidas, labores] = await Promise.all([
+    db.listMonths(), db.listAseos(), db.listSalidas(), db.listLabores(),
+  ]);
   const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
-  const dataMonths = [...new Set([...months.map(m => m.id), ...mwMonths])];
+  const dataMonths = [...new Set([
+    ...months.map(m => m.id), ...mwMonths,
+    ...aseos.map(a => a.id), ...salidas.map(p => p.id), ...labores.map(p => p.id),
+  ])];
   if (!state.progMonth) {
     const today = isoDate(new Date()).slice(0, 7);
     state.progMonth = dataMonths.includes(today) ? today : (dataMonths[0] || today);
@@ -472,6 +492,9 @@ async function renderNew() {
           ${allMonths.map(id => `<option value="${id}" ${id === state.progMonth ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
         </select>
       </div>
+      <button id="autoBtn" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors" title="Asignación automática del mes">
+        <span class="material-symbols-outlined text-[18px]">auto_awesome</span> Asignación automática
+      </button>
     </div>
     <div class="flex gap-2 mb-8 border-b border-outline-variant flex-wrap">
       ${tabs.map(t => `<button data-tab="${t.id}" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">${t.label}</button>`).join('')}
@@ -482,6 +505,7 @@ async function renderNew() {
   const goMonth = (m) => { state.progMonth = m; renderNew(); };
   $('#progMonth').onchange = (e) => goMonth(e.target.value);
   app.querySelectorAll('[data-month]').forEach(b => b.onclick = () => goMonth(b.dataset.month));
+  $('#autoBtn').onclick = () => abrirAsistenteAuto();
 
   const tabNodes = app.querySelectorAll('.newTab');
   const setActive = () => {
@@ -500,6 +524,235 @@ async function renderNew() {
   });
   setActive();
   renderNewBody();
+}
+
+/* ---------- Asistente de asignación automática ---------- */
+
+// Flujo guiado: solicita el mes a trabajar, revisa la guía de la reunión de
+// entre semana (si falta, pide cargarla), crea los programas del mes que no
+// estén iniciados y completa las asignaciones por etapas. Los resultados se
+// consultan luego en cada vista y en la General Mensual.
+async function abrirAsistenteAuto() {
+  const inicial = state.progMonth || isoDate(new Date()).slice(0, 7);
+  let month = inicial;
+
+  const setModal = (html) => { $('#modalCard').innerHTML = html; };
+  const mesTxt = (m) => `${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`;
+  const verPrograma = (tab, m) => { closeModal(); state.progMonth = m; state.newTab = tab; go('new'); };
+
+  // ---- Paso 1: elegir mes y consultar el estado de los programas ----
+  const pasoMes = () => {
+    setModal(`
+      <div class="text-center mb-6">
+        <span class="material-symbols-outlined text-6xl text-primary mb-2">auto_awesome</span>
+        <h2 class="font-headline-md text-headline-md text-primary">Asignación automática</h2>
+        <p class="text-on-surface-variant text-body-md">Elija el mes a trabajar. Los programas que no estén iniciados se crearán y completarán.</p>
+      </div>
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Mes a trabajar</label>
+      <input id="autoMonth" type="month" value="${month}"
+        class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md font-semibold focus:border-primary mb-5">
+      <div id="autoStatus" class="space-y-2 mb-6"></div>
+      <div class="flex justify-end gap-3">
+        <button id="autoCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+        <button id="autoStart" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Continuar</button>
+      </div>
+    `);
+    $('#autoCancel').onclick = closeModal;
+    const input = $('#autoMonth');
+    const renderStatus = async () => {
+      month = input.value;
+      const [fin, lab, sal] = await Promise.all([db.getMonth(month), db.getLabores(month), db.getSalidas(month)]);
+      const mws = state.midweeks.filter(m => String(m.id).slice(0, 7) === month);
+      const item = (ok, txt, icon) => `<div class="flex items-center gap-2 text-sm ${ok ? 'text-tertiary' : 'text-error'}">
+        <span class="material-symbols-outlined text-[18px]">${icon}</span><span>${txt}</span></div>`;
+      $('#autoStatus').innerHTML = [
+        item(mws.length > 0, mws.length > 0 ? `Reunión de entre semana: guía cargada (${mws.length} semanas)` : 'Reunión de entre semana: falta cargar la guía', mws.length > 0 ? 'check_circle' : 'error'),
+        item(!!fin, fin ? `Fin de semana: programa iniciado (${fin.weeks.length} semanas)` : 'Fin de semana: no iniciado · se creará', fin ? 'check_circle' : 'schedule'),
+        item(!!lab, lab ? 'Acomodación: programa iniciado' : 'Acomodación: no iniciado · se creará', lab ? 'check_circle' : 'schedule'),
+        item(!!sal, sal ? 'Salidas: programa iniciado' : 'Salidas: no iniciado · se creará', sal ? 'check_circle' : 'schedule'),
+      ].join('');
+    };
+    input.addEventListener('change', renderStatus);
+    renderStatus();
+    $('#autoStart').onclick = () => prepararMes(month);
+  };
+
+  // ---- Paso 2: revisar guía y crear los programas faltantes ----
+  const prepararMes = async (m) => {
+    month = m;
+    const mws = state.midweeks.filter(x => String(x.id).slice(0, 7) === m);
+    if (!mws.length) {
+      // Sin guía cargada: solicitar cargarla para poder continuar.
+      setModal(`
+        <div class="text-center mb-6">
+          <span class="material-symbols-outlined text-6xl text-primary mb-2">menu_book</span>
+          <h2 class="font-headline-md text-headline-md text-primary">Falta la guía de actividades</h2>
+          <p class="text-on-surface-variant text-body-md">No hay reuniones de entre semana cargadas para ${mesTxt(m)}.</p>
+        </div>
+        <div class="bg-error-container rounded-xl border border-error p-4 mb-6 text-sm text-on-error-container">
+          Cargue el <b>PDF de la Guía de Actividades</b> de ${mesTxt(m)} (menú Carga → Reunión de entre semana) para poder continuar con la asignación automática.
+        </div>
+        <div class="flex justify-end gap-3 flex-wrap">
+          <button id="autoCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+          <button id="autoLoadGuide" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Cargar guía</button>
+          <button id="autoRetry" class="px-5 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed">Ya la cargué · Continuar</button>
+        </div>
+      `);
+      $('#autoCancel').onclick = closeModal;
+      $('#autoLoadGuide').onclick = () => { closeModal(); go('uploads'); };
+      $('#autoRetry').onclick = async () => {
+        state.midweeks = await db.listMidweeks();
+        prepararMes(month);
+      };
+      return;
+    }
+
+    // Crear los programas del mes que no estén iniciados.
+    const creados = await crearProgramasFaltantes(m);
+    const rep1 = await ejecutarEtapa1(m);
+    pasoEtapas(m, creados, rep1);
+  };
+
+  const crearProgramasFaltantes = async (m) => {
+    const year = Number(m.slice(0, 4));
+    const monthNum = Number(m.slice(5, 7));
+    const creados = [];
+    if (!await db.getMonth(m)) {
+      const weeks = saturdaysOf(year, monthNum).map(d => newWeek(d));
+      applyConfigWeekTypes(weeks);
+      await db.putMonth({ id: m, year, month: monthNum, weeks, published: false });
+      creados.push('Fin de semana');
+    }
+    if (!await db.getLabores(m)) {
+      const weeks = saturdaysOf(year, monthNum).map(d => ({ saturday: isoDate(d), labores: newLabores() }));
+      await db.putLabores({ id: m, weeks });
+      creados.push('Acomodación');
+    }
+    if (!await db.getSalidas(m)) {
+      const weeks = saturdaysOf(year, monthNum).map(d => ({ saturday: isoDate(d), outings: [newOuting()] }));
+      await db.putSalidas({ id: m, congregations: [newCongregation()], weeks });
+      creados.push('Salidas');
+    }
+    return creados;
+  };
+
+  // ---- Paso 3: etapas de asignación + acceso a las vistas ----
+  const pasoEtapas = (m, creados, rep1) => {
+    const creadosTxt = creados.length ? ` · se creó: ${creados.join(', ')}` : '';
+    setModal(`
+      <div class="text-center mb-5">
+        <span class="material-symbols-outlined text-6xl text-primary mb-2">auto_awesome</span>
+        <h2 class="font-headline-md text-headline-md text-primary">Asignación automática</h2>
+        <p class="text-on-surface-variant text-body-md">${mesTxt(m)}${creadosTxt}</p>
+      </div>
+      <div id="autoReport" class="mb-5">${renderReporte(rep1)}</div>
+      <button id="autoEtapa2" class="w-full flex items-center justify-between gap-3 px-5 py-4 rounded-xl border border-primary text-left hover:bg-primary-fixed transition-colors">
+        <div>
+          <p class="font-label-lg text-label-lg text-primary">Etapa 2 · Fin de semana</p>
+          <p class="text-sm text-on-surface-variant">Presidente, conductor y lector considerando acomodación y salidas. Rellene primero las salidas a mano.</p>
+        </div>
+        <span class="material-symbols-outlined text-primary">chevron_right</span>
+      </button>
+      <p class="text-on-surface-variant text-sm mt-4 mb-2">Consultar resultados en sus vistas:</p>
+      <div class="flex flex-wrap gap-2">
+        ${[['fin', 'Fin de semana'], ['entre', 'Entre semana'], ['labores', 'Acomodación'], ['salidas', 'Salidas'], ['general', 'General Mensual']]
+          .map(([tab, label]) => `<button data-ver="${tab}" class="px-3 py-2 rounded-lg border border-outline text-sm font-label-md text-label-md hover:bg-surface-container">${label}</button>`).join('')}
+      </div>
+      <div class="mt-6 flex justify-end">
+        <button id="autoClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+      </div>
+    `);
+    $('#autoClose').onclick = closeModal;
+    $('#autoEtapa2').onclick = async () => {
+      const b = $('#autoEtapa2');
+      b.disabled = true;
+      const rep2 = await ejecutarEtapa2(m);
+      b.disabled = false;
+      $('#autoReport').innerHTML = renderReporte(rep1) + renderReporte(rep2);
+    };
+    $('#modalCard').querySelectorAll('[data-ver]').forEach(b => b.onclick = () => verPrograma(b.dataset.ver, m));
+  };
+
+  pasoMes();
+}
+
+async function etapa1(month) {
+  const [midweeks, labores] = await Promise.all([
+    db.listMidweeks(),
+    db.listLabores(),
+  ]);
+  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
+  const labMes = labores.filter(p => p.id === month);
+  const repMw = automatizarEntreSemana(state.people, mwMes);
+  const repLab = automatizarAcomodacion(state.people, labMes, mwMes);
+  await Promise.all(mwMes.map(w => db.putMidweek(w)));
+  await Promise.all(labMes.map(p => db.putLabores(p)));
+  state.midweeks = await db.listMidweeks();
+  return {
+    titulo: 'Etapa 1 completada',
+    resumen: [
+      `Entre semana: ${repMw.asignados} asignaciones (${repMw.vacios.length} vacíos)`,
+      `Acomodación: ${repLab.asignados} asignaciones (${repLab.vacios.length} vacíos)`,
+    ],
+    vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
+             ...repLab.vacios.map(v => ({ semana: v.semana, rol: v.role }))],
+  };
+}
+
+async function etapa2(month) {
+  const [midweeks, months, salidas, labores] = await Promise.all([
+    db.listMidweeks(),
+    db.listMonths(),
+    db.listSalidas(),
+    db.listLabores(),
+  ]);
+  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
+  const mesMes = months.filter(m => m.id === month);
+  const salMes = salidas.filter(p => p.id === month);
+  const labMes = labores.filter(p => p.id === month);
+
+  // Personas ya ocupadas cada semana por acomodación y salidas (E1/E2).
+  const ocupados = new Map(); // sábado -> Set de personas
+  const marcar = (sat, id) => { if (id) { const s = new Set(ocupados.get(sat) || []); s.add(String(id)); ocupados.set(sat, s); } };
+  salMes.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcar(w.saturday, o.oradorSalida))));
+  labMes.forEach(p => (p.weeks || []).forEach(w => {
+    const l = w.labores || {};
+    LABORES_DEF.forEach(d => {
+      const v = l[d.key];
+      (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id));
+    });
+  }));
+
+  // Rellenar vacíos restantes de entre semana (ahora con acomodación/salidas en cuenta).
+  const repMw = automatizarEntreSemana(state.people, mwMes, ocupados);
+  const repFin = automatizarFinSemana(state.people, mesMes, salMes, labMes);
+
+  await Promise.all(mwMes.map(w => db.putMidweek(w)));
+  await Promise.all(mesMes.map(m => db.putMonth(m)));
+  state.midweeks = await db.listMidweeks();
+
+  return {
+    titulo: 'Etapa 2 completada',
+    resumen: [
+      `Entre semana (vacíos): ${repMw.asignados} asignaciones (${repMw.vacios.length} vacíos)`,
+      `Fin de semana: ${repFin.asignados} asignaciones (${repFin.vacios.length} vacíos)`,
+    ],
+    vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
+             ...repFin.vacios.map(v => ({ semana: v.semana, rol: v.role }))],
+  };
+}
+
+function renderReporte(rep) {
+  const vaciosHtml = rep.vacios.length
+    ? `<p class="text-sm text-error mt-2">Sin suficientes personas libres en: ${rep.vacios.map(v => `${v.semana} (${v.rol})`).join(', ')}.</p>`
+    : `<p class="text-sm text-tertiary mt-2">No quedaron puestos vacíos.</p>`;
+  return `<div class="bg-surface-container-low rounded-xl border border-outline-variant p-4">
+    <p class="font-label-lg text-label-lg text-primary">${rep.titulo}</p>
+    <ul class="text-sm text-on-surface mt-2 space-y-1">
+      ${rep.resumen.map(r => `<li>· ${r}</li>`).join('')}
+    </ul>
+    ${vaciosHtml}
+  </div>`;
 }
 
 async function renderNewBody() {
@@ -636,6 +889,7 @@ async function renderEdit() {
         </button>
       </div>
     </div>
+    <div id="editCross" class="mb-4"></div>
     <div id="weeksContainer" class="space-y-6"></div>
     <div class="mt-10 flex flex-col sm:flex-row gap-3 justify-end no-print">
       <button id="btnSave" class="flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-bold hover:opacity-90 active:scale-95 transition-all">
@@ -647,6 +901,7 @@ async function renderEdit() {
   $('#btnPreview').onclick = () => go('preview', { monthId: state.monthId });
   $('#btnOutings').onclick = () => go('outings', { monthId: state.monthId });
   $('#btnSave').onclick = saveMonth;
+  renderCrossAlerts($('#editCross'), state.monthId);
 }
 
 /* ---------- EDIT: congregaciones (datos de salida) ---------- */
@@ -1220,8 +1475,9 @@ async function renderOutings() {
   if (!state.monthId) { go('home'); return; }
   const program = await db.getSalidas(state.monthId);
   if (!program) { toast('No hay programa de salidas para este mes', 'error'); go('salidas', { monthId: state.monthId }); return; }
-  state.month = { weeks: program.weeks, outings: program.congregations };
+  state.month = null;
   renderTop();
+  state.month = { weeks: program.weeks, outings: program.congregations };
   const app = $('#app');
   const y = Number(state.monthId.slice(0, 4));
   const mes = Number(state.monthId.slice(5, 7));
@@ -1490,6 +1746,7 @@ async function renderLists() {
       <h3 class="font-headline-md text-headline-md text-primary mb-4">Añadir Miembro</h3>
       <form id="mdForm" class="space-y-4">
         <input id="mdName" type="text" placeholder="Nombre completo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary" autocomplete="off">
+        ${personAttrsFields()}
         <div class="flex flex-wrap justify-center gap-2" id="mdRoles"></div>
         <div class="flex gap-3 justify-center pt-2">
           <button type="button" id="mdCancel2" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
@@ -1506,7 +1763,8 @@ async function renderLists() {
       const name = $('#mdName').value.trim();
       if (!name) { toast('Escribe un nombre', 'error'); return; }
       const roles = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
-      try { await db.addPerson({ name, roles }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
+      const attrs = readPersonAttrs();
+      try { await db.addPerson({ name, roles, ...attrs }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
       catch (err) { toast(err.message, 'error'); }
     };
   };
@@ -1547,6 +1805,7 @@ function renderRows(p) {
     <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10 border-l-4 border-l-transparent hover:border-l-primary">
       <div class="w-8 h-8 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold">${initialsOf(p.name)}</div>
       <span class="truncate">${escapeHtml(p.name)}</span>
+      <button data-profile="${p.id}" class="text-on-surface-variant hover:text-primary material-symbols-outlined text-[18px] opacity-50 hover:opacity-100 transition-opacity" title="Ver perfil">account_circle</button>
       <button data-markall="${p.id}" class="ml-auto text-on-surface-variant hover:text-primary material-symbols-outlined text-[18px]" title="Marcar todos los roles">select_all</button>
       <button data-pdel="${p.id}" class="text-error opacity-0 group-hover:opacity-100 transition-opacity material-symbols-outlined text-[18px]" title="Eliminar">delete</button>
     </td>
@@ -1555,6 +1814,10 @@ function renderRows(p) {
 }
 
 function renderRowsBindings() {
+  $('#pList').querySelectorAll('[data-profile]').forEach(b => b.onclick = () => {
+    const person = state.people.find(x => String(x.id) === String(b.dataset.profile));
+    if (person) openPersonProfile(person);
+  });
   $('#pList').querySelectorAll('[data-markall]').forEach(b => b.onclick = async () => {
     const tr = b.closest('tr');
     const cbs = [...tr.querySelectorAll('.role-checkbox')];
@@ -1584,6 +1847,97 @@ function renderRowsBindings() {
     await db.setPersonRoles(pid, roles);
     person.roles = roles;
   });
+}
+
+/* ---------- Atributos de colaborador (género, calificación, enlace) ---------- */
+const GENEROS = [['', '—'], ['masculino', 'Masculino'], ['femenino', 'Femenino']];
+
+// Campos de atributos para los modales (añadir/editar persona).
+function personAttrsFields() {
+  return `
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Género</label>
+        <select data-attr="genero" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          ${GENEROS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Calificación</label>
+        <select data-attr="calificacion" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          ${CALIFICACIONES.map(c => `<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="text-left">
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (si calificación D)</label>
+      <select data-attr="enlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        <option value="">— Sin enlace —</option>
+        ${state.people.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+      </select>
+    </div>`;
+}
+
+// Lee los atributos de los campos data-attr del modal actual.
+function readPersonAttrs() {
+  const genero = (document.querySelector('[data-attr="genero"]') || {}).value || '';
+  const calificacion = (document.querySelector('[data-attr="calificacion"]') || {}).value || '';
+  const enlace = (document.querySelector('[data-attr="enlace"]') || {}).value || '';
+  return { genero, calificacion, enlace };
+}
+
+// Modal de perfil de un colaborador: género + calificación (A/B/C/D) + enlace para D.
+function openPersonProfile(person) {
+  const p = { ...person };
+  p.roles = Array.isArray(p.roles) ? p.roles : [];
+  const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
+  const genOpts = GENEROS.map(([v, l]) => `<option value="${v}" ${p.genero === v ? 'selected' : ''}>${l}</option>`).join('');
+  const calOpts = CALIFICACIONES.map(c => `<option value="${c}" ${cal === c ? 'selected' : ''}>${c}${c === 'D' ? ' (enlace)' : ''}</option>`).join('');
+  const enlOpts = `<option value="">— Sin enlace —</option>` +
+    state.people.filter(x => String(x.id) !== String(p.id)).map(x => `<option value="${x.id}" ${p.enlace === String(x.id) ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
+  openModal(`
+    <div>
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-12 h-12 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-headline-md text-headline-md font-bold">${initialsOf(p.name)}</div>
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(p.name)}</h3>
+          <p class="text-on-surface-variant text-sm">${p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador'} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
+        </div>
+      </div>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Género</label>
+            <select id="pfGenero" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${genOpts}</select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Calificación</label>
+            <select id="pfCalif" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${calOpts}</select>
+          </div>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
+          <select id="pfEnlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${enlOpts}</select>
+          <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada.</p>
+        </div>
+      </div>
+      <div class="flex gap-3 justify-end mt-5">
+        <button id="pfCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+        <button id="pfSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+      </div>
+    </div>`);
+  $('#pfCancel').onclick = closeModal;
+  $('#pfSave').onclick = async () => {
+    p.genero = $('#pfGenero').value;
+    p.calificacion = $('#pfCalif').value;
+    p.enlace = $('#pfEnlace').value;
+    await db.updatePerson(p);
+    const orig = state.people.find(x => String(x.id) === String(p.id));
+    if (orig) Object.assign(orig, p);
+    closeModal();
+    toast('Perfil actualizado', 'success');
+    renderLists();
+  };
 }
 
 function renderRolesModal() {
@@ -1666,25 +2020,22 @@ const UPLOAD_TYPES = [
     key: 'talks',
     title: 'Conferencias',
     icon: 'campaign',
-    desc: 'Lista de discursos públicos (discursos.json).',
-    jsonHint: 'Formato: [{ "num": 1, "title": "..." }, ...] o { "discursos": [...] }',
-    pdfHint: 'Se extraen los títulos de discursos del PDF para revisar.',
+    desc: 'Lista de discursos públicos.',
+    pdfHint: 'Se extraen los discursos numerados del PDF para revisar.',
   },
   {
     key: 'people',
     title: 'Personas',
     icon: 'group',
-    desc: 'Lista de participantes con sus roles (participantes.json).',
-    jsonHint: 'Formato: { "roles": { "presidente": ["Nombre", ...], ... } }',
+    desc: 'Lista de participantes con sus roles.',
     pdfHint: 'Se extraen nombres y roles del PDF para revisar.',
   },
   {
     key: 'midweeks',
     title: 'Guía de Actividades',
     icon: 'auto_stories',
-    desc: 'Programa de las reuniones de entre semana (midweeks.json).',
-    jsonHint: 'Formato: { "weeks": [...] }',
-    pdfHint: 'Se extrae el programa de la revisa para regenerar las semanas.',
+    desc: 'Programa de las reuniones de entre semana.',
+    pdfHint: 'Se extrae el programa de la guía para regenerar las semanas y sus asignaciones.',
   },
 ];
 
@@ -1701,19 +2052,7 @@ async function renderUploads() {
           <p class="font-body-md text-body-md text-on-surface-variant">${t.desc}</p>
         </div>
       </div>
-      <div class="flex rounded-lg border border-outline-variant overflow-hidden mb-4" data-format-switch>
-        <button data-fmt="json" data-jsonsel="${t.key}" class="flex-1 py-2 font-label-md text-label-md bg-primary text-on-primary">JSON</button>
-        <button data-fmt="pdf" data-pdfsel="${t.key}" class="flex-1 py-2 font-label-md text-label-md text-on-surface-variant">PDF</button>
-      </div>
-      <div data-slot="json">
-        <label for="upl-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
-          <span class="material-symbols-outlined text-4xl text-on-surface-variant block mb-2">file_upload</span>
-          <span class="font-label-md text-label-md text-primary">Seleccionar archivo JSON</span>
-          <span class="block text-caption text-on-surface-variant mt-1">${t.jsonHint}</span>
-        </label>
-        <input id="upl-${t.key}" type="file" accept=".json,application/json" class="hidden" data-upload="${t.key}">
-      </div>
-      <div data-slot="pdf" class="hidden">
+      <div data-slot="pdf">
         <label for="upl-pdf-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
           <span class="material-symbols-outlined text-4xl text-on-surface-variant block mx-auto mb-2">picture_as_pdf</span>
           <span class="font-label-md text-label-md text-primary">Seleccionar archivo PDF</span>
@@ -1728,41 +2067,13 @@ async function renderUploads() {
   app.innerHTML = `
     <div class="mb-10">
       <h1 class="font-display-lg text-display-lg text-primary mb-2">Carga de Archivos</h1>
-      <p class="font-body-lg text-body-lg text-on-surface-variant">Suba un archivo JSON (o PDF) y la app completará su base de datos local. Los nuevos datos reemplazan los del tipo elegido.</p>
+      <p class="font-body-lg text-body-lg text-on-surface-variant">Suba un archivo PDF y la app extraerá la información para revisar antes de guardarla.</p>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">${cards}</div>
     <div id="uploadSummary" class="mt-8"></div>
   `;
 
-  // Conmutador JSON / PDF por tarjeta
-  app.querySelectorAll('[data-jsonsel]').forEach(btn => {
-    const key = btn.dataset.jsonsel;
-    btn.addEventListener('click', () => setUploadFormat(key, 'json'));
-  });
-  app.querySelectorAll('[data-pdfsel]').forEach(btn => {
-    const key = btn.dataset.pdfsel;
-    btn.addEventListener('click', () => setUploadFormat(key, 'pdf'));
-  });
-
-  // Carga de JSON
-  app.querySelectorAll('input[data-upload]').forEach(input => {
-    input.addEventListener('change', async () => {
-      const file = input.files && input.files[0];
-      if (!file) return;
-      const type = input.dataset.upload;
-      const status = $(`#upl-status-${type}`);
-      showStatus(status, `Leyendo ${file.name}…`, 'text-on-surface-variant');
-      try {
-        const text = await file.text();
-        const data = JSON.parse(text);
-        openJsonReview(type, await loadSerialized(data, type), text);
-      } catch (e) {
-        showStatus(status, `Error: ${e.message}. Verifique el formato del archivo.`, 'text-error');
-      }
-    });
-  });
-
-  // Carga de PDF → intenta convertir y abre revisión
+  // Carga de PDF → valida el tipo y pide confirmación antes de guardar.
   app.querySelectorAll('input[data-upload-pdf]').forEach(input => {
     input.addEventListener('change', async () => {
       const file = input.files && input.files[0];
@@ -1772,9 +2083,43 @@ async function renderUploads() {
       showStatus(status, `Extrayendo ${file.name} con OCR/pdf.js…`, 'text-on-surface-variant');
       try {
         const text = await extractPdfText(file);
+
+        if (type === 'midweeks') {
+          const summary = midweekGuideSummary(text);
+          if (!summary) {
+            showStatus(status, 'Este PDF no se reconoce como una Guía de Actividades. Se esperan cabeceras de semanas "D-D DE MES".', 'text-error');
+            return;
+          }
+          const label = summary.months.length === 1
+            ? `${summary.months[0]} ${summary.year}`
+            : `${summary.months.slice(0, -1).join(', ')} y ${summary.months[summary.months.length - 1]} ${summary.year}`;
+          const ok = await confirmDialog(`Se detectó la Guía de Actividades de ${label} con ${summary.weeksCount} semanas. ¿Guardar y reemplazar la reunión de entre semana?`, 'Guardar guía');
+          if (!ok) { showStatus(status, 'Carga cancelada', 'text-on-surface-variant'); return; }
+          await db.replaceAllMidweeks({ weeks: summary.weeks });
+          await refreshCatalogs();
+          showStatus(status, `✓ Guía de ${label} guardada (${summary.weeksCount} semanas).`, 'text-tertiary-fixed');
+          renderUploadSummary();
+          toast('Guía de actividades guardada', 'success');
+          return;
+        }
+
+        // Conferencias / Personas: resumen + confirmación.
         const { data, warnings } = convertPdfToData(type, text);
-        if (!data) { showStatus(status, 'No se pudo interpretar este PDF. Revíselo a mano en la vista "Revisar PDF".', 'text-error'); openPdfTextReview(type, text); return; }
-        openJsonReview(type, JSON.stringify(data, null, 2), text, warnings);
+        if (!data) {
+          showStatus(status, 'No se pudo interpretar este PDF con el formato esperado.', 'text-error');
+          return;
+        }
+        let msg;
+        if (type === 'talks') msg = `Se detectaron ${(data.discursos || []).length} discursos. ¿Guardar y reemplazar la lista de conferencias?`;
+        else msg = `Se detectaron personas. ¿Guardar y reemplazar la lista de participantes?`;
+        const ok = await confirmDialog(msg, 'Guardar');
+        if (!ok) { showStatus(status, 'Carga cancelada', 'text-on-surface-variant'); return; }
+        if (type === 'talks') await db.replaceTalksFromFile(data);
+        else await db.replaceAllPeople(data);
+        await refreshCatalogs();
+        showStatus(status, '✓ Datos guardados.', 'text-tertiary-fixed');
+        renderUploadSummary();
+        toast('Datos guardados', 'success');
       } catch (e) {
         showStatus(status, `Error al leer PDF: ${e.message}`, 'text-error');
       }
@@ -1804,84 +2149,11 @@ async function renderUploadSummary() {
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${rows}</div>`;
 }
 
-// Muestra/oculta el conmutador JSON/PDF de una tarjeta.
-function setUploadFormat(key, fmt) {
-  const jsonBtn = document.querySelector(`[data-jsonsel="${key}"]`);
-  const pdfBtn = document.querySelector(`[data-pdfsel="${key}"]`);
-  const jsonInput = document.querySelector(`input[data-upload="${key}"]`);
-  const pdfInput = document.querySelector(`input[data-upload-pdf="${key}"]`);
-  if (jsonBtn) { jsonBtn.classList.toggle('bg-primary', fmt === 'json'); jsonBtn.classList.toggle('text-on-primary', fmt === 'json'); jsonBtn.classList.toggle('text-on-surface-variant', fmt !== 'json'); }
-  if (pdfBtn) { pdfBtn.classList.toggle('bg-primary', fmt === 'pdf'); pdfBtn.classList.toggle('text-on-primary', fmt === 'pdf'); pdfBtn.classList.toggle('text-on-surface-variant', fmt !== 'pdf'); }
-  if (jsonInput) jsonInput.parentElement.classList.toggle('hidden', fmt !== 'json');
-  if (pdfInput) pdfInput.parentElement.classList.toggle('hidden', fmt !== 'pdf');
-}
-
 function showStatus(node, msg, cls) {
   if (!node) return;
   node.classList.remove('hidden');
   node.className = 'mt-3 font-label-md text-label-md ' + cls;
   node.textContent = msg;
-}
-
-// Serializa el objeto ya cargado del JSON a texto para mostrar en revisión.
-function loadSerialized(data, type) {
-  if (type === 'talks') {
-    const arr = Array.isArray(data) ? data : (data?.discursos || data?.talks || []);
-    return JSON.stringify(arr, null, 2);
-  }
-  return JSON.stringify(data, null, 2);
-}
-
-function openJsonReview(type, jsonText, rawText, warnings = []) {
-  const label = (UPLOAD_TYPES.find(t => t.key === type) || { title: 'datos' }).title;
-  openModal(`<div class="min-w-[80vw]">
-    <h3 class="font-headline-md text-headline-md text-primary mb-2">Revisar ${label}</h3>
-    <p class="font-body-md text-body-md text-on-surface-variant mb-4">Revise y edite el JSON. Al guardar se reemplazará la base de datos local de este tipo.</p>
-    <div class="flex gap-3 items-center mb-3">
-      <button id="rvFormat" class="px-3 py-1.5 rounded border border-outline font-label-md text-label-md text-on-surface-variant hover:bg-surface-container">Formatear</button>
-      ${(warnings || []).length ? `<span class="font-label-md text-label-md text-on-surface-variant">${warnings.map(escapeHtml).join(' · ')}</span>` : ''}
-    </div>
-    <textarea id="rvJson" spellcheck="false" class="w-full h-[50vh] font-mono text-sm p-4 bg-surface-container border border-outline-variant rounded-lg focus:border-primary outline-none">${escapeHtml(jsonText)}</textarea>
-    ${rawText ? `<details class="mt-3"><summary class="font-label-md text-label-md text-primary cursor-pointer">Ver texto extraído del PDF</summary><pre class="mt-2 p-3 rounded bg-surface-container text-xs whitespace-pre-wrap max-h-48 overflow-auto">${escapeHtml(rawText)}</pre></details>` : ''}
-    <div class="flex justify-end gap-3 mt-4">
-      <button id="rvCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
-      <button id="rvSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
-    </div>
-  </div>`);
-  $('#rvCancel').onclick = closeModal;
-  $('#rvFormat').onclick = () => {
-    try { $('#rvJson').value = JSON.stringify(JSON.parse($('#rvJson').value), null, 2); }
-    catch (e) { toast('JSON inválido: ' + e.message, 'error'); }
-  };
-  $('#rvSave').onclick = async () => {
-    try {
-      const parsed = JSON.parse($('#rvJson').value);
-      let count = 0;
-      if (type === 'talks') count = await db.replaceTalksFromFile(parsed);
-      else if (type === 'people') count = await db.replaceAllPeople(parsed);
-      else if (type === 'midweeks') count = await db.replaceAllMidweeks(parsed);
-      await refreshCatalogs();
-      closeModal();
-      const status = $(`#upl-status-${type}`);
-      showStatus(status, `✓ ${count} ${type === 'people' ? 'personas' : type === 'talks' ? 'discursos' : 'semanas'} guardados.`, 'text-tertiary-fixed');
-      renderUploadSummary();
-      toast('Base de datos actualizada', 'success');
-    } catch (e) {
-      toast('JSON inválido: ' + e.message, 'error');
-    }
-  };
-}
-
-// Revisión manual del texto extraído cuando no fue posible la conversión automática.
-function openPdfTextReview(type, text) {
-  const label = (UPLOAD_TYPES.find(t => t.key === type) || { title: 'datos' }).title;
-  openModal(`
-    <h3 class="font-headline-md text-headline-md text-primary mb-2">Texto extraído — ${label}</h3>
-    <p class="font-body-md text-body-md text-on-surface-variant mb-4">No fue posible interpretar el PDF automáticamente. Puede copiar el texto o usarlo como guía para preparar su archivo JSON.</p>
-    <pre class="p-3 rounded bg-surface-container text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto">${escapeHtml(text)}</pre>
-    <div class="flex justify-end gap-3 mt-4"><button class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90" data-close>Cerrar</button></div>
-  `);
-  document.querySelector('#modalCard [data-close]').onclick = closeModal;
 }
 
 // ---- PDF: extracción de texto con pdf.js (vendored, funciona sin conexión) ----
@@ -2325,7 +2597,16 @@ async function renderSettings() {
       if (data.people) for (const p of data.people) { await db.addPerson({ name: p.name, roles: Array.isArray(p.roles) ? p.roles : [] }); }
       if (data.departments) for (const d of data.departments) { if (d.id) await db.updateDepartment(d); else await db.addDepartment(d.name); }
       if (data.months) for (const m of data.months) await db.putMonth(m);
-      if (data.settings?.congregation) await db.setSetting('congregation', data.settings.congregation);
+      if (data.talks) await db.replaceAllTalks(data.talks);
+      if (data.midweeks) await db.replaceAllMidweeks(data.midweeks);
+      if (data.aseos) for (const a of data.aseos) await db.putAseo(a);
+      if (data.salidas) for (const s of data.salidas) await db.putSalidas(s);
+      if (data.labores) for (const l of data.labores) await db.putLabores(l);
+      if (data.settings) {
+        if (data.settings.congregation) await db.setSetting('congregation', data.settings.congregation);
+        if (data.settings.config) await db.setConfig(data.settings.config);
+      }
+      await refreshCatalogs();
       toast('Datos restaurados', 'success');
       renderSettings();
     } catch (err) { toast('Archivo inválido', 'error'); }
@@ -2682,6 +2963,7 @@ async function renderLabores(monthId, opts = {}) {
           <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-full bg-secondary"></span> Reunión de entre semana</span>
         </div>
       </div>
+      <div id="crossAlerts" class="mb-4"></div>
       ${!program
         ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">
             <span class="material-symbols-outlined text-primary text-5xl mb-3 inline-block">work</span>
@@ -2722,6 +3004,8 @@ async function renderLabores(monthId, opts = {}) {
         render();
       });
     });
+
+    renderCrossAlerts(embed ? embed.querySelector('#crossAlerts') : $('#crossAlerts'), cur);
   };
 
   async function createProgram() {
@@ -2918,7 +3202,8 @@ async function renderSalidas(monthId, opts = {}) {
               <span class="material-symbols-outlined text-[18px]">add_circle</span> Crear programa de salidas
             </button>
           </div>`
-        : `<section id="salidasCong" class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6 mb-6">
+        : `<div id="salidasCross" class="mb-4"></div>
+           <section id="salidasCong" class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6 mb-6">
             <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h2 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
                 <span class="material-symbols-outlined text-secondary">campaign</span> Datos de Salida
@@ -2982,6 +3267,8 @@ async function renderSalidas(monthId, opts = {}) {
     if (programBtn) programBtn.onclick = () => go('outings', { monthId: cur });
     const saveBtn = embed ? embed.querySelector('#salidasSave') : $('#salidasSave');
     if (saveBtn) saveBtn.onclick = async () => { await db.putSalidas(program); toast('Salidas guardadas', 'success'); };
+
+    renderCrossAlerts(embed ? embed.querySelector('#salidasCross') : $('#salidasCross'), cur);
   };
 
   async function createProgram() {
@@ -3022,25 +3309,39 @@ async function renderGeneralMonth(monthId, opts = {}) {
   ((month && month.weeks) || []).forEach(w => finBySunday.set(weekSunday(w.date), w));
   const mwBySunday = new Map();
   state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
-  const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])]
-    .filter(s => s.startsWith(cur))
-    .sort();
 
   const aseos = await db.listAseos();
   const salidasList = await db.listSalidas();
   const laboresList = await db.listLabores();
+  const aseoBySunday = new Map();
+  aseos.forEach(a => (a.weeks || []).forEach(w => aseoBySunday.set(weekSunday(w.saturday), w)));
+  const salidasBySunday = new Map();
+  salidasList.forEach(p => (p.weeks || []).forEach(w => salidasBySunday.set(weekSunday(w.saturday), w)));
+  const laboresBySunday = new Map();
+  laboresList.forEach(p => (p.weeks || []).forEach(w => laboresBySunday.set(weekSunday(w.saturday), w)));
+
+  // La semana se incluye si cualquiera de los programas la tiene (todos se unen).
+  const sundays = [...new Set([
+    ...finBySunday.keys(), ...mwBySunday.keys(),
+    ...aseoBySunday.keys(), ...salidasBySunday.keys(), ...laboresBySunday.keys(),
+  ])].filter(s => s.startsWith(cur)).sort();
+
   const boxes = sundays.map((sunday, i) => {
     const fin = finBySunday.get(sunday) || null;
-    const aseoGroup = fin ? aseoGroupFor(fin.date, aseos) : null;
-    const outings = fin ? salidasFor(fin.date, salidasList) : null;
-    const finLabores = fin ? laboresWeekFor(fin.date, laboresList) : null;
+    const mw = mwBySunday.get(sunday) || null;
+    const aseoWeek = aseoBySunday.get(sunday) || null;
+    const salidasWeek = salidasBySunday.get(sunday) || null;
+    const laboresWeek = laboresBySunday.get(sunday) || null;
+    const saturday = fin ? fin.date : (aseoWeek ? aseoWeek.saturday : (laboresWeek ? laboresWeek.saturday : (salidasWeek ? salidasWeek.saturday : null)));
     return generalWeekBox({
       fin,
-      mw: mwBySunday.get(sunday) || null,
+      mw,
       i,
-      aseoGroup,
-      outings,
-      finLabores,
+      aseoGroup: aseoWeek && aseoWeek.group ? aseoWeek.group : null,
+      outings: salidasWeek ? (salidasWeek.outings || []) : null,
+      finLabores: laboresWeek || null,
+      sunday,
+      saturday,
     });
   });
 
@@ -3073,8 +3374,9 @@ async function renderGeneralMonth(monthId, opts = {}) {
 }
 
 // Cuadro de una semana en la vista mensual general.
-function generalWeekBox({ fin, mw, i, aseoGroup, outings, finLabores }) {
-  const header = mw ? mw.header : (fin ? new Date(fin.date + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
+function generalWeekBox({ fin, mw, i, aseoGroup, outings, finLabores, sunday, saturday }) {
+  const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+  const header = mw ? mw.header : (fin ? fmt(fin.date) : (saturday ? fmt(saturday) : (sunday ? fmt(sunday) : '')));
   return `
   <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
     <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
@@ -3213,31 +3515,10 @@ function generalGroup(fin, aseoGroup) {
 }
 
 /* ---------- MIDWEEK: editor de una semana ---------- */
-// Mapea cada parte de entre semana a sus puestos y al rol que la cubre.
-// Se basa en la sección y la posición (no en el número de parte, que puede
-// variar cuando "Seamos Mejores Maestros" tiene 4 asignaciones).
+// Mapea cada parte de entre semana a sus puestos y al rol que la cubre
+// (lógica compartida con el algoritmo, en logic.js).
 function mwSlotsFor(sec, part) {
-  const secId = sec && sec.id;
-  const parts = (sec && sec.parts) || [];
-  const idx = parts.indexOf(part);
-  if (secId === 'tesoros') {
-    // Última parte = Lectura de la Biblia (asignacion1); el resto son discursos (asignacion4).
-    if (idx === parts.length - 1) return [{ key: 'lector', label: 'Lector', role: 'asignacion1' }];
-    return [{ key: 'conductor', label: idx === 0 ? 'Discurso' : 'Perlas', role: 'asignacion4' }];
-  }
-  if (secId === 'maestros') {
-    // "Seamos Mejores Maestros": las presentaciones son de 2 personas (asignacion2);
-    // si la parte dice "discurso" es de 1 persona (asignacion3).
-    if (/discurso/i.test(String(part.title || ''))) return [{ key: 'conductor', label: 'Discurso', role: 'asignacion3' }];
-    return [{ key: 'estudiante', label: 'Estudiante', role: 'asignacion2' }, { key: 'ayudante', label: 'Ayudante', role: 'asignacion2' }];
-  }
-  if (secId === 'vida') {
-    // Última parte = Estudio Bíblico de la Congregación (conductor2 + lector2);
-    // las anteriores son discursos de la reunión (asignacion4).
-    if (idx === parts.length - 1) return [{ key: 'conductor', label: 'Conductor', role: 'conductor2' }, { key: 'lector', label: 'Lector', role: 'lector2' }];
-    return [{ key: 'conductor', label: 'Discurso', role: 'asignacion4' }];
-  }
-  return [{ key: 'conductor', label: 'Conductor' }];
+  return midweekSlotsOf(sec, part);
 }
 
 async function renderMidweek(id) {
@@ -3259,6 +3540,7 @@ async function renderMidweek(id) {
         <p class="text-on-surface-variant font-label-md">Lectura bíblica: ${escapeHtml(week.reading || '—')}</p>
       </div>
     </div>
+    <div id="mwCross" class="mt-4"></div>
     <div id="mwEditor" class="mt-6 space-y-6" data-mwid="${escapeAttr(id)}"></div>
     <div class="sticky bottom-0 bg-surface py-4 mt-8 flex gap-3 justify-end">
       <button id="mwPreviewBtn" class="px-5 py-3 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container transition-all active:scale-95">Vista Final</button>
@@ -3302,6 +3584,7 @@ async function renderMidweek(id) {
         <div class="flex-1">
           <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">${p.mins} min</p>
           <p class="font-body-lg text-body-lg text-on-surface">${escapeHtml(p.title)}</p>
+          ${pairWarning(p)}
         </div>
         <div class="flex-1 flex flex-wrap gap-3">${slotFields}</div>
       </div>`;
@@ -3320,11 +3603,18 @@ async function renderMidweek(id) {
   editor.querySelectorAll('select[data-mw-presidente], select[data-mw-labore], select.mwSel').forEach(bindMwChange);
   editor.querySelectorAll('select[data-mw-labore]').forEach(bindMwLaboreChange);
 
+  renderCrossAlerts($('#mwCross'), String(id).slice(0, 7));
+
   $('#mwSave').onclick = async () => {
     const dup = mwCurrentDupKeys(editor);
     if (dup.size) {
       mwRefreshConflicts(editor, week);
       toast('Hay personas repetidas en esta reunión. Revise los campos resaltados.', 'error');
+      return;
+    }
+    const pairs = mwPairErrors(editor);
+    if (pairs.length) {
+      toast(`Pareja no compatible: ${pairs[0].a.name} / ${pairs[0].b.name}. Revise la asignación.`, 'error');
       return;
     }
     week.sections.forEach((sec, si) => {
@@ -3418,6 +3708,25 @@ function mwCurrentDupKeys(editor) {
     if (sel.value) persons.push({ value: String(sel.value), key: `labores_${key}_${slot}` });
   });
   return dedupPersons(persons).dupKeys;
+}
+
+// Devuelve las parejas incompatibles actuales (partes de a 2) leyendo el DOM.
+// Resultado: [{ part, a, b }]
+function mwPairErrors(editor) {
+  const byPart = {};
+  editor.querySelectorAll('select.mwSel').forEach(sel => {
+    if (!sel.value) return;
+    const key = `${sel.dataset.sec}.${sel.dataset.part}`;
+    (byPart[key] ||= []).push({ slot: sel.dataset.slot, id: sel.value });
+  });
+  const errors = [];
+  Object.values(byPart).forEach(items => {
+    const ids = items.map(x => x.id).filter(Boolean);
+    if (ids.length < 2) return;
+    const a = personOf(ids[0]), b = personOf(ids[1]);
+    if (a && b && !canBePair(a, b)) errors.push({ a, b });
+  });
+  return errors;
 }
 
 // Estiliza selects duplicados y muestra un rótulo "Conflicto" parpadeante junto
@@ -3897,7 +4206,7 @@ function downloadBlob(blob, filename) {
 //  se importan de logic.js)
 
 function newWeek(date) {
-  const iso = date.toISOString().slice(0, 10);
+  const iso = isoDate(date); // fecha local (no UTC) para no desplazar el día
   return {
     id: cryptoId(),
     date: iso,
@@ -4068,8 +4377,61 @@ function personNameOf(id) {
   const p = state.people.find(x => String(x.id) === String(id));
   return p ? p.name : '—';
 }
+function personOf(id) {
+  return state.people.find(x => String(x.id) === String(id)) || null;
+}
+
+// Aviso de pareja para partes de a 2: devuelve HTML de alerta si los dos asignados
+// no son una pareja compatible (calificación + género + enlace).
+function pairWarning(p) {
+  const ap = p.assignments || {};
+  const keys = Object.keys(ap).filter(k => ap[k]);
+  if (keys.length < 2) return '';
+  const a = personOf(ap[keys[0]]), b = personOf(ap[keys[1]]);
+  if (!a || !b) return '';
+  if (canBePair(a, b)) return '';
+  return `<p class="flex items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Pareja no compatible (${escapeHtml(a.name)} / ${escapeHtml(b.name)})</p>`;
+}
 function deptNameOf(id) {
   if (!id) return '—';
   const d = state.departments.find(x => String(x.id) === String(id));
   return d ? d.name : '—';
+}
+
+// Carga el contexto del mes (todos los programas) y renderiza una tarjeta con los
+// conflictos cruzados de asignación de personas. Se muestra en cada programa para
+// que el aviso aparezca sin importar el orden en que se completen.
+async function renderCrossAlerts(container, cur) {
+  if (!container) return;
+  const [months, midweeks, labores, salidas] = await Promise.all([
+    db.listMonths(), db.listMidweeks(), db.listLabores(), db.listSalidas(),
+  ]);
+  const ctx = {
+    months: months.filter(m => String(m.id).startsWith(cur)),
+    midweeks: midweeks.filter(m => String(m.id).startsWith(cur)),
+    labores: labores.filter(p => String(p.id) === cur),
+    salidas: salidas.filter(p => String(p.id) === cur),
+  };
+  const conflicts = computeCrossConflicts(ctx);
+  if (!conflicts.length) { container.innerHTML = ''; return; }
+
+  const REGLA = { E1: 'No puede tener más de una asignación (entre semana + acomodación) en la misma semana.', E2: 'No puede tener más de una asignación (fin de semana + acomodación + salidas) en la misma semana.', E3: 'La misma asignación de entre semana se repite en el mes.', E4: 'El mismo cargo de fin de semana se repite en el mes.', E5: 'No puede tener más de una salida en el mes.' };
+  container.innerHTML = `
+    <div class="rounded-xl border border-error bg-error-container/20 p-4 md:p-5">
+      <div class="flex items-center gap-2 mb-3">
+        <span class="material-symbols-outlined text-error">warning</span>
+        <h3 class="font-headline-md text-headline-md text-error">Conflictos de asignación</h3>
+      </div>
+      <ul class="space-y-2">
+        ${conflicts.map(c => `<li class="flex items-start gap-2 text-sm">
+          <span class="material-symbols-outlined text-error text-[18px]">person_off</span>
+          <div>
+            <span class="font-semibold text-on-surface">${escapeHtml(personNameOf(c.value))}</span>
+            <span class="text-on-surface-variant"> — ${escapeHtml(c.detalle)}</span>
+            <div class="text-on-surface-variant">${REGLA[c.regla] || ''} ${(c.otros || []).map(o => `<span class="block text-xs">↳ ${escapeHtml(o)}</span>`).join('')}</div>
+          </div>
+        </li>`).join('')}
+      </ul>
+    </div>
+  `;
 }

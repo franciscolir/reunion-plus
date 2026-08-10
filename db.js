@@ -107,11 +107,19 @@ export async function addPerson(payload) {
   if (typeof payload === 'string') {
     const name = payload.trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, roles: [], createdAt: Date.now() };
+    record = { name, roles: [], cargos: [], genero: '', calificacion: '', createdAt: Date.now() };
   } else {
     const name = (payload.name || '').trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, roles: Array.isArray(payload.roles) ? payload.roles : [], createdAt: Date.now() };
+    record = {
+      name,
+      roles: Array.isArray(payload.roles) ? payload.roles : [],
+      cargos: Array.isArray(payload.cargos) ? payload.cargos : (typeof payload.cargos === 'string' && payload.cargos ? payload.cargos.split(',').map(s => s.trim()).filter(Boolean) : []),
+      genero: payload.genero || '',
+      calificacion: payload.calificacion || '',
+      enlace: payload.enlace || '',
+      createdAt: Date.now(),
+    };
   }
   return reqToPromise(tx(db, STORE_PEOPLE, 'readwrite').add(record));
 }
@@ -390,7 +398,8 @@ export async function listLabores() {
 // Reemplaza todas las reuniones de entresemana desde un archivo tipo midweeks.json:
 // { weeks: [...] } o un array directo de semanas. Devuelve el nº de semanas cargadas.
 export async function replaceAllMidweeks(data) {
-  const weeks = Array.isArray(data) ? data : (Array.isArray(data?.weeks) ? data.weeks : []);
+  const weeks = (Array.isArray(data) ? data : (Array.isArray(data?.weeks) ? data.weeks : []))
+    .map((w, i) => (w && w.id) ? w : ({ ...w, id: midweekFallbackId(w, i) }));
   await clearMidweeks();
   if (weeks.length) {
     const db = await openDB();
@@ -405,6 +414,21 @@ export async function replaceAllMidweeks(data) {
     });
   }
   return weeks.length;
+}
+
+// Id de respaldo para una semana que no trae `id` (p. ej. JSON convertido sin id):
+// se deriva del encabezado "D-D DE MES" con el año en curso, o se genera uno único.
+function midweekFallbackId(w, i) {
+  const m = /^(\d{1,2})-(\d{1,2})\s+DE\s+([A-ZÁÉÍÓÚÑ]{3,})$/i.exec(String(w?.header || ''));
+  if (m) {
+    const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+    const mes = months.indexOf(m[3].toUpperCase()) + 1;
+    if (mes) {
+      const y = new Date().getFullYear();
+      return `${y}-${String(mes).padStart(2, '0')}-${String(Number(m[1])).padStart(2, '0')}`;
+    }
+  }
+  return `mw_${Date.now().toString(36)}_${i}`;
 }
 
 // Carga desde midweeks.json solo cuando el store está vacío.
@@ -616,6 +640,9 @@ export async function exportAll() {
     departments: await listDepartments(),
     talks: await listTalks(),
     midweeks: await listMidweeks(),
+    aseos: await listAseos(),
+    salidas: await listSalidas(),
+    labores: await listLabores(),
     settings: {
       congregation: await getSetting('congregation', ''),
       lastMonthId: await getSetting('lastMonthId', null),

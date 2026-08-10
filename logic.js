@@ -3,6 +3,9 @@
 
 export const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
+// Niveles de calificación de los colaboradores (D = requiere enlace de pareja).
+export const CALIFICACIONES = ['A', 'B', 'C', 'D'];
+
 export const WEEK_TYPES = {
   normal:       { label: 'Normal',               icon: 'calendar_today' },
   supervisor:   { label: 'Visita Superintendente',icon: 'verified' },
@@ -371,6 +374,96 @@ export function escapeAttr(s) {
 
 export function cryptoId() { return 'w_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
 
+// Palabras comunes del español para separar los títulos que el PDF de la JW
+// extrae "comprimidos" (las letras vienen separadas y se fusionan).
+const SPANISH_WORDS = [
+  'abandonar','abraham','aceptar','acerca','acuerdo','además','adón','adoración','adorar','agua','ahora','alabanza',
+  'amigos','amistad','amor','ángel','ángeles','antes','antiguo','añadir','año','años','aprender','aprendió','apóstol',
+  'apostoles','aprender','aprender','aprobar','arma','asamblea','asistir','aunque','autoridad','ayudar','ayudó','bautismo',
+  'beber','belleza','beneficio','bendición','biblia','biblico','biblicos','bien','buena','bueno','buenos','buscar','busquemos','cabezas','cada',
+  'cambio','caminar','canción','cantar','casa','causa','cayó','centro','cielo','cielos','ciencia','cinco','ciudad','clave',
+  'conversaciones','congregacion','conocer','conocerá','conozco','comenzar','como','compartir','comportamiento','comprensión','con','confiar','confianza',
+  'conocer','conseguir','consejo','considerar','consuelo','contra','corazón','correcta','corregir','cosas','creación',
+  'creador','crecer','creer','creyó','cristiana','cristianas','cristiano','cristianos','cuando','cuatro','cuidar','cuidado',
+  'culpa','cultura','cumplir','cura','curso','dar','damos','de','debemos','deber','decidir','decir','dejar','del','demostrar',
+  'derecho','desanimado','descansar','desde','deseo','deseos','después','día','días','diez','diferencia','difícil','dignidad',
+  'dios','dirección','discurso','discípulo','discípulos','discipulo','discipulos','dispuesto','distinto','donde','dos','durante','edad','ejemplo',
+  'ejercer','el','él','ella','ellas','ellos','empezar','empiece','emplear','en','encontrar','enemigo','enojado','enseñanza',
+  'enseñanzas','enseñar','entender','entendimiento','entonces','entre','envidia','es','esclavos','escondidas','escrito',
+  'escrituras','escuchar','ese','esfuerzo','eso','espacio','especial','esperanza','espíritu','está','estar','este','estilo',
+  'esto','estos','estudio','eterno','evitar','exacta','excelente','excusas','éxito','experiencia','explicar','familia',
+  'favor','fe','felicidad','feliz','fin','final','firme','fiel','fieles','formación','forma','fortalecer','frase','frecuencia',
+  'fruto','frutos','fue','fuego','futuro','gente','gestión','gracia','gran','grandes','grupo','guerra','gusto','hablar',
+  'hacer','haga','hagamos','hambre','hasta','hay','hijos','hogar','hombre','hombres','honestidad','honra','honrar','hora',
+  'hoy','ideas','idolatría','igual','importante','imitar','influencia','información','inicio','injusticia','inmenso',
+  'instrucción','interesado','invitar','ir','jefe','jehova','jesús','joven','jóvenes','juego','juicio','junto','justicia',
+  'justo','juventud','lado','lago','lamentar','le','lectura','leer','lengua','lenguaje','lealtad','ley','libertad','libro',
+  'líder','límite','línea','lo','lograr','los','lugar','luna','luz','madurez','madre','maestro','maestros','malo','malos',
+  'mandamiento','manera','mano','manos','mar','más','materia','matrimonio','me','medida','mejor','mejores','membresía',
+  'memoria','menos','mente','mensaje','mensajero','merece','merecer','meta','mi','miedo','mientras','mil','miles','minutos',
+  'mío','mirada','misa','mismo','moción','modo','momento','mundo','mucha','muchas','mucho','muchos','muerte','mujer',
+  'mujeres','multiplicación','mundo','mutua','nacimiento','nación','naciones','nada','nadie','natural','necesidad',
+  'necesitamos','niño','niños','no','nombre','norte','nos','nosotros','nueva','nuevas','nuevo','nuevos','número','obedecer',
+  'obedezcamos','obra','obras','obtener','ocasión','ocho','ocupado','ofrecer','oír','ojos','ola','olvidar','orden','ordenó',
+  'oreja','origen','oración','orar','oro','otra','otras','otro','otros','padre','padres','palabra','palabras','pan','para',
+  'parecer','parte','pasar','paso','paz','pecado','pelear','peligro','pensar','pensamiento','pequeño','perder','perdón',
+  'perdonar','perfecta','perfecto','perlas','permanecer','permitir','pero','persona','personas','pesar','piedad','poder','poderoso',
+  'podemos','poner','por','porque','poseer','práctica','precioso','premio','preocupación','preparación','presencia',
+  'presentación','presidente','prestar','príncipe','principio','probar','problema','prodigio','profeta','programa',
+  'promesa','pronto','propósito','proteger','protección','providencia','prueba','publicación','pueblo','puede','pueden',
+  'que','querer','querido','quién','quiere','quieren','realidad','realizar','recibir','recompensa','reconocer','recordar',
+  'recuerdo','recurso','redimir','reflexión','reforma','refugio','regla','regresar','reino','relación','relevancia',
+  'religión','renovación','reparar','repetir','respeto','respirar','respuesta','revisitas','restaurar','resultado','reunión','revelación',
+  'rey','reyes','riqueza','robusto','romper','rosa','sabiduría','sabio','saber','sacar','sacrificio','sagrada','salir',
+  'salud','sangre','santo','santos','se','secuencia','seguir','según','seguridad','seis','semanas','sentido','sentimiento',
+  'señal','ser','será','servicio','servir','sí','sida','siempre','siete','siglo','significado','siguiente','símbolo','simple',
+  'sin','sinceridad','sobre','sociedad','sol','soldado','solo','sólo','solución','sombra','son','sostener','su','subrayar',
+  'sucedió','suficiente','sufrimiento','superación','superintendente','surgir','temor','tener','tenga','tengo','tensión',
+  'teología','tercero','tesoro','tesoros','tiempo','tierra','tipo','título','toda','todas','todo','todos','tomar','trabajar',
+  'trabajo','tranquilidad','tratar','tres','tribulación','tristeza','tu','tú','tus','última','último','un','una','unas',
+  'universo','uno','unos','utilizar','valor','varios','venir','ver','verdad','verdadera','verdadero','vestir','vez','viaje',
+  'vida','vidas','viejo','vienen','vinieron','virtud','visión','visita','vital','vivir','voluntad','volver','vosotros',
+  'voz','vuelve','y','ya','yo',
+].sort((a, b) => b.length - a.length);
+
+// Separa las palabras de un texto "comprimido" (sin espacios) usando la lista de
+// palabras comunes. Solo separa donde hay una palabra conocida; los tramos sin
+// palabra conocida quedan juntos (no empeora el texto).
+// P. ej: "jehovamerecequeleobedezcamos" → "jehova merece que le obedezcamos".
+export function splitWords(s) {
+  const t = String(s || '').trim().toLowerCase().replace(/[ıİ]/g, 'i');
+  if (!t) return '';
+  const out = [];
+  let i = 0;
+  while (i < t.length) {
+    let w = null;
+    for (const cand of SPANISH_WORDS) {
+      if (t.startsWith(cand, i)) { w = cand; break; }
+    }
+    if (w) { out.push(w); i += w.length; continue; }
+    // Sin palabra en esta posición: buscar la palabra conocida más larga hacia adelante
+    // y dejar el tramo anterior junto.
+    let best = null;
+    for (let k = i + 1; k <= t.length; k++) {
+      for (const cand of SPANISH_WORDS) {
+        if (t.startsWith(cand, k) && (!best || cand.length > best.len)) best = { k, len: cand.length };
+      }
+    }
+    if (best) { out.push(t.slice(i, best.k)); i = best.k; }
+    else { out.push(t.slice(i)); i = t.length; }
+  }
+  return out.join(' ');
+}
+
+// Pone en mayúscula la primera letra del título (ignorando puntuación inicial).
+export function capTitle(s) {
+  const t = String(s || '');
+  for (let i = 0; i < t.length; i++) {
+    if (/[a-záéíóúüñ]/i.test(t[i])) return t.slice(0, i) + t[i].toUpperCase() + t.slice(i + 1);
+  }
+  return t;
+}
+
 /* ---------- Conversión de texto extraído de PDF (carga de archivos) ---------- */
 // Los PDF de la JW (Guía de Actividades, lista de discursos, etc.) separan los
 // caracteres ("6 -1 2 D E J U L I O"). Estas funciones convierten el texto
@@ -412,12 +505,10 @@ export function convertPdfPeople(text) {
   return { data: { roles }, warnings: ['Roles detectados: ' + (Object.keys(roles).join(', ') || 'revisar')] };
 }
 
-// Convierte el texto de la Guía de Actividades en semanas. Detecta la cabecera
-// de cada semana (rango + mes), su lectura y crea la estructura de secciones
-// (Tesoros / Mejores Maestros / Vida Cristiana) lista para completar en el editor.
-// El texto del PDF separa caracteres y fragmenta las partes en varias líneas,
-// por eso la lectura se reconstruye de forma compacta y los detalles de las
-// partes quedan para revisar/editar.
+// Convierte el texto de la Guía de Actividades en semanas. Detecta la cabecera de
+// cada semana (rango + mes), su lectura, las secciones (Tesoros / Mejores Maestros /
+// Vida Cristiana) y todas sus partes (número, título y minutos). El texto del PDF
+// separa caracteres, así que los títulos salen "comprimidos" y se revisan en el modal.
 export function convertPdfMidweeks(text) {
   const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
   const clean = (s) => String(s).replace(/[\u0002\u0003]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -425,13 +516,35 @@ export function convertPdfMidweeks(text) {
   const lines = text.split('\n').map(clean).filter(Boolean);
 
   const headerOf = (c) => {
-    const monthRe = months.map(m => m).join('|');
-    const m = c.match(new RegExp(`^(\\d{1,2})-(\\d{1,2})DE(${monthRe})(.*)$`, 'i'));
-    if (!m) return null;
-    const mt = months.indexOf(m[3].toUpperCase());
-    if (mt < 0) return null;
-    return { header: `${m[1]}-${m[2]} DE ${months[mt]}`, rest: m[4] };
+    const re = new RegExp(`^(\\d{1,2})-(\\d{1,2})DE(${months.join('|')})(.*)$`, 'i');
+    const m = c.match(re);
+    if (m) {
+      const mt = months.indexOf(m[3].toUpperCase());
+      if (mt < 0) return null;
+      const mIni = Number(m[1]);
+      const mFin = Number(m[2]);
+      // La cabecera indica el mes del lunes (inicio). Si la semana cruza al mes
+      // siguiente (mIni > mFin, ej. "28-4 DE SEPTIEMBRE"), se muestra el mes de fin.
+      const displayMonth = mIni > mFin ? ((mt + 1) % 12) : mt;
+      return { header: `${mIni}-${mFin} DE ${months[displayMonth]}`, mIni, mFin, month: mt + 1, cross: false, rest: m[4] };
+    }
+    // Formato completo: "28 DE SEPTIEMBRE A 4 DE OCTUBRE" (meses de inicio y fin).
+    // La cabecera normalizada usa el mes de fin, igual que "28-4 DE OCTUBRE".
+    const re2 = new RegExp(`^(\\d{1,2})DE(${months.join('|')})A(\\d{1,2})DE(${months.join('|')})(.*)$`, 'i');
+    const m2 = c.match(re2);
+    if (m2) {
+      const mtStart = months.indexOf(m2[2].toUpperCase());
+      const mtEnd = months.indexOf(m2[4].toUpperCase());
+      if (mtStart < 0 || mtEnd < 0) return null;
+      return { header: `${m2[1]}-${m2[3]} DE ${months[mtEnd]}`, mIni: Number(m2[1]), mFin: Number(m2[3]), month: mtStart + 1, cross: false, rest: m2[5] };
+    }
+    return null;
   };
+
+  // Año de la guía: el texto la menciona (p. ej. "... DE 2026"); si no se encuentra
+  // se usa el año actual como referencia.
+  const yearMatch = compact(text).match(/\b(20\d{2})\b/);
+  const year = yearMatch ? Number(yearMatch[1]) : new Date().getFullYear();
 
   // Da una forma legible a la lectura compacta. Ej: "JEREMIAS13-15" → "JEREMIAS 13-15".
   const tidyReading = (s) => {
@@ -441,19 +554,25 @@ export function convertPdfMidweeks(text) {
     return s.replace(/^(\d+)/, '$1 ').trim();
   };
 
-  const newWeek = (header) => ({
-    header,
-    reading: '',
-    songIn: 0, songOut: 0,
-    introTitle: 'Palabras de introducción', introMins: 1,
-    closingTitle: 'Palabras de conclusión', closingMins: 3,
-    sections: [
-      { id: 'tesoros', title: 'Tesoros de la Biblia', parts: [] },
-      { id: 'maestros', title: 'Seamos Mejores Maestros', parts: [] },
-      { id: 'vida', title: 'Nuestra Vida Cristiana', parts: [] },
-    ],
-  });
-
+  // Cabeceras de sección: van en mayúsculas (el texto de prosa va en minúsculas).
+  const sectionOf = (c) => {
+    const u = String(c || '').toUpperCase();
+    if (u !== String(c || '')) return null;
+    if (u.includes('TESOROS')) return 'tesoros';
+    if (u.includes('MAESTROS')) return 'maestros';
+    if (u.includes('NUESTRAVIDA') || (u.includes('VIDA') && u.includes('CRISTIANA'))) return 'vida';
+    return null;
+  };
+  const songNum = (c) => {
+    const m = String(c || '').match(/CANCI\S*(\d{1,3})/i);
+    return m ? Number(m[1]) : null;
+  };
+  const partMatch = (c) => {
+    const m = String(c || '').match(/^(\d{1,2})[.)](.+?)\((\d{1,2})(?:mins?|min)\.?\)/);
+    if (!m) return null;
+    const title = capTitle(splitWords(m[2].replace(/[“”"_*\u2022•]/g, '').trim()));
+    return { num: Number(m[1]), title, mins: Number(m[3]) };
+  };
   // La lectura termina en la primera sección o canción que aparece tras la cabecera.
   const endOfReading = (buf) => {
     const upper = buf.toUpperCase();
@@ -464,27 +583,555 @@ export function convertPdfMidweeks(text) {
     return Math.min(...cuts);
   };
 
+  const newWeek = (h) => {
+    // El lunes es el día de inicio y está en el mes que indica la cabecera
+    // (ej. "28-4 DE SEPTIEMBRE" → lunes 28 de septiembre; cruza a octubre).
+    return {
+      id: `${year}-${String(h.month).padStart(2, '0')}-${String(h.mIni).padStart(2, '0')}`,
+      header: h.header,
+      reading: '',
+      songIn: 0, songOut: 0,
+      introTitle: 'Palabras de introducción', introMins: 1,
+      closingTitle: 'Palabras de conclusión', closingMins: 3,
+      sections: [
+        { id: 'tesoros', title: 'Tesoros de la Biblia', parts: [] },
+        { id: 'maestros', title: 'Seamos Mejores Maestros', parts: [] },
+        { id: 'vida', title: 'Nuestra Vida Cristiana', parts: [] },
+      ],
+    };
+  };
+
   const weeks = [];
   let cur = null;
+  let curSec = null;
+  let phase = 'reading'; // reading | content
+  let readingBuf = '';
   let buf = '';
+
+  const addPart = (pm) => {
+    const sec = curSec ? cur.sections.find(s => s.id === curSec) : null;
+    if (!sec) return;
+    // El PDF repite el contenido de una semana cuando ocupa varias páginas:
+    // se descartan partes repetidas con el mismo número en la misma sección.
+    if (sec.parts.some(p => p.num === pm.num)) return;
+    sec.parts.push(pm);
+  };
+
   for (const ln of lines) {
     const c = compact(ln);
     const h = headerOf(c);
     if (h) {
-      if (cur) cur.reading = tidyReading(buf.slice(0, endOfReading(buf)));
-      cur = newWeek(h.header);
+      // El PDF repite la cabecera de una semana cuando ocupa varias páginas:
+      // si es la misma semana, se continúa acumulando en lugar de crear otra.
+      if (cur && cur.header === h.header) continue;
+      cur = newWeek(h);
       weeks.push(cur);
-      buf = h.rest || '';
+      phase = 'reading';
+      curSec = null;
+      readingBuf = h.rest || '';
+      buf = '';
       continue;
     }
     if (!cur) continue;
+
+    if (phase === 'reading') {
+      readingBuf += c;
+      const u = readingBuf.toUpperCase();
+      const sec = sectionOf(u);
+      if (sec) {
+        cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
+        curSec = sec;
+        phase = 'content';
+        buf = '';
+        continue;
+      }
+      if (u.includes('CANCI') || u.includes('PALABRASDEINTRODUCCI')) {
+        cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
+        phase = 'content';
+        buf = '';
+        continue;
+      }
+      continue;
+    }
+
+    // contenido: canciones, secciones y partes
+    const song = songNum(c);
+    if (song) { if (!cur.songIn) cur.songIn = song; else cur.songOut = song; buf = ''; continue; }
+    const sec = sectionOf(c);
+    if (sec) { curSec = sec; buf = ''; continue; }
+    if (/^\d{1,2}[.)]/.test(c)) { buf = c; continue; } // comienzo de parte
     buf += c;
+    const pm = partMatch(buf);
+    if (pm) { addPart(pm); buf = ''; }
   }
-  if (cur) cur.reading = tidyReading(buf.slice(0, endOfReading(buf)));
+  if (cur && phase === 'reading') cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
 
   if (!weeks.length) return { data: null, warnings: ['No se detectaron semanas (formato "D-D DE MES"). Revise el texto manualmente.'] };
   // Quitar cabeceras repetidas (el texto del PDF repite la cabecera de cada página).
   const seen = new Set();
   const uniq = weeks.filter(w => { const k = w.header; if (seen.has(k)) return false; seen.add(k); return true; });
-  return { data: { weeks: uniq }, warnings: [`Se detectaron ${uniq.length} semanas; complete lecturas y partes en la revisión.`] };
+  return { data: { weeks: uniq }, warnings: [`Se detectaron ${uniq.length} semanas; revise títulos (el PDF separa las letras).`] };
+}
+
+// Resumen de la Guía de Actividades detectada: meses, año y nº de semanas.
+// Devuelve null si el texto no se reconoce como guía.
+export function midweekGuideSummary(text) {
+  const { data, warnings } = convertPdfMidweeks(text);
+  if (!data || !data.weeks || !data.weeks.length) return null;
+  const monthsSet = new Set();
+  let year = null;
+  for (const w of data.weeks) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(w.id || ''))) continue;
+    monthsSet.add(Number(w.id.slice(5, 7)));
+    if (year == null) year = Number(w.id.slice(0, 4));
+  }
+  if (!monthsSet.size) return null;
+  return {
+    months: [...monthsSet].sort((a, b) => a - b).map(m => MONTHS_ES[m - 1]),
+    year,
+    weeksCount: data.weeks.length,
+    weeks: data.weeks,
+    warnings,
+  };
+}
+
+/* ---------- Conflictos cruzados entre programas (contexto global) ---------- */
+// Cada semana de la organización cierra en domingo. La reunión de entre semana
+// (lunes) y la de fin de semana/acomodación/salidas (sábado) comparten domingo.
+export function weekSundayOf(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6);
+  return isoDate(d);
+}
+
+// Recolecta todas las asignaciones de persona de todos los programas.
+// context = { midweeks, months, labores, salidas }
+// Cada item: { value (id persona), mes "YYYY-MM", semana (domingo), programa, rol, detalle }
+export function collectPersonAssignments(context) {
+  const out = [];
+  const add = (id, mes, semana, programa, rol, detalle) => {
+    if (id == null || id === '') return;
+    out.push({ value: String(id), mes, semana, programa, rol, detalle });
+  };
+
+  // Entre semana
+  (context.midweeks || []).forEach(mw => {
+    const mes = String(mw.id || '').slice(0, 7);
+    const semana = weekSundayOf(mw.id);
+    const header = mw.header || mw.id || '';
+    add(mw.presidente, mes, semana, 'entre', 'presidente', `Presidente · ${header}`);
+    (mw.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
+      Object.entries(p.assignments || {}).forEach(([slot, id]) => {
+        if (!id) return;
+        add(id, mes, semana, 'entre', `parte${si}.${p.num}.${slot}`, `${sec.title} · parte ${p.num} (${slot}) · ${header}`);
+      });
+    }));
+    const l = (mw.labores || {});
+    LABORES_DEF.forEach(d => {
+      const arr = Array.isArray(l[d.key]) ? l[d.key] : [l[d.key] || ''];
+      arr.forEach((id, si) => { if (id) add(id, mes, semana, 'entre', `labores_${d.key}_${si}`, `${d.label} ${si + 1} (entre semana) · ${header}`); });
+    });
+  });
+
+  // Fin de semana (programa mensual)
+  (context.months || []).forEach(m => (m.weeks || []).forEach(w => {
+    if (!/^\d{4}-\d{2}$/.test(String(m.id || ''))) return;
+    const mes = m.id;
+    const semana = weekSundayOf(w.date);
+    const mesTxt = MONTHS_ES[Number(m.month) - 1] || mes;
+    ['presidente', 'conductor', 'lector'].forEach(f => {
+      if (w[f]) add(w[f], mes, semana, 'fin', f, `${labelOf(f)} · ${mesTxt}`);
+    });
+  }));
+
+  // Acomodación (labores del fin de semana)
+  (context.labores || []).forEach(p => (p.weeks || []).forEach(w => {
+    const l = (w.labores || {});
+    LABORES_DEF.forEach(d => {
+      const arr = Array.isArray(l[d.key]) ? l[d.key] : [l[d.key] || ''];
+      arr.forEach((id, si) => { if (id) add(id, p.id, weekSundayOf(w.saturday), 'acomodacion', `${d.key}_${si}`, `${d.label} ${si + 1} (fin de semana)`); });
+    });
+  }));
+
+  // Salidas
+  (context.salidas || []).forEach(p => (p.weeks || []).forEach((w, wi) => (w.outings || []).forEach((o, oi) => {
+    if (o.oradorSalida) add(o.oradorSalida, p.id, weekSundayOf(w.saturday), 'salida', `salida_${wi}_${oi}`, `Orador de salida · semana ${wi + 1}`);
+  })));
+
+  return out;
+}
+
+// Detecta conflictos cruzados entre programas según las reglas:
+//  E1: misma semana, entre semana + acomodación (más de una entre ambos).
+//  E2: misma semana, fin de semana + acomodación + salidas (más de una).
+//  E3: mismo mes, entre semana, misma asignación repetida (mismo rol en 2 semanas).
+//  E4: mismo mes, fin de semana, misma asignación repetida (mismo campo en 2 semanas).
+//  E5: mismo mes, salidas, más de una salida.
+// Devuelve [{ value, semana, mes, programa, otros: [detalle...], detalle, regla }]
+export function computeCrossConflicts(context) {
+  const a = collectPersonAssignments(context);
+  const conflicts = [];
+  const grupo = {};
+  a.forEach(x => {
+    const kSem = `${x.value}|${x.semana}`;
+    (grupo[kSem] ||= []).push(x);
+    const kMes = `${x.value}|${x.mes}|${x.programa}|${x.rol}`;
+    (grupo[kMes] ||= []).push(x);
+    const kSal = `${x.value}|${x.mes}`;
+    (grupo[kSal] ||= []).push(x);
+  });
+
+  const push = (x, regla, otros) => {
+    conflicts.push({ value: x.value, semana: x.semana, mes: x.mes, programa: x.programa, detalle: x.detalle, regla, otros });
+  };
+
+  Object.values(grupo).forEach(items => {
+    if (items.length < 2) return;
+    const [first] = items;
+    const key0 = items[0].value + '|' + items[0].semana;
+    const key1 = items[0].value + '|' + items[0].mes + '|' + items[0].programa + '|' + items[0].rol;
+    const key2 = items[0].value + '|' + items[0].mes;
+
+    // E1: misma semana, entre + acomodación
+    if (items.every(i => i.value + '|' + i.semana === key0)) {
+      const progs = items.map(i => i.programa);
+      if (progs.includes('entre') && progs.includes('acomodacion')) {
+        const entre = items.find(i => i.programa === 'entre');
+        const aco = items.find(i => i.programa === 'acomodacion');
+        push(entre, 'E1', [aco.detalle]);
+        return;
+      }
+      const fin = progs.includes('fin'), acoP = progs.includes('acomodacion'), sal = progs.includes('salida');
+      if ([fin, acoP, sal].filter(Boolean).length > 1) {
+        const others = items.filter(i => i.programa !== 'fin' || progs.indexOf('fin') > -1);
+        push(items.find(i => i.programa !== 'fin') || first, 'E2', items.filter(i => i !== (items.find(i => i.programa !== 'fin') || first)).map(i => i.detalle));
+        return;
+      }
+    }
+    // E3: mismo mes, entre, mismo rol (2 semanas distintas)
+    if (items.every(i => i.value + '|' + i.mes + '|' + i.programa + '|' + i.rol === key1) && items[0].programa === 'entre') {
+      push(first, 'E3', items.slice(1).map(i => i.detalle));
+      return;
+    }
+    // E4: mismo mes, fin, mismo campo (2 semanas distintas)
+    if (items.every(i => i.value + '|' + i.mes + '|' + i.programa + '|' + i.rol === key1) && items[0].programa === 'fin') {
+      push(first, 'E4', items.slice(1).map(i => i.detalle));
+      return;
+    }
+    // E5: mismo mes, salidas, más de una
+    if (items.every(i => i.value + '|' + i.mes === key2) && items[0].programa === 'salida' && items.every(i => i.programa === 'salida') && items.length > 1) {
+      push(first, 'E5', items.slice(1).map(i => i.detalle));
+      return;
+    }
+  });
+
+  // Evitar duplicados exactos
+  const seen = new Set();
+  return conflicts.filter(c => {
+    const k = `${c.value}|${c.semana}|${c.mes}|${c.programa}|${c.rol}|${c.regla}|${(c.otros || []).join('|')}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/* ---------- Compatibilidad de parejas (calificación + género + enlace) ---------- */
+// Pares de calificación válidos fuera del enlace D.
+const PAR_LIMIT = [['A', 'B'], ['B', 'B'], ['A', 'C']];
+
+// ¿dos colaboradores pueden ser pareja en una asignación de a 2?
+// persona1/persona2: { id, calificacion, genero, enlace }
+// Reglas:
+//  · D solo puede pareja con su enlace designado (enlace mutuo).
+//  · Mismo género: siempre válido.
+//  · Mixto (hombre+mujer): solo si están enlazados entre sí.
+//  · Sin género definido: se aplica la tabla de calificaciones A+B · B+B · A+C.
+export function canBePair(persona1, persona2) {
+  if (!persona1 || !persona2) return false;
+  if (String(persona1.id) === String(persona2.id)) return false;
+
+  const cal = (p) => CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '';
+  const c1 = cal(persona1), c2 = cal(persona2);
+
+  // Enlace único de D: solo con su pareja enlazada (mutuo).
+  if (c1 === 'D' || c2 === 'D') {
+    return String(persona1.enlace || '') === String(persona2.id) && String(persona2.enlace || '') === String(persona1.id);
+  }
+
+  const g1 = persona1.genero, g2 = persona2.genero;
+  // Mismo género: siempre válido.
+  if (g1 && g2 && g1 === g2) return true;
+  // Mixto: solo si enlazados entre sí.
+  if (g1 && g2 && g1 !== g2) {
+    return String(persona1.enlace || '') === String(persona2.id) && String(persona2.enlace || '') === String(persona1.id);
+  }
+  // Sin género: tabla de calificaciones.
+  return PAR_LIMIT.some(([a, b]) => (c1 === a && c2 === b) || (c1 === b && c2 === a));
+}
+
+/* ---------- Estructura de partes de entre semana ---------- */
+// Devuelve los puestos (slots) de una parte con su rol. Fuente única usada por
+// el editor y por el algoritmo de automatización.
+export function midweekSlotsOf(sec, part) {
+  const secId = sec && sec.id;
+  const parts = (sec && sec.parts) || [];
+  const idx = parts.indexOf(part);
+  if (secId === 'tesoros') {
+    // Última parte = Lectura de la Biblia (asignacion1); el resto son discursos (asignacion4).
+    if (idx === parts.length - 1) return [{ key: 'lector', label: 'Lector', role: 'asignacion1' }];
+    return [{ key: 'conductor', label: idx === 0 ? 'Discurso' : 'Perlas', role: 'asignacion4' }];
+  }
+  if (secId === 'maestros') {
+    // Presentaciones de 2 personas (asignacion2); si dice "discurso" es de 1 (asignacion3).
+    if (/discurso/i.test(String(part.title || ''))) return [{ key: 'conductor', label: 'Discurso', role: 'asignacion3' }];
+    return [{ key: 'estudiante', label: 'Estudiante', role: 'asignacion2' }, { key: 'ayudante', label: 'Ayudante', role: 'asignacion2' }];
+  }
+  if (secId === 'vida') {
+    // Última parte = Estudio Bíblico de la Congregación (conductor2 + lector2);
+    // las anteriores son discursos de la reunión (asignacion4).
+    if (idx === parts.length - 1) return [{ key: 'conductor', label: 'Conductor', role: 'conductor2' }, { key: 'lector', label: 'Lector', role: 'lector2' }];
+    return [{ key: 'conductor', label: 'Discurso', role: 'asignacion4' }];
+  }
+  return [{ key: 'conductor', label: 'Conductor' }];
+}
+
+// Roles "no estudiante" (discursos de la reunión y estudio).
+const ROL_NO_ESTUDIANTE = new Set(['asignacion4', 'conductor2', 'lector2']);
+// Roles "estudiante" (lectura + presentaciones + discurso estudiantil).
+const ROL_ESTUDIANTE = new Set(['asignacion1', 'asignacion2', 'asignacion3']);
+
+/* ---------- Automatización de asignaciones ---------- */
+const ORDEN_CAL = ['A', 'B', 'C', 'D'];
+
+// Personas con un rol (o sin roles definidos).
+function peopleForRole(people, role) {
+  return people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role));
+}
+
+// Mapa de los campos editables de la reunión de fin de semana según su tipo.
+// Solo los campos listados se automatizan (el orador es texto libre/manual).
+function camposFinSemana(w) {
+  if (w.type === 'assembly') return [];
+  if (w.type === 'commemoration') return [{ campo: 'presidente', role: 'presidente' }];
+  if (w.type === 'supervisor') return [
+    { campo: 'presidente', role: 'presidente' },
+    { campo: 'estudioSinLectura', role: 'conductor1' },
+  ];
+  return [
+    { campo: 'presidente', role: 'presidente' },
+    { campo: 'conductor', role: 'conductor1' },
+    { campo: 'lector', role: 'lector1' },
+  ];
+}
+
+// Automatiza la reunión de entre semana de un mes. Muta `midweeks`
+// (asigna week.presidente y p.assignments). Devuelve un reporte.
+// Orden: presidente → discursos no estudiante → estudiantes (parejas canBePair).
+// Reglas: sin repetir la misma parte en el mes (E3), sin duplicar a nadie en la
+// misma semana (E2 intra-reunión). Solo rellena puestos vacíos.
+// `ocupadosSemana`: opcional, Map sábado -> Set de personas ocupadas esa semana
+// (p. ej. acomodación y salidas) que no deben recibir la parte (E1/E2).
+export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) {
+  const reporte = { asignados: 0, vacios: [] };
+  const rolPorPersona = {}; // personaId -> Set de partes ya usadas en el mes (E3)
+  const enSemana = {};      // weekId -> Set de personas ya asignadas esa semana
+
+  const marcado = (pid, key, weekId) => {
+    (rolPorPersona[pid] ||= new Set()).add(key);
+    (enSemana[weekId] ||= new Set()).add(pid);
+    reporte.asignados++;
+  };
+  const elegible = (p, key, weekId) => {
+    if ((rolPorPersona[String(p.id)] || new Set()).has(key)) return false;
+    if ((enSemana[weekId] || new Set()).has(String(p.id))) return false;
+    const setOcup = ocupadosSemana ? (ocupadosSemana.get(addDays(weekId, 5)) || new Set()) : new Set();
+    return !setOcup.has(String(p.id));
+  };
+
+  const elegir = (weekId, role, key) => {
+    let cand = peopleForRole(people, role);
+    // Prioridad de calificación solo para estudiantes.
+    if (ROL_ESTUDIANTE.has(role)) {
+      cand = cand.slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
+    }
+    const p = cand.find(x => elegible(x, key, weekId));
+    if (!p) { reporte.vacios.push({ semana: weekId, role, key }); return ''; }
+    marcado(String(p.id), key, weekId);
+    return String(p.id);
+  };
+
+  // 0. Registrar lo ya asignado para respetarlo (E2/E3).
+  midweeks.forEach(week => {
+    const weekId = String(week.id);
+    if (week.presidente) (enSemana[weekId] ||= new Set()).add(String(week.presidente));
+    (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(part => {
+      const slots = midweekSlotsOf(sec, part);
+      slots.forEach(slot => {
+        const id = (part.assignments || {})[slot.key];
+        if (!id) return;
+        const key = `mw_${si}_${part.num}_${slot.key}`;
+        (rolPorPersona[String(id)] ||= new Set()).add(key);
+        (enSemana[weekId] ||= new Set()).add(String(id));
+      });
+    }));
+  });
+
+  midweeks.forEach(week => {
+    const weekId = String(week.id);
+
+    // 1. Presidente (solo si está vacío; se evita repetir a alguien de la misma semana).
+    if (!week.presidente) {
+      const pres = elegir(weekId, 'presidente', 'presidente');
+      if (pres) week.presidente = pres;
+    }
+
+    // 2. Discursos no estudiante + estudio (por partes), solo puestos vacíos.
+    (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(part => {
+      const ap = { ...(part.assignments || {}) };
+      midweekSlotsOf(sec, part).forEach(slot => {
+        if (!ROL_NO_ESTUDIANTE.has(slot.role)) return;
+        if (ap[slot.key]) return;
+        const id = elegir(weekId, slot.role, `mw_${si}_${part.num}_${slot.key}`);
+        if (id) ap[slot.key] = id;
+      });
+      part.assignments = ap;
+    }));
+
+    // 3. Estudiantes (lectura + presentaciones + discurso estudiantil), parejas con canBePair.
+    (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(part => {
+      const ap = { ...(part.assignments || {}) };
+      const slots = midweekSlotsOf(sec, part);
+      if (!slots.every(s => ROL_ESTUDIANTE.has(s.role))) return;
+      if (slots.length === 2 && slots[0].role === 'asignacion2') {
+        // Pareja estudiante + ayudante: buscar una pareja compatible libre.
+        const keyA = `mw_${si}_${part.num}_${slots[0].key}`;
+        const keyB = `mw_${si}_${part.num}_${slots[1].key}`;
+        if (ap[slots[0].key] && ap[slots[1].key]) return;
+        if (ap[slots[0].key] || ap[slots[1].key]) { reporte.vacios.push({ semana: weekId, role: 'asignacion2', key: keyA }); return; }
+        const cand = peopleForRole(people, 'asignacion2')
+          .slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
+        let found = false;
+        for (const a of cand) {
+          if (!elegible(a, keyA, weekId)) continue;
+          const b = cand.find(x => String(x.id) !== String(a.id) && elegible(x, keyB, weekId) && canBePair(a, x));
+          if (!b) continue;
+          marcado(String(a.id), keyA, weekId);
+          marcado(String(b.id), keyB, weekId);
+          ap[slots[0].key] = String(a.id);
+          ap[slots[1].key] = String(b.id);
+          found = true;
+          break;
+        }
+        if (!found) { reporte.vacios.push({ semana: weekId, role: 'asignacion2', key: keyA }); reporte.vacios.push({ semana: weekId, role: 'asignacion2', key: keyB }); }
+      } else {
+        // 1 persona (lectura asignacion1 o discurso estudiantil asignacion3).
+        const slot = slots[0];
+        if (!ap[slot.key]) {
+          const id = elegir(weekId, slot.role, `mw_${si}_${part.num}_${slot.key}`);
+          if (id) ap[slot.key] = id;
+        }
+      }
+      part.assignments = ap;
+    }));
+  });
+
+  return reporte;
+}
+
+// Automatiza la acomodación (labores de fin de semana) de un mes: reparte los
+// puestos de LABORES_DEF con personas de atención libres en cada semana (sin
+// estar en la reunión de entre semana de esa semana, E1). Muta `labores`
+// ({ id, weeks:[{saturday, labores}] }). Solo rellena puestos vacíos y no repite
+// el mismo labore a la misma persona dos veces en el mes. Devuelve reporte.
+export function automatizarAcomodacion(people, labores, midweeks) {
+  const reporte = { asignados: 0, vacios: [] };
+  const ocupMw = new Map(); // saturday -> Set de personas de entre semana esa semana
+  midweeks.forEach(mw => {
+    const sat = addDays(mw.id, 5); // sábado de la semana del lunes
+    const set = new Set();
+    if (mw.presidente) set.add(String(mw.presidente));
+    (mw.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => { if (id) set.add(String(id)); })));
+    ocupMw.set(sat, set);
+  });
+  const laboreMes = new Map(); // personaId -> Set de claves labore usadas en el mes
+
+  labores.forEach(rec => (rec.weeks || []).forEach(w => {
+    const sat = String(w.saturday);
+    const l = w.labores || {};
+    const ocup = new Set(ocupMw.get(sat) || []); // ya ocupados esa semana (entre semana + acomodación)
+    // Normalizar puestos faltantes.
+    LABORES_DEF.forEach(d => {
+      if (l[d.key] === undefined) l[d.key] = d.count > 1 ? Array(d.count).fill('') : '';
+    });
+    // Registrar lo ya asignado.
+    LABORES_DEF.forEach(d => {
+      const v = l[d.key];
+      (Array.isArray(v) ? v : [v]).forEach((id, si) => {
+        if (!id) return;
+        ocup.add(String(id));
+        (laboreMes[String(id)] ||= new Set()).add(`${d.key}_${si}`);
+      });
+    });
+    // Rellenar puestos vacíos.
+    LABORES_DEF.forEach(d => {
+      const v = l[d.key];
+      for (let si = 0; si < d.count; si++) {
+        const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
+        if (cur) continue;
+        const cand = people.filter(isLaborePerson)
+          .find(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${d.key}_${si}`)));
+        if (!cand) { reporte.vacios.push({ semana: sat, role: `${d.key}_${si}` }); continue; }
+        if (Array.isArray(v)) v[si] = cand.id;
+        else l[d.key] = cand.id;
+        ocup.add(String(cand.id));
+        (laboreMes[String(cand.id)] ||= new Set()).add(`${d.key}_${si}`);
+        reporte.asignados++;
+      }
+    });
+  }));
+  return reporte;
+}
+
+// Automatiza la reunión de fin de semana: rellena los campos editables por
+// persona (presidente, conductor, lector, estudioSinLectura según el tipo de
+// semana) sin repetir a quienes ya están en acomodación o salidas esa semana
+// (E2) ni repetir el mismo cargo en el mes (E4). Muta `months`. Devuelve reporte.
+export function automatizarFinSemana(people, months, salidas, labores) {
+  const reporte = { asignados: 0, vacios: [] };
+  const cargoMes = {}; // personaId -> Set de cargos usados en el mes (E4)
+  const ocupados = {}; // saturday -> Set de personas ocupadas (acomodación + salidas)
+
+  const marcarOcupado = (sat, id) => {
+    if (id) (ocupados[sat] ||= new Set()).add(String(id));
+  };
+  salidas.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcarOcupado(String(w.saturday), o.oradorSalida))));
+  labores.forEach(p => (p.weeks || []).forEach(w => {
+    const l = w.labores || {};
+    LABORES_DEF.forEach(d => {
+      const v = l[d.key];
+      (Array.isArray(v) ? v : [v]).forEach(id => marcarOcupado(String(w.saturday), id));
+    });
+  }));
+
+  months.forEach(m => (m.weeks || []).forEach(w => {
+    const sat = String(w.date);
+    const ocup = new Set(ocupados[sat] || []);
+    // Registrar lo ya asignado (E4) y ocupar la semana.
+    camposFinSemana(w).forEach(({ campo }) => {
+      const id = w[campo];
+      if (id) { (cargoMes[String(id)] ||= new Set()).add(campo); ocup.add(String(id)); }
+    });
+    // Rellenar solo campos vacíos.
+    camposFinSemana(w).forEach(({ campo, role }) => {
+      if (w[campo]) return;
+      const p = peopleForRole(people, role)
+        .find(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)));
+      if (!p) { reporte.vacios.push({ semana: sat, role: campo }); return; }
+      w[campo] = p.id;
+      (cargoMes[String(p.id)] ||= new Set()).add(campo);
+      ocup.add(String(p.id));
+      reporte.asignados++;
+    });
+  }));
+  return reporte;
 }
