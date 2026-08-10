@@ -1,14 +1,17 @@
 // db.js - Capa de acceso a IndexedDB
-// Stores: months (programas mensuales), people, departments, settings
+// Stores: months (programas mensuales), people, departments, settings, talks, midweeks, aseos
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
 const STORE_SETTINGS = 'settings';   // key: string
 const STORE_TALKS = 'talks';        // keyPath: num (discurso n°)
 const STORE_MIDWEEKS = 'midweeks';   // key: "YYYY-MM-DD" (reunión de entre semana)
+const STORE_ASEOS = 'aseos';        // key: "YYYY-MM" (programa de aseo por mes)
+const STORE_SALIDAS = 'salidas';    // key: "YYYY-MM" (programa de salidas por mes)
+const STORE_LABORES = 'labores';    // key: "YYYY-MM" (programa de acomodación/labores por mes)
 
 let _db = null;
 
@@ -40,6 +43,15 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(STORE_MIDWEEKS)) {
         db.createObjectStore(STORE_MIDWEEKS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_ASEOS)) {
+        db.createObjectStore(STORE_ASEOS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_SALIDAS)) {
+        db.createObjectStore(STORE_SALIDAS, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_LABORES)) {
+        db.createObjectStore(STORE_LABORES, { keyPath: 'id' });
       }
     };
 
@@ -301,6 +313,78 @@ export async function deleteMidweek(id) {
 export async function clearMidweeks() {
   const db = await openDB();
   return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').clear());
+}
+
+// ===== ASEOS (programa de aseo por mes) =====
+export async function getAseo(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASEOS).get(id));
+}
+
+export async function putAseo(aseo) {
+  const db = await openDB();
+  aseo.updatedAt = Date.now();
+  if (!aseo.createdAt) aseo.createdAt = aseo.updatedAt;
+  return reqToPromise(tx(db, STORE_ASEOS, 'readwrite').put(aseo));
+}
+
+export async function deleteAseo(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASEOS, 'readwrite').delete(id));
+}
+
+export async function listAseos() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_ASEOS).getAll());
+  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+// ===== SALIDAS (programa de salidas por mes) =====
+export async function getSalidas(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_SALIDAS).get(id));
+}
+
+export async function putSalidas(program) {
+  const db = await openDB();
+  program.updatedAt = Date.now();
+  if (!program.createdAt) program.createdAt = program.updatedAt;
+  return reqToPromise(tx(db, STORE_SALIDAS, 'readwrite').put(program));
+}
+
+export async function deleteSalidas(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_SALIDAS, 'readwrite').delete(id));
+}
+
+export async function listSalidas() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_SALIDAS).getAll());
+  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+// ===== LABORES (programa de acomodación/labores por mes) =====
+export async function getLabores(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_LABORES).get(id));
+}
+
+export async function putLabores(program) {
+  const db = await openDB();
+  program.updatedAt = Date.now();
+  if (!program.createdAt) program.createdAt = program.updatedAt;
+  return reqToPromise(tx(db, STORE_LABORES, 'readwrite').put(program));
+}
+
+export async function deleteLabores(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_LABORES, 'readwrite').delete(id));
+}
+
+export async function listLabores() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_LABORES).getAll());
+  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 
 // Reemplaza todas las reuniones de entresemana desde un archivo tipo midweeks.json:
