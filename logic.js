@@ -618,24 +618,23 @@ function emitPdfLines(seq) {
 
 // Convierte el texto de la Guía de Actividades en semanas. Detecta la cabecera de
 // cada semana (rango + mes), su lectura, las secciones (Tesoros / Mejores Maestros /
-// Vida Cristiana) y todas sus partes (número, título y minutos). Acepta tanto texto
-// con palabras separadas de forma natural (nueva lectura "OCR por palabras") como
-// texto "comprimido" (caracteres sueltos) de PDFs antiguos.
+// Vida Cristiana) y todas sus partes (número, título y minutos).
+//
+// Arquitectura: en lugar de un parser línea-a-línea con estado frágil, se hace un
+// barrido de anclas en DOS fases:
+//  1) Tokenizar: localizar TODAS las anclas con su línea (cabeceras de semana,
+//     secciones, partes y canciones) de forma independiente.
+//  2) Ensamblar: ordenar las anclas por línea y asignar cada parte/canción a la
+//     semana y sección cuya ancla es la más cercana anterior. Así funciona igual
+//     con cabeceras cortas ("D-D DE MES"), extendidas ("D DE MES A D DE MES") y
+//     semanas que cruzan de página.
 export function convertPdfMidweeks(text) {
   const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
   const clean = (s) => String(s).replace(/[\u0002\u0003]/g, ' ').replace(/\s+/g, ' ').trim();
   const compact = (s) => String(s).replace(/[\s\u0002\u0003´`]/g, '');
-  // Normaliza una línea: si parece "caracteres sueltos" (la mayoría de tokens son
-  // de 1 letra), la compacta; si ya trae palabras separadas, respeta el espaciado.
-  const smart = (s) => {
-    s = clean(s);
-    if (!s) return '';
-    const tokens = s.split(' ');
-    const singles = tokens.filter(t => t.length === 1).length;
-    return (tokens.length > 1 && singles / tokens.length >= 0.6) ? s.replace(/ /g, '') : s;
-  };
   const lines = text.split('\n').map(clean).filter(Boolean);
 
+  // ---- Tokenizar cabeceras de semana ----
   const headerOf = (c) => {
     const re = new RegExp(`^(\\d{1,2})-(\\d{1,2})DE(${months.join('|')})(.*)$`, 'i');
     const m = c.match(re);
@@ -675,142 +674,183 @@ export function convertPdfMidweeks(text) {
     return s.replace(/^(\d+)/, '$1 ').trim();
   };
 
-  // Cabeceras de sección: van en mayúsculas (el texto de prosa va en minúsculas).
+  // ---- Tokenizar secciones ----
   const sectionOf = (c) => {
     const u = String(c || '').toUpperCase();
-    if (u !== String(c || '')) return null;
+    if (u !== String(c || '')) return null; // las cabeceras de sección van en mayúsculas
     if (u.includes('TESOROS')) return 'tesoros';
     if (u.includes('MAESTROS')) return 'maestros';
     if (u.includes('NUESTRAVIDA') || (u.includes('VIDA') && u.includes('CRISTIANA'))) return 'vida';
     return null;
   };
-  const songNum = (c) => {
-    const m = String(c || '').match(/CANCI\S*?(\d{1,3})/i);
-    return m ? Number(m[1]) : null;
-  };
-  // Reconocer una parte: "1. Título (10 mins.)". `nat` es el texto con el
-  // espaciado que traía el PDF (puede ser palabras reales o letras sueltas);
-  // `comp` es la versión compactada sin espacios (usada con el diccionario).
-  const partMatch = (nat, comp) => {
-    const m1 = String(nat || '').match(/^(\d{1,2})[.)]\s*(.+?)\s*\(\s*(\d{1,2})\s*(?:mins?|min)\s*\.?\s*\)/i);
-    if (m1) {
-      const t = m1[2].replace(/[“”"_*\u2022•]/g, '').trim();
-      const tokens = t.split(/\s+/).filter(Boolean);
-      // Si el título trae palabras reales (sin letras sueltas "ilegales"), se
-      // respeta tal cual. Letras sueltas que no son palabras españolas (q, c, …)
-      // indican texto "comprimido" → se separa con el diccionario.
-      const badSingles = tokens.filter(x => x.length === 1 && !/^[aeiouy]$/i.test(x));
-      if (badSingles.length === 0 && tokens.some(x => x.length > 1)) {
-        return { num: Number(m1[1]), title: capTitle(t), mins: Number(m1[3]) };
-      }
-    }
-    const m2 = String(comp || '').match(/^(\d{1,2})[.)](.+?)\((\d{1,2})(?:mins?|min)\.?\)/);
-    if (!m2) return null;
-    const title = capTitle(splitWords(m2[2].replace(/[“”"_*\u2022•]/g, '').trim()));
-    return { num: Number(m2[1]), title, mins: Number(m2[3]) };
-  };
-  // La lectura termina en la primera sección o canción que aparece tras la cabecera.
-  const endOfReading = (buf) => {
-    const upper = buf.toUpperCase();
-    const cuts = ['TESOROS', 'SEAMOS', 'NUESTRAVIDA', 'CANCI'].map(k => {
-      const i = upper.indexOf(k);
-      return i === -1 ? Infinity : i;
-    });
-    return Math.min(...cuts);
-  };
 
-  const newWeek = (h) => {
-    // El lunes es el día de inicio y está en el mes que indica la cabecera
-    // (ej. "28-4 DE SEPTIEMBRE" → lunes 28 de septiembre; cruza a octubre).
-    return {
-      id: `${year}-${String(h.month).padStart(2, '0')}-${String(h.mIni).padStart(2, '0')}`,
-      header: h.header,
-      reading: '',
-      songIn: 0, songOut: 0,
-      introTitle: 'Palabras de introducción', introMins: 1,
-      closingTitle: 'Palabras de conclusión', closingMins: 3,
-      sections: [
-        { id: 'tesoros', title: 'Tesoros de la Biblia', parts: [] },
-        { id: 'maestros', title: 'Seamos Mejores Maestros', parts: [] },
-        { id: 'vida', title: 'Nuestra Vida Cristiana', parts: [] },
-      ],
-    };
-  };
+  // ---- Fase 1: localizar todas las anclas con su línea ----
+  const weekAnchors = [];  // { line, header, mIni, mFin, month, rest }
+  const secAnchors = [];   // { line, id }
+  const songAnchors = [];  // { line, num }
 
-  const weeks = [];
-  let cur = null;
-  let curSec = null;
-  let phase = 'reading'; // reading | content
-  let readingBuf = '';
-  let bufN = ''; // buffer de parte con el espaciado del PDF
-  let bufC = ''; // buffer de parte compactado (sin espacios)
-
-  const addPart = (pm) => {
-    const sec = curSec ? cur.sections.find(s => s.id === curSec) : null;
-    if (!sec) return;
-    // El PDF repite el contenido de una semana cuando ocupa varias páginas:
-    // se descartan partes repetidas con el mismo número en la misma sección.
-    if (sec.parts.some(p => p.num === pm.num)) return;
-    sec.parts.push(pm);
-  };
-
-  for (const ln of lines) {
+  lines.forEach((ln, i) => {
     const c = compact(ln);
     const h = headerOf(c);
-    if (h) {
-      // El PDF repite la cabecera de una semana cuando ocupa varias páginas:
-      // si es la misma semana, se continúa acumulando en lugar de crear otra.
-      if (cur && cur.header === h.header) continue;
-      cur = newWeek(h);
-      weeks.push(cur);
-      phase = 'reading';
-      curSec = null;
-      readingBuf = h.rest || '';
-      bufN = '';
-      bufC = '';
-      continue;
-    }
-    if (!cur) continue;
-
-    if (phase === 'reading') {
-      readingBuf += c;
-      const u = readingBuf.toUpperCase();
-      const sec = sectionOf(u);
-      if (sec || u.includes('CANCI') || u.includes('PALABRASDEINTRODUCCI')) {
-        // La canción inicial viene justo después de la lectura; si la línea
-        // actual es una canción, se captura su número.
-        const song = songNum(c);
-        if (song && !cur.songIn) cur.songIn = song;
-        cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
-        curSec = sec || null;
-        phase = 'content';
-        bufN = '';
-        bufC = '';
-        continue;
-      }
-      continue;
-    }
-
-    // contenido: canciones, secciones y partes
-    const song = songNum(c);
-    if (song) { if (!cur.songIn) cur.songIn = song; else cur.songOut = song; bufN = ''; bufC = ''; continue; }
+    if (h) { weekAnchors.push({ line: i, ...h }); return; }
     const sec = sectionOf(c);
-    if (sec) { curSec = sec; bufN = ''; bufC = ''; continue; }
-    const start = /^\d{1,2}[.)]/.test(c);
-    if (start) { bufN = smart(ln); bufC = c; }
-    else { bufN += ' ' + smart(ln); bufC += c; }
-    const pm = partMatch(bufN, bufC);
-    if (pm) { addPart(pm); bufN = ''; bufC = ''; }
+    if (sec) { secAnchors.push({ line: i, id: sec }); return; }
+    const song = /CANCI\S*?(\d{1,3})/i.exec(c);
+    if (song) songAnchors.push({ line: i, num: Number(song[1]) });
+  });
+
+  // ---- Tokenizar partes ----
+  // Se extrae el bloque de texto de cada sección (entre una cabecera de sección
+  // y la siguiente ancla: sección, semana o fin del texto) y se buscan partes
+  // dentro de él con un regex que cruza líneas. Así una parte cuyo título y
+  // "(N mins.)" están en líneas distintas se captura igual.
+  const nextSecOrWeek = [];
+  {
+    const nextAnchorLine = (line) => {
+      let out = lines.length;
+      for (const a of secAnchors) if (a.line > line && a.line < out) out = a.line;
+      for (const a of weekAnchors) if (a.line > line && a.line < out) out = a.line;
+      return out;
+    };
+    for (const sec of secAnchors) nextSecOrWeek.push(nextAnchorLine(sec.line));
   }
-  if (cur && phase === 'reading') cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
+
+  const partAnchors = []; // { line, num, mins, nat, comp }
+  const partRe = /(?:^|\n)\s*(\d{1,2})\s*[.)]\s*(.+?)\s*\(\s*(\d{1,2})\s*(?:mins?|min)\s*\.?\s*\)/gis;
+
+  for (let ai = 0; ai < secAnchors.length; ai++) {
+    const sec = secAnchors[ai];
+    const block = lines.slice(sec.line, nextSecOrWeek[ai]).join('\n');
+    let m;
+    partRe.lastIndex = 0;
+    while ((m = partRe.exec(block)) !== null) {
+      const line = sec.line + block.slice(0, m.index).split('\n').length - 1;
+      const natTitle = m[2].replace(/[“”"_*\u2022•´`˙˜]/g, ' ').replace(/\s+/g, ' ').trim();
+      partAnchors.push({ line, num: Number(m[1]), mins: Number(m[3]), nat: natTitle, comp: compact(natTitle) });
+    }
+  }
+  partAnchors.sort((a, b) => a.line - b.line);
+
+  // ---- Fase 2: ensamblar semanas ----
+  // El lunes es el día de inicio y está en el mes que indica la cabecera.
+  const newWeek = (h) => ({
+    id: `${year}-${String(h.month).padStart(2, '0')}-${String(h.mIni).padStart(2, '0')}`,
+    header: h.header,
+    reading: '',
+    songIn: 0, songOut: 0,
+    introTitle: 'Palabras de introducción', introMins: 1,
+    closingTitle: 'Palabras de conclusión', closingMins: 3,
+    sections: [
+      { id: 'tesoros', title: 'Tesoros de la Biblia', parts: [] },
+      { id: 'maestros', title: 'Seamos Mejores Maestros', parts: [] },
+      { id: 'vida', title: 'Nuestra Vida Cristiana', parts: [] },
+    ],
+  });
+
+  // Cabeceras repetidas (el PDF repite la cabecera de cada página): se conserva
+  // la primera ocurrencia de cada semana y se descartan las repetidas.
+  const seenWeeks = new Set();
+  const weeks = [];
+  for (const w of weekAnchors) {
+    if (seenWeeks.has(w.header)) continue;
+    seenWeeks.add(w.header);
+    weeks.push(newWeek(w));
+  }
+
+  // Índice auxiliar: semana y sección más cercanas antes de una línea.
+  const nearest = (anchors, line) => {
+    let out = null;
+    for (const a of anchors) if (a.line <= line) out = a; else break;
+    return out;
+  };
+
+  for (const p of partAnchors) {
+    const w = nearest(weekAnchors, p.line);
+    const s = nearest(secAnchors, p.line);
+    if (!w || !s) continue;
+    const week = weeks.find(x => x.header === w.header);
+    if (!week) continue;
+    const sec = week.sections.find(x => x.id === s.id);
+    if (!sec) continue;
+    // Título: si la parte traía palabras reales (no letras sueltas), se respeta;
+    // si era texto "comprimido", se separa con el diccionario.
+    const tokens = p.nat.split(/\s+/).filter(Boolean);
+    const badSingles = tokens.filter(x => x.length === 1 && !/^[aeiouy]$/i.test(x));
+    const title = (badSingles.length === 0 && tokens.some(x => x.length > 1))
+      ? capTitle(p.nat)
+      : capTitle(splitWords(p.comp.replace(/[“”"_*\u2022•´`˙˜]/g, '').trim()));
+    // Si la semana ya tiene ese número en la sección (el PDF repite contenido de
+    // una semana en varias páginas, o las partes de la semana siguiente quedan
+    // bajo la cabecera de la anterior), se busca la próxima semana que aún no
+    // tenga esa parte en esa sección y se le asigna.
+    let target = week;
+    if (sec.parts.some(x => x.num === p.num)) {
+      target = weeks.find(x => {
+        const sx = x.sections.find(y => y.id === s.id);
+        return sx && !sx.parts.some(y => y.num === p.num);
+      });
+      if (!target) continue;
+    }
+    const tSec = target.sections.find(x => x.id === s.id);
+    if (!tSec || tSec.parts.some(x => x.num === p.num)) continue;
+    tSec.parts.push({ num: p.num, title, mins: p.mins });
+  }
+
+  // Lectura y canciones por semana: entre la cabecera de la semana y la de la
+  // siguiente, el primer bloque en mayúsculas (o el "rest" de la cabecera) es la
+  // lectura, y las canciones se asignan como entrada/salida según su posición.
+  for (let i = 0; i < weeks.length; i++) {
+    const w = weeks[i];
+    const wa = weekAnchors.find(a => a.header === w.header);
+    if (!wa) continue;
+    const nextLine = i + 1 < weeks.length
+      ? weekAnchors.find(a => a.header === weeks[i + 1].header).line
+      : lines.length;
+
+    // Lectura: el resto de la cabecera (formato corto) o, si viene separada, las
+    // líneas en mayúsculas entre la cabecera y la primera canción/sección.
+    let reading = tidyReading(wa.rest || '');
+    // Si el "rest" es solo un fragmento (sin capítulos), buscar la lectura
+    // completa en las líneas siguientes hasta la primera canción/sección.
+    if (!/\d/.test(reading)) {
+      let buf = String(wa.rest || '');
+      for (let l = wa.line + 1; l < nextLine; l++) {
+        const ln = lines[l];
+        const c = compact(ln);
+        const isSong = /CANCI\S*?(\d{1,3})/i.test(c);
+        const isSec = sectionOf(c);
+        if (isSec || isSong) break;
+        buf += c;
+      }
+      // La lectura es el prefijo en mayúsculas (libro + capítulos) del bloque.
+      const m = /^([A-ZÁÉÍÓÚÑ]{2,}[\s,\-0-9]*)/i.exec(buf);
+      if (m && /\d/.test(m[1])) reading = tidyReading(m[1]);
+    }
+    // Formato extendido ("D DE MES A D DE MES"): la lectura no suele estar entre
+    // la cabecera y la primera canción; viene como "running header" de la página
+    // (texto en mayúsculas del tipo "LIBRO X, Y") en algún punto de la semana.
+    if (!/\d/.test(reading)) {
+      for (let l = wa.line; l < nextLine; l++) {
+        const c = compact(lines[l] || '');
+        const m = /^([A-ZÁÉÍÓÚÑ]{2,}[\s,\-0-9]*)$/i.exec(c);
+        if (m && /\d/.test(m[1]) && !/CANCI/.test(m[1])) {
+          reading = tidyReading(m[1]);
+          break;
+        }
+      }
+    }
+    w.reading = reading;
+
+    // Canciones: la primera canción de la semana es la de entrada; la última es
+    // la de salida (la que aparece justo antes de la siguiente cabecera).
+    const songs = songAnchors.filter(a => a.line > wa.line && a.line < nextLine).map(a => a.num);
+    if (songs.length) { w.songIn = songs[0]; w.songOut = songs[songs.length - 1]; }
+  }
 
   if (!weeks.length) return { data: null, warnings: ['No se detectaron semanas (formato "D-D DE MES"). Revise el texto manualmente.'] };
-  // Quitar cabeceras repetidas (el texto del PDF repite la cabecera de cada página).
-  const seen = new Set();
-  const uniq = weeks.filter(w => { const k = w.header; if (seen.has(k)) return false; seen.add(k); return true; });
-  const warnings = [`Se detectaron ${uniq.length} semanas; revise títulos y compruebe que cada semana tenga sus asignaciones.`];
+  const warnings = [`Se detectaron ${weeks.length} semanas; revise títulos y compruebe que cada semana tenga sus asignaciones.`];
   // Validación de completitud: cada semana debe traer lectura, canciones y partes.
-  for (const w of uniq) {
+  for (const w of weeks) {
     const issues = [];
     if (!w.reading) issues.push('lectura');
     if (!w.songIn) issues.push('canción inicial');
@@ -822,7 +862,7 @@ export function convertPdfMidweeks(text) {
       warnings.push(`La semana ${w.header} quedó incompleta (falta: ${issues.join(', ')}). Revise el texto extraído.`);
     }
   }
-  return { data: { weeks: uniq }, warnings };
+  return { data: { weeks }, warnings };
 }
 
 // ¿El texto contiene los títulos de las tres secciones de la Guía de Actividades?
