@@ -747,9 +747,23 @@ async function etapa2(month) {
   };
 }
 
+// Nombre legible de un rol/puesto para el reporte de la asignación automática.
+// "asignacion2" → "Presentación" (desde la lista de roles), "acomodacion_0" →
+// "Acomodación 1" (labores), "conductor" → "Cond. Atalaya" (campo de fin de semana).
+function rolLabel(rol) {
+  const r = String(rol || '');
+  const lab = LABORES_DEF.find(d => r.startsWith(d.key + '_'));
+  if (lab) return `${lab.label} ${Number(r.slice(lab.key.length + 1)) + 1}`;
+  const role = state.roles.find(x => String(x.id) === r);
+  if (role) return role.label;
+  const fid = FIELD_ROLE[r];
+  const fRole = fid && state.roles.find(x => String(x.id) === fid);
+  return fRole ? fRole.label : r;
+}
+
 function renderReporte(rep) {
   const vaciosHtml = rep.vacios.length
-    ? `<p class="text-sm text-error mt-2">Sin suficientes personas libres en: ${rep.vacios.map(v => `${v.semana} (${v.rol})`).join(', ')}.</p>`
+    ? `<p class="text-sm text-error mt-2">Sin suficientes personas libres en: ${rep.vacios.map(v => `${v.semana} (${rolLabel(v.rol)})`).join(', ')}.</p>`
     : `<p class="text-sm text-tertiary mt-2">No quedaron puestos vacíos.</p>`;
   return `<div class="bg-surface-container-low rounded-xl border border-outline-variant p-4">
     <p class="font-label-lg text-label-lg text-primary">${rep.titulo}</p>
