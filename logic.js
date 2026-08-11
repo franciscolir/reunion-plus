@@ -1174,11 +1174,12 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
   return reporte;
 }
 
-// Automatiza la acomodación (labores de fin de semana) de un mes: reparte los
-// puestos de LABORES_DEF con personas de atención libres en cada semana (sin
-// estar en la reunión de entre semana de esa semana, E1). Muta `labores`
-// ({ id, weeks:[{saturday, labores}] }). Solo rellena puestos vacíos y no repite
-// el mismo labore a la misma persona dos veces en el mes. Devuelve reporte.
+// Automatiza la acomodación de un mes: reparte los puestos de LABORES_DEF con
+// personas de atención libres en cada semana. Rellena las labores del fin de
+// semana (`labores`, { id, weeks:[{saturday, labores}] }) y las de la reunión de
+// entre semana (`midweeks`, en cada week.labores). Solo rellena puestos vacíos,
+// no repite el mismo labore a la misma persona en el mes y evita asignar a quien
+// ya participa en la reunión de entre semana de esa semana (E1). Devuelve reporte.
 export function automatizarAcomodacion(people, labores, midweeks) {
   const reporte = { asignados: 0, vacios: [] };
   const ocupMw = new Map(); // saturday -> Set de personas de entre semana esa semana
@@ -1187,44 +1188,69 @@ export function automatizarAcomodacion(people, labores, midweeks) {
     const set = new Set();
     if (mw.presidente) set.add(String(mw.presidente));
     (mw.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => { if (id) set.add(String(id)); })));
+    // También cuentan las labores de entre semana ya asignadas.
+    const l = mw.labores || {};
+    LABORES_DEF.forEach(d => { const v = l[d.key]; (Array.isArray(v) ? v : [v]).forEach(id => { if (id) set.add(String(id)); }); });
     ocupMw.set(sat, set);
   });
   const laboreMes = new Map(); // personaId -> Set de claves labore usadas en el mes
 
-  labores.forEach(rec => (rec.weeks || []).forEach(w => {
-    const sat = String(w.saturday);
-    const l = w.labores || {};
-    const ocup = new Set(ocupMw.get(sat) || []); // ya ocupados esa semana (entre semana + acomodación)
-    // Normalizar puestos faltantes.
+  // Rellena los puestos vacíos de un objeto labores `l` para una semana `sat`.
+  // `prefijo` separa las claves de FS y ES para que no se bloqueen entre sí en
+  // el mes (una persona puede hacer el mismo labore en una reunión distinta).
+  const rellenar = (l, sat, ocupInicial, prefijo) => {
+    const ocup = new Set(ocupInicial || []);
     LABORES_DEF.forEach(d => {
       if (l[d.key] === undefined) l[d.key] = d.count > 1 ? Array(d.count).fill('') : '';
     });
-    // Registrar lo ya asignado.
     LABORES_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach((id, si) => {
         if (!id) return;
         ocup.add(String(id));
-        (laboreMes[String(id)] ||= new Set()).add(`${d.key}_${si}`);
+        (laboreMes[String(id)] ||= new Set()).add(`${prefijo}${d.key}_${si}`);
       });
     });
-    // Rellenar puestos vacíos.
     LABORES_DEF.forEach(d => {
       const v = l[d.key];
       for (let si = 0; si < d.count; si++) {
         const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
         if (cur) continue;
         const cand = people.filter(isLaborePerson)
-          .find(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${d.key}_${si}`)));
+          .find(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${prefijo}${d.key}_${si}`)));
         if (!cand) { reporte.vacios.push({ semana: sat, role: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
         else l[d.key] = cand.id;
         ocup.add(String(cand.id));
-        (laboreMes[String(cand.id)] ||= new Set()).add(`${d.key}_${si}`);
+        (laboreMes[String(cand.id)] ||= new Set()).add(`${prefijo}${d.key}_${si}`);
         reporte.asignados++;
       }
     });
+  };
+
+  // Labores del fin de semana (programa de acomodación).
+  labores.forEach(rec => (rec.weeks || []).forEach(w => {
+    rellenar(w.labores || {}, String(w.saturday), ocupMw.get(String(w.saturday)) || [], 'labores_');
   }));
+
+  // Labores de entre semana (se guardan en cada week.labores del midweek).
+  // Para no duplicar personas, se suma a los ocupados las del mismo sábado (FS).
+  const fsPorSat = new Map();
+  labores.forEach(rec => (rec.weeks || []).forEach(w => {
+    const set = new Set();
+    const l = w.labores || {};
+    LABORES_DEF.forEach(d => { const v = l[d.key]; (Array.isArray(v) ? v : [v]).forEach(id => { if (id) set.add(String(id)); }); });
+    fsPorSat.set(String(w.saturday), set);
+  }));
+  midweeks.forEach(mw => {
+    const sat = addDays(mw.id, 5);
+    const base = new Set(ocupMw.get(sat) || []);
+    (fsPorSat.get(sat) || []).forEach(id => base.add(String(id)));
+    // Inicializar labores del midweek si aún no existen (garantiza persistir).
+    if (!mw.labores) mw.labores = {};
+    rellenar(mw.labores, mw.id, base, 'es_');
+  });
+
   return reporte;
 }
 
@@ -1297,6 +1323,14 @@ export function extractAssignments(midweeks, months, salidas, labores, people = 
         if (id) push(id, date, 'entre', slot.role, slot.label);
       });
     }));
+    // Labores de la reunión de entre semana (week.labores, gestionadas en acomodación).
+    const l = w.labores || {};
+    LABORES_DEF.forEach(d => {
+      const v = l[d.key];
+      (Array.isArray(v) ? v : [v]).forEach((id, si) => {
+        if (id) push(id, addDays(w.id, 5), 'labores', `labores_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
+      });
+    });
   });
   (months || []).forEach(m => (m.weeks || []).forEach(w => {
     const date = String(w.date);

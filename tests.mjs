@@ -738,7 +738,7 @@ console.log('[automatizarEntreSemana]');
 console.log('[automatizarAcomodacion]');
 {
   const people = [];
-  for (let i = 1; i <= 8; i++) people.push({ id: i, name: `A${i}`, roles: i <= 4 ? ['audio', 'microf'] : ['acomodador'] });
+  for (let i = 1; i <= 16; i++) people.push({ id: i, name: `A${i}`, roles: i <= 8 ? ['audio', 'microf'] : ['acomodador'] });
   const midweeks = [
     { id: '2026-07-06', presidente: 1, sections: [{ id: 'tesoros', parts: [{ num: 1, title: 'Discurso', mins: 10, assignments: { conductor: 2 } }] }] },
     { id: '2026-07-13', presidente: 4, sections: [{ id: 'tesoros', parts: [{ num: 1, title: 'Discurso', mins: 10, assignments: { conductor: 5 } }] }] },
@@ -767,6 +767,19 @@ console.log('[automatizarAcomodacion]');
   ok('el mismo labore no se repite con la misma persona en el mes',
     Object.values(porClave).every(arr => arr.length === new Set(arr).size));
   ok('acomodación asigna puestos', rep.asignados > 0);
+  // Las labores de entre semana (week.labores del midweek) también se rellenan.
+  ok('rellena labores de entre semana en el midweek',
+    midweeks.every(mw => Object.values(mw.labores || {}).some(v => (Array.isArray(v) ? v : [v]).some(x => x))));
+  // La persona en labores ES no debe ser la misma que en FS del mismo sábado.
+  const mw1 = midweeks[0].labores, mw2 = midweeks[1].labores;
+  const es1 = Object.values(mw1).flatMap(v => Array.isArray(v) ? v : [v]).filter(Boolean);
+  const es2 = Object.values(mw2).flatMap(v => Array.isArray(v) ? v : [v]).filter(Boolean);
+  const fs11 = Object.values(sat11).flatMap(v => Array.isArray(v) ? v : [v]).filter(Boolean);
+  const fs18 = Object.values(sat18).flatMap(v => Array.isArray(v) ? v : [v]).filter(Boolean);
+  ok('labores ES no repiten persona con FS del mismo sábado',
+    es1.every(id => !fs11.includes(String(id))) && es2.every(id => !fs18.includes(String(id))));
+  ok('labores ES no asignan a quien participa en la reunión ES esa semana',
+    !es1.includes('1') && !es1.includes('2') && !es2.includes('4') && !es2.includes('5'));
 }
 
 // --- automatizarFinSemana ---
@@ -811,6 +824,7 @@ console.log('[extractAssignments]');
   const midweeks = [{
     id: '2026-08-10', header: '10-16 DE AGOSTO',
     presidente: '1',
+    labores: { acomodacion: ['2', '5'], microfono: ['', ''], plataforma: '', sonido: '' },
     sections: [
       { id: 'tesoros', title: 'Tesoros', parts: [
         { num: 1, title: 'Discurso', mins: 10, assignments: { conductor: '2' } },
@@ -836,6 +850,8 @@ console.log('[extractAssignments]');
   ok('extrae presidente de fin de semana', entries.some(e => e.personId === '1' && e.program === 'fin'));
   ok('extrae orador de salida', entries.some(e => e.personId === '4' && e.program === 'salidas'));
   ok('extrae labores', entries.some(e => e.personId === '5' && e.program === 'labores' && e.roleKey === 'labores_acomodacion_0'));
+  ok('extrae labores de entre semana (midweek.labores)',
+    entries.some(e => e.personId === '5' && e.program === 'labores' && e.roleKey === 'labores_acomodacion_1'));
   ok('no incluye el orador de texto libre', !entries.some(e => e.roleKey === 'orador' && e.program === 'fin'));
   const ana = entries.filter(e => e.personId === '1');
   ok('nombre de la persona se resuelve', ana.length > 0 && ana.every(e => e.name === 'Ana'));

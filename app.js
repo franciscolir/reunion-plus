@@ -921,7 +921,10 @@ async function etapaAcomodacion(month) {
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const labMes = labores.filter(p => p.id === month);
   const repLab = automatizarAcomodacion(state.people, labMes, mwMes);
+  // Las labores de entre semana se guardan en cada week.labores del midweek.
   await Promise.all(labMes.map(p => db.putLabores(p)));
+  await Promise.all(mwMes.map(w => db.putMidweek(w)));
+  state.midweeks = await db.listMidweeks();
   return {
     asignados: repLab.asignados,
     vacios: repLab.vacios.map(v => ({ semana: v.semana, rol: v.role })),
