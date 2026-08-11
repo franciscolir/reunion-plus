@@ -10,7 +10,7 @@ import {
   LABORES_DEF, LABORE_ROLES, isLaborePerson, splitWords,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
-  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
   isStudentPerson, isStudentRole,
@@ -377,6 +377,63 @@ ok('lectura semana 2', gweeks[1] && gweeks[1].reading === 'JEREMIAS 16,17');
 ok('cada semana tiene las 3 secciones', gweeks.every(w => w.sections.map(s => s.id).join(',') === 'tesoros,maestros,vida'));
 ok('sin cabeceras repetidas', new Set(gweeks.map(w => w.header)).size === gweeks.length);
 ok('sin texto deja datos nulos', convertPdfMidweeks('texto sin semanas').data === null);
+
+console.log('[rebuildPdfWords]');
+// Simula los ítems que devuelve pdf.js (getTextContent): cada glifo con su
+// posición (transform[4]=x, transform[5]=y), width y height.
+{
+  const fs = 10;
+  const glyph = (str, x, y) => ({ str, transform: [1,0,0,1,x,y], width: str.length * 6, height: fs });
+  const items = [
+    // Fila 1 (y=100): "6-12 DE JULIO" con huecos reales entre palabras.
+    glyph('6', 10, 100), glyph('-', 16, 100), glyph('1', 20, 100), glyph('2', 26, 100),
+    glyph('D', 48, 100), glyph('E', 54, 100),
+    glyph('J', 80, 100), glyph('U', 86, 100), glyph('L', 92, 100), glyph('I', 98, 100), glyph('O', 104, 100),
+    // Fila 2 (y=90): "JEREMIAS 13-15"
+    glyph('J', 10, 90), glyph('E', 16, 90), glyph('R', 22, 90), glyph('E', 28, 90), glyph('M', 34, 90), glyph('I', 40, 90), glyph('A', 46, 90), glyph('S', 52, 90),
+    glyph('1', 78, 90), glyph('3', 84, 90), glyph('-', 90, 90), glyph('1', 94, 90), glyph('5', 100, 90),
+  ];
+  const txt = rebuildPdfWords(items);
+  const lines = txt.split('\n');
+  ok('agrupa por filas (2 líneas)', lines.length === 2, `txt=${JSON.stringify(txt)}`);
+  ok('inserta espacio entre palabras', lines[0] === '6-12 DE JULIO', `l0=${JSON.stringify(lines[0])}`);
+  ok('segunda fila con espacio antes del rango', lines[1] === 'JEREMIAS 13-15', `l1=${JSON.stringify(lines[1])}`);
+}
+{
+  // Texto naturalmente espaciado (lo que produce rebuildPdfWords): el parser
+  // debe respetar los títulos sin usar el diccionario.
+  const natural = [
+    '6-12 DE JULIO',
+    'JEREMIAS 13-15',
+    'CANCIÓN 123 y oración',
+    'TESOROS DE LA BIBLIA',
+    '1. Jehová merece que le obedezcamos (10 mins.)',
+    'SEAMOS MEJORES MAESTROS',
+    'NUESTRA VIDA CRISTIANA',
+    '13-19 DE JULIO',
+    'JEREMIAS 16,17',
+  ].join('\n');
+  const w = convertPdfMidweeks(natural).data.weeks;
+  ok('parsea 2 semanas con texto natural', w.length === 2);
+  ok('título natural sin diccionario', w[0].sections[0].parts.some(p => p.title === 'Jehová merece que le obedezcamos'));
+  ok('lectura natural', w[0].reading === 'JEREMIAS 13-15');
+}
+{
+  // Avisos de completitud: una semana sin lectura ni canciones debe avisar.
+  const res = convertPdfMidweeks('6-12 DE JULIO\nTESOROS DE LA BIBLIA\n1. Título (10 mins.)');
+  ok('avisa de semanas incompletas', res.warnings.some(x => /incompleta/.test(x)));
+}
+{
+  // Semana completa no debe avisar de incompletitud.
+  const res = convertPdfMidweeks([
+    '6-12 DE JULIO', 'JEREMIAS 13-15', 'CANCIÓN 1 y oración',
+    'TESOROS DE LA BIBLIA', '1. Título (10 mins.)',
+    'SEAMOS MEJORES MAESTROS', '2. Otro (5 mins.)',
+    'NUESTRA VIDA CRISTIANA', '3. Más (5 mins.)',
+    'CANCIÓN 2',
+  ].join('\n'));
+  ok('sin avisos de incompletitud', !res.warnings.some(x => /incompleta/.test(x)));
+}
 
 console.log('[midweekGuideSummary]');
 ok('reconoce guía por cabeceras', midweekGuideSummary(guideText).weeksCount === 2);

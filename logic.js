@@ -505,14 +505,81 @@ export function convertPdfPeople(text) {
   return { data: { roles }, warnings: ['Roles detectados: ' + (Object.keys(roles).join(', ') || 'revisar')] };
 }
 
+// Reconstruye el texto de una página PDF palabra por palabra a partir de los
+// ítems de pdf.js (getTextContent). En lugar de unir caracteres con espacios al
+// azar y re-separarlos con diccionario, usa la posición real de cada glifo:
+// agrupa por fila (Y) y pone un espacio solo donde hay un hueco horizontal entre
+// ítems (lectura "OCR por palabras"). Conserva hasEOL para los saltos de línea.
+export function rebuildPdfWords(items) {
+  const seq = [];
+  for (const it of items || []) {
+    if (it.str == null || it.str === '') continue;
+    const t = it.transform || [1, 0, 0, 1, 0, 0];
+    const fs = it.height || Math.abs(t[3]) || 10;
+    seq.push({
+      str: String(it.str),
+      x: t[4] || 0,
+      y: t[5] || 0,
+      w: it.width || (String(it.str).length * fs * 0.55),
+      fs,
+      eol: !!it.hasEOL,
+    });
+  }
+  if (!seq.length) return '';
+  seq.sort((a, b) => b.y - a.y || a.x - b.x); // orden de lectura: filas de arriba abajo
+
+  // Agrupar en filas por proximidad vertical (tolerancia proporcional a la fuente).
+  const lines = [];
+  let cur = [];
+  let lastY = null;
+  const tol = (fs) => Math.max(1.5, fs * 0.5);
+  for (const it of seq) {
+    if (it.eol && cur.length) { lines.push(cur); cur = []; lastY = null; continue; }
+    if (lastY !== null && Math.abs(it.y - lastY) > tol(it.fs)) { lines.push(cur); cur = []; }
+    cur.push(it);
+    lastY = it.y;
+  }
+  if (cur.length) lines.push(cur);
+
+  const out = [];
+  for (const line of lines) {
+    line.sort((a, b) => a.x - b.x);
+    let text = '';
+    let prevEnd = null;
+    let prevFs = 10;
+    for (const it of line) {
+      if (prevEnd !== null) {
+        const gap = it.x - prevEnd;
+        // Un espacio de palabra ≈ 20-25 % de la altura de la fuente.
+        if (gap > Math.max(prevFs, it.fs) * 0.2) text += ' ';
+      }
+      text += it.str;
+      prevEnd = it.x + it.w;
+      prevFs = it.fs;
+    }
+    out.push(text.replace(/\s+/g, ' ').trim());
+  }
+  return out.filter(Boolean).join('\n');
+}
+
 // Convierte el texto de la Guía de Actividades en semanas. Detecta la cabecera de
 // cada semana (rango + mes), su lectura, las secciones (Tesoros / Mejores Maestros /
-// Vida Cristiana) y todas sus partes (número, título y minutos). El texto del PDF
-// separa caracteres, así que los títulos salen "comprimidos" y se revisan en el modal.
+// Vida Cristiana) y todas sus partes (número, título y minutos). Acepta tanto texto
+// con palabras separadas de forma natural (nueva lectura "OCR por palabras") como
+// texto "comprimido" (caracteres sueltos) de PDFs antiguos.
 export function convertPdfMidweeks(text) {
   const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
   const clean = (s) => String(s).replace(/[\u0002\u0003]/g, ' ').replace(/\s+/g, ' ').trim();
   const compact = (s) => String(s).replace(/[\s\u0002\u0003´`]/g, '');
+  // Normaliza una línea: si parece "caracteres sueltos" (la mayoría de tokens son
+  // de 1 letra), la compacta; si ya trae palabras separadas, respeta el espaciado.
+  const smart = (s) => {
+    s = clean(s);
+    if (!s) return '';
+    const tokens = s.split(' ');
+    const singles = tokens.filter(t => t.length === 1).length;
+    return (tokens.length > 1 && singles / tokens.length >= 0.6) ? s.replace(/ /g, '') : s;
+  };
   const lines = text.split('\n').map(clean).filter(Boolean);
 
   const headerOf = (c) => {
@@ -564,14 +631,29 @@ export function convertPdfMidweeks(text) {
     return null;
   };
   const songNum = (c) => {
-    const m = String(c || '').match(/CANCI\S*(\d{1,3})/i);
+    const m = String(c || '').match(/CANCI\S*?(\d{1,3})/i);
     return m ? Number(m[1]) : null;
   };
-  const partMatch = (c) => {
-    const m = String(c || '').match(/^(\d{1,2})[.)](.+?)\((\d{1,2})(?:mins?|min)\.?\)/);
-    if (!m) return null;
-    const title = capTitle(splitWords(m[2].replace(/[“”"_*\u2022•]/g, '').trim()));
-    return { num: Number(m[1]), title, mins: Number(m[3]) };
+  // Reconocer una parte: "1. Título (10 mins.)". `nat` es el texto con el
+  // espaciado que traía el PDF (puede ser palabras reales o letras sueltas);
+  // `comp` es la versión compactada sin espacios (usada con el diccionario).
+  const partMatch = (nat, comp) => {
+    const m1 = String(nat || '').match(/^(\d{1,2})[.)]\s*(.+?)\s*\(\s*(\d{1,2})\s*(?:mins?|min)\s*\.?\s*\)/i);
+    if (m1) {
+      const t = m1[2].replace(/[“”"_*\u2022•]/g, '').trim();
+      const tokens = t.split(/\s+/).filter(Boolean);
+      // Si el título trae palabras reales (sin letras sueltas "ilegales"), se
+      // respeta tal cual. Letras sueltas que no son palabras españolas (q, c, …)
+      // indican texto "comprimido" → se separa con el diccionario.
+      const badSingles = tokens.filter(x => x.length === 1 && !/^[aeiouy]$/i.test(x));
+      if (badSingles.length === 0 && tokens.some(x => x.length > 1)) {
+        return { num: Number(m1[1]), title: capTitle(t), mins: Number(m1[3]) };
+      }
+    }
+    const m2 = String(comp || '').match(/^(\d{1,2})[.)](.+?)\((\d{1,2})(?:mins?|min)\.?\)/);
+    if (!m2) return null;
+    const title = capTitle(splitWords(m2[2].replace(/[“”"_*\u2022•]/g, '').trim()));
+    return { num: Number(m2[1]), title, mins: Number(m2[3]) };
   };
   // La lectura termina en la primera sección o canción que aparece tras la cabecera.
   const endOfReading = (buf) => {
@@ -606,7 +688,8 @@ export function convertPdfMidweeks(text) {
   let curSec = null;
   let phase = 'reading'; // reading | content
   let readingBuf = '';
-  let buf = '';
+  let bufN = ''; // buffer de parte con el espaciado del PDF
+  let bufC = ''; // buffer de parte compactado (sin espacios)
 
   const addPart = (pm) => {
     const sec = curSec ? cur.sections.find(s => s.id === curSec) : null;
@@ -629,7 +712,8 @@ export function convertPdfMidweeks(text) {
       phase = 'reading';
       curSec = null;
       readingBuf = h.rest || '';
-      buf = '';
+      bufN = '';
+      bufC = '';
       continue;
     }
     if (!cur) continue;
@@ -638,17 +722,16 @@ export function convertPdfMidweeks(text) {
       readingBuf += c;
       const u = readingBuf.toUpperCase();
       const sec = sectionOf(u);
-      if (sec) {
+      if (sec || u.includes('CANCI') || u.includes('PALABRASDEINTRODUCCI')) {
+        // La canción inicial viene justo después de la lectura; si la línea
+        // actual es una canción, se captura su número.
+        const song = songNum(c);
+        if (song && !cur.songIn) cur.songIn = song;
         cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
-        curSec = sec;
+        curSec = sec || null;
         phase = 'content';
-        buf = '';
-        continue;
-      }
-      if (u.includes('CANCI') || u.includes('PALABRASDEINTRODUCCI')) {
-        cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
-        phase = 'content';
-        buf = '';
+        bufN = '';
+        bufC = '';
         continue;
       }
       continue;
@@ -656,13 +739,14 @@ export function convertPdfMidweeks(text) {
 
     // contenido: canciones, secciones y partes
     const song = songNum(c);
-    if (song) { if (!cur.songIn) cur.songIn = song; else cur.songOut = song; buf = ''; continue; }
+    if (song) { if (!cur.songIn) cur.songIn = song; else cur.songOut = song; bufN = ''; bufC = ''; continue; }
     const sec = sectionOf(c);
-    if (sec) { curSec = sec; buf = ''; continue; }
-    if (/^\d{1,2}[.)]/.test(c)) { buf = c; continue; } // comienzo de parte
-    buf += c;
-    const pm = partMatch(buf);
-    if (pm) { addPart(pm); buf = ''; }
+    if (sec) { curSec = sec; bufN = ''; bufC = ''; continue; }
+    const start = /^\d{1,2}[.)]/.test(c);
+    if (start) { bufN = smart(ln); bufC = c; }
+    else { bufN += ' ' + smart(ln); bufC += c; }
+    const pm = partMatch(bufN, bufC);
+    if (pm) { addPart(pm); bufN = ''; bufC = ''; }
   }
   if (cur && phase === 'reading') cur.reading = tidyReading(readingBuf.slice(0, endOfReading(readingBuf)));
 
@@ -670,7 +754,21 @@ export function convertPdfMidweeks(text) {
   // Quitar cabeceras repetidas (el texto del PDF repite la cabecera de cada página).
   const seen = new Set();
   const uniq = weeks.filter(w => { const k = w.header; if (seen.has(k)) return false; seen.add(k); return true; });
-  return { data: { weeks: uniq }, warnings: [`Se detectaron ${uniq.length} semanas; revise títulos (el PDF separa las letras).`] };
+  const warnings = [`Se detectaron ${uniq.length} semanas; revise títulos y compruebe que cada semana tenga sus asignaciones.`];
+  // Validación de completitud: cada semana debe traer lectura, canciones y partes.
+  for (const w of uniq) {
+    const issues = [];
+    if (!w.reading) issues.push('lectura');
+    if (!w.songIn) issues.push('canción inicial');
+    if (!w.songOut) issues.push('canción final');
+    for (const sec of w.sections) {
+      if (!sec.parts.length) issues.push(sec.id === 'tesoros' ? 'Tesoros' : sec.id === 'maestros' ? 'Seamos Mejores Maestros' : 'Nuestra Vida Cristiana');
+    }
+    if (issues.length) {
+      warnings.push(`La semana ${w.header} quedó incompleta (falta: ${issues.join(', ')}). Revise el texto extraído.`);
+    }
+  }
+  return { data: { weeks: uniq }, warnings };
 }
 
 // ¿El texto contiene los títulos de las tres secciones de la Guía de Actividades?

@@ -8,7 +8,7 @@ import {
   dedupPersons, eligiblePeople, isLaborePerson, LABORES_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
-  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   isStudentPerson, isStudentRole,
   automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
@@ -2117,7 +2117,12 @@ async function renderUploads() {
           const label = summary.months.length === 1
             ? `${summary.months[0]} ${summary.year}`
             : `${summary.months.slice(0, -1).join(', ')} y ${summary.months[summary.months.length - 1]} ${summary.year}`;
-          const ok = await confirmDialog(`Se detectó la Guía de Actividades de ${label} con ${summary.weeksCount} semanas. ¿Guardar y reemplazar la reunión de entre semana?`, 'Guardar guía');
+          let msg = `Se detectó la Guía de Actividades de ${label} con ${summary.weeksCount} semanas.`;
+          if (summary.warnings && summary.warnings.length) {
+            msg += '\n\nAvisos:\n• ' + summary.warnings.join('\n• ');
+          }
+          msg += '\n\n¿Guardar y reemplazar la reunión de entre semana?';
+          const ok = await confirmDialog(msg, 'Guardar guía');
           if (!ok) { showStatus(status, 'Carga cancelada', 'text-on-surface-variant'); return; }
           await db.replaceAllMidweeks({ weeks: summary.weeks });
           await refreshCatalogs();
@@ -2199,17 +2204,9 @@ async function extractPdfText(file) {
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
-    let lastY = null, line = '';
-    for (const item of content.items) {
-      if (item.str == null) continue;
-      const y = Math.round(item.transform ? item.transform[5] : 0);
-      if (lastY !== null && Math.abs(y - lastY) > 2) { out += line.trimEnd() + '\n'; line = ''; }
-      line += (item.str || '') + ' ';
-      lastY = y;
-    }
-    if (line.trim()) out += line.trimEnd() + '\n';
+    out += rebuildPdfWords(content.items) + '\n';
   }
-  return out;
+  return out.replace(/\n{2,}/g, '\n').trim();
 }
 
 // Convierte el texto extraído a la estructura por tipo. Devuelve { data, warnings }.
@@ -2909,8 +2906,8 @@ async function renderLabores(monthId, opts = {}) {
     return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
   };
   const fmtShort = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
-  const laboreOpts = (week, curVal) => `<option value="">— Sin asignar —</option>` +
-    eligiblePeople(week, state.people, isLaborePerson, curVal).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+  const laboreOpts = (week, curVal, collector) => `<option value="">— Sin asignar —</option>` +
+    eligiblePeople(week, state.people, isLaborePerson, curVal, collector).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 
   const render = () => {
     const finBySunday = new Map();
@@ -2924,19 +2921,29 @@ async function renderLabores(monthId, opts = {}) {
     const columns = sundays.map((sunday, i) => {
       const fin = finBySunday.get(sunday); // { w, wi } | undefined
       const mw = mwBySunday.get(sunday);
-      // Cada celda: selector editable (fin de semana) y nombre de entre semana
-      // como referencia (la entre semana se edita en su propio editor).
+      // Cada celda: selector editable (fin de semana y entre semana). Las labores
+      // de ambas reuniones se gestionan solo desde aquí (programa de acomodación).
       const cell = (key, si) => {
         const curVal = fin ? slotValue(fin.w, key, si) : '';
         const mwName = mw ? slotValue(mw, key, si) : '';
         const bits = [];
         if (fin) {
-          bits.push(`<select data-labore-wi="${fin.wi}" data-labore-key="${key}" data-labore-si="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${laboreOpts(fin.w, curVal)}</select>`);
+          bits.push(`<div class="flex flex-col gap-0.5">
+            <select data-labore-wi="${fin.wi}" data-labore-key="${key}" data-labore-si="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${laboreOpts(fin.w, curVal)}</select>
+            <span class="text-[9px] uppercase text-on-surface-variant/70 tracking-wider">FS</span>
+          </div>`);
         } else if (curVal) {
           bits.push(`<div class="text-sm font-semibold text-on-surface">${escapeHtml(personNameOf(curVal))} <span class="text-[9px] uppercase text-on-surface-variant">FS</span></div>`);
         }
-        if (mwName) bits.push(`<div class="text-xs text-on-surface-variant mt-1">${escapeHtml(personNameOf(mwName))} <span class="text-[9px] uppercase">ES</span></div>`);
-        return bits.length ? bits.join('') : '<span class="text-on-surface-variant text-sm">—</span>';
+        if (mw) {
+          bits.push(`<div class="flex flex-col gap-0.5">
+            <select data-mwlabore-key="${key}" data-mwlabore-si="${si}" data-mwlabore-id="${mw.id}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${laboreOpts(mw, mwName, collectMidweekPersons)}</select>
+            <span class="text-[9px] uppercase text-on-surface-variant/70 tracking-wider">ES</span>
+          </div>`);
+        } else if (mwName) {
+          bits.push(`<div class="text-xs text-on-surface-variant mt-1">${escapeHtml(personNameOf(mwName))} <span class="text-[9px] uppercase">ES</span></div>`);
+        }
+        return bits.length ? bits.join('<div class="mt-1.5"></div>') : '<span class="text-on-surface-variant text-sm">—</span>';
       };
       return {
         i,
@@ -3024,6 +3031,24 @@ async function renderLabores(monthId, opts = {}) {
         if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
         else week.labores[key] = val;
         await db.putLabores(program);
+        toast('Labor asignada', 'success');
+        render();
+      });
+    });
+
+    root.querySelectorAll('select[data-mwlabore-key]').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const key = sel.dataset.mwlaboreKey;
+        const si = parseInt(sel.dataset.mwlaboreSi, 10);
+        const mwId = sel.dataset.mwlaboreId;
+        const week = state.midweeks.find(m => String(m.id) === String(mwId));
+        if (!week) return;
+        ensureLabores(week);
+        const val = sel.value;
+        if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
+        else week.labores[key] = val;
+        await db.putMidweek(week);
+        state.midweeks = await db.listMidweeks();
         toast('Labor asignada', 'success');
         render();
       });
@@ -3625,10 +3650,8 @@ async function renderMidweek(id) {
     </div>`;
   }).join('');
 
-  editor.innerHTML += `<div class="mt-6">${midweekLaboresEditor(week)}</div>`;
   mwRefreshConflicts(editor, week);
-  editor.querySelectorAll('select[data-mw-presidente], select[data-mw-labore], select.mwSel').forEach(bindMwChange);
-  editor.querySelectorAll('select[data-mw-labore]').forEach(bindMwLaboreChange);
+  editor.querySelectorAll('select[data-mw-presidente], select.mwSel').forEach(bindMwChange);
 
   renderCrossAlerts($('#mwCross'), String(id).slice(0, 7));
 
@@ -3665,59 +3688,9 @@ async function renderMidweek(id) {
   };
 }
 
-/* Labores en el editor de midweek (se persisten en week.labores) */
-function midweekLaboresEditor(week) {
-  const w = ensureLabores(week);
-  const l = w.labores;
-  const rows = LABORES_DEF.map(({ key, label, icon, count }) => {
-    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
-      ? l[key]
-      : [l[key] || ''];
-    const fields = Array.from({ length: count }, (_, si) => {
-      const cur = slots[si] || '';
-      const opts = ['<option value="">— Sin asignar —</option>'];
-      for (const p of eligiblePeople(w, state.people, isLaborePerson, cur, collectMidweekPersons)) {
-        opts.push(`<option value="${p.id}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`);
-      }
-      return `<div class="flex-1 min-w-[130px]">
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-1 text-[11px]">${si + 1} <span data-mwbadge="labores_${key}_${si}" class="mw-conflict-badge hidden items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Conflicto</span></label>
-        <select data-mw-labore="${key}" data-mw-labore-idx="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts.join('')}</select>
-      </div>`;
-    }).join('');
-    return `<div class="flex items-start gap-3">
-      <span class="material-symbols-outlined text-on-surface-variant mt-2.5">${icon}</span>
-      <div class="flex-1">
-        <label class="font-label-md text-label-md text-on-surface-variant mb-1 block">${label} <span class="text-caption text-on-surface-variant/70">×${count}</span></label>
-        <div class="flex flex-wrap gap-2">${fields}</div>
-      </div>
-    </div>`;
-  }).join('');
-  return `<div class="rounded-lg border border-dashed border-on-surface-variant/40 bg-surface-bright/40 p-5">
-    <div class="flex items-center gap-2 mb-1">
-     <h2 class="font-headline-md text-headline-md text-on-surface-variant">Atención departamentos</h2>
-    </div>
-   <div class="space-y-4">${rows}</div>
-  </div>`;
-}
-
-function bindMwLaboreChange(node) {
-  node.addEventListener('change', () => {
-    const editor = $('#mwEditor');
-    const id = editor?.dataset.mwid;
-    const wk = state.midweeks.find(w => String(w.id) === String(id));
-    if (!wk) return;
-    const labores = ensureLabores(wk).labores;
-    const key = node.dataset.mwLabore;
-    const slot = parseInt(node.dataset.mwLaboreIdx, 10);
-    const val = node.value === '' ? '' : node.value;
-    if (Array.isArray(labores[key])) labores[key][slot] = val;
-    else labores[key] = val;
-  });
-}
-
 /* ---------- MIDWEEK: detección de personas duplicadas (en vivo) ---------- */
 
-// Relee los valores actuales de todos los selects (partes + labores) del editor
+// Relee los valores actuales de todos los selects (partes) del editor
 // y devuelve el conjunto de keys con persona duplicada dentro de la reunión.
 function mwCurrentDupKeys(editor) {
   const persons = [];
@@ -3728,11 +3701,6 @@ function mwCurrentDupKeys(editor) {
       value: String(sel.value),
       key: `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`,
     });
-  });
-  editor.querySelectorAll('select[data-mw-labore]').forEach(sel => {
-    const key = sel.dataset.mwLabore;
-    const slot = parseInt(sel.dataset.mwLaboreIdx, 10);
-    if (sel.value) persons.push({ value: String(sel.value), key: `labores_${key}_${slot}` });
   });
   return dedupPersons(persons).dupKeys;
 }
@@ -3764,21 +3732,18 @@ function mwPairErrors(editor) {
 function mwRefreshConflicts(editor, week) {
   const dup = mwCurrentDupKeys(editor);
 
-  // rótulo de conflicto junto a cada campo (pads y labores)
+  // rótulo de conflicto junto a cada campo (pads)
   editor.querySelectorAll('span[data-mwbadge]').forEach(badge => {
-    const keyExpanded = badge.dataset.mwbadge.startsWith('mw_') || badge.dataset.mwbadge.startsWith('labores_')
-      ? badge.dataset.mwbadge
-      : `mw_${badge.dataset.mwbadge.split('.').join('_')}`;
+    const keyExpanded = `mw_${badge.dataset.mwbadge.split('.').join('_')}`;
     const isDup = dup.has(keyExpanded);
     badge.classList.toggle('hidden', !isDup);
     badge.classList.toggle('inline-flex', isDup);
   });
 
-  // selects (pads + labores): borde rojo en duplicados
-  editor.querySelectorAll('select.mwSel, select[data-mw-labore], select[data-mw-presidente]').forEach(sel => {
+  // selects (pads + presidente): borde rojo en duplicados
+  editor.querySelectorAll('select.mwSel, select[data-mw-presidente]').forEach(sel => {
     let key;
     if (sel.classList.contains('mwSel')) key = `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`;
-    else if (sel.dataset.mwLabore !== undefined) key = `labores_${sel.dataset.mwLabore}_${sel.dataset.mwLaboreIdx}`;
     else key = 'mw_presidente';
     const isDup = dup.has(key);
     sel.classList.toggle('border-error', isDup);
