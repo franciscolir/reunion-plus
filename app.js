@@ -12,12 +12,12 @@ import {
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   isStudentPerson, isStudentRole,
   automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
-  extractAssignments, assignmentMetrics,
+  camposFinSemana, extractAssignments, assignmentMetrics,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
 const state = {
-  view: 'home',           // home | new | edit | preview | outings | lists | uploads | eventos | labores | laboresGrupo | salidas | general | settings | about | midweeks | midweek | midweekPreview | midweekMonthPreview | midweekList
+  view: 'home',           // home | new | auto | edit | preview | outings | lists | uploads | eventos | labores | laboresGrupo | salidas | general | settings | about | midweeks | midweek | midweekPreview | midweekMonthPreview | midweekList
   newTab: 'fin',          // 'fin' | 'entre' | 'labores' | 'laboresGrupo' | 'salidas' | 'general' (en Programas)
   monthId: null,          // "YYYY-MM"
   month: null,
@@ -137,6 +137,7 @@ function router() {
   renderSide();
   switch (view) {
     case 'new':      renderNew(); break;
+    case 'auto':     renderAutoAsignacion(); break;
     case 'edit':     renderEdit(); break;
     case 'preview':  renderPreview(); break;
     case 'outings':  renderOutings(); break;
@@ -527,7 +528,7 @@ async function renderNew() {
   const goMonth = (m) => { state.progMonth = m; renderNew(); };
   $('#progMonth').onchange = (e) => goMonth(e.target.value);
   app.querySelectorAll('[data-month]').forEach(b => b.onclick = () => goMonth(b.dataset.month));
-  $('#autoBtn').onclick = () => abrirAsistenteAuto();
+  $('#autoBtn').onclick = () => go('auto');
 
   const tabNodes = app.querySelectorAll('.newTab');
   const setActive = () => {
@@ -548,97 +549,329 @@ async function renderNew() {
   renderNewBody();
 }
 
-/* ---------- Asistente de asignación automática ---------- */
+/* ---------- Vista de asignación automática ---------- */
 
-// Flujo guiado: solicita el mes a trabajar, revisa la guía de la reunión de
-// entre semana (si falta, pide cargarla), crea los programas del mes que no
-// estén iniciados y completa las asignaciones por etapas. Los resultados se
-// consultan luego en cada vista y en la General Mensual.
-async function abrirAsistenteAuto() {
+// Vista completa (no modal) de la asignación automática. Muestra una barra de
+// progreso con las etapas y una card vertical por programa (entre semana,
+// acomodación, salidas y fin de semana). Cada card muestra su estado, los
+// puestos que faltan y un botón para asignarlo automáticamente sin salir de la
+// vista. Al terminar se guardan todos los programas.
+async function renderAutoAsignacion() {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
   const inicial = state.progMonth || isoDate(new Date()).slice(0, 7);
   let month = inicial;
 
-  const setModal = (html) => {
-    $('#modalCard').innerHTML = html;
-    $('#modalCard').classList.add('modal-enter');
-    $('#modalRoot').classList.remove('hidden');
-    $('#modalBackdrop').onclick = closeModal;
+  // ---- Estado de la sesión ----
+  // El usuario inicia con la asignación PENDIENTE; cada card se completa de
+  // forma independiente. Si el mes ya fue asignado y guardado, se avisa y solo
+  // continúa (reescribiendo todo) si lo confirma.
+  const sesion = {
+    rewrite: false,            // el usuario confirmó reescribir un mes ya asignado
+    creados: [],               // programas creados en esta sesión
+    hechos: { entre: false, acomodacion: false, salidas: false, fin: false },
+    reportes: { entre: null, acomodacion: null, salidas: null, fin: null },
   };
+
   const mesTxt = (m) => `${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`;
-  const verPrograma = (tab, m) => { closeModal(); state.progMonth = m; state.newTab = tab; go('new'); };
+  const verPrograma = (tab) => { state.progMonth = month; state.newTab = tab; go('new'); };
 
-  // ---- Paso 1: elegir mes y consultar el estado de los programas ----
-  const pasoMes = () => {
-    setModal(`
-      <div class="text-center mb-6">
-        <span class="material-symbols-outlined text-6xl text-primary mb-2">auto_awesome</span>
-        <h2 class="font-headline-md text-headline-md text-primary">Asignación automática</h2>
-        <p class="text-on-surface-variant text-body-md">Elija el mes a trabajar. Los programas que no estén iniciados se crearán y completarán.</p>
-      </div>
-      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Mes a trabajar</label>
-      <input id="autoMonth" type="month" value="${month}"
-        class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md font-semibold focus:border-primary mb-5">
-      <div id="autoStatus" class="space-y-2 mb-6"></div>
-      <div class="flex justify-end gap-3">
-        <button id="autoCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
-        <button id="autoStart" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Continuar</button>
-      </div>
-    `);
-    $('#autoCancel').onclick = closeModal;
-    const input = $('#autoMonth');
-    const renderStatus = async () => {
-      month = input.value;
-      const [fin, lab, sal] = await Promise.all([db.getMonth(month), db.getLabores(month), db.getSalidas(month)]);
-      const mws = state.midweeks.filter(m => String(m.id).slice(0, 7) === month);
-      const item = (ok, txt, icon) => `<div class="flex items-center gap-2 text-sm ${ok ? 'text-tertiary' : 'text-error'}">
-        <span class="material-symbols-outlined text-[18px]">${icon}</span><span>${txt}</span></div>`;
-      $('#autoStatus').innerHTML = [
-        item(mws.length > 0, mws.length > 0 ? `Reunión de entre semana: guía cargada (${mws.length} semanas)` : 'Reunión de entre semana: falta cargar la guía', mws.length > 0 ? 'check_circle' : 'error'),
-        item(!!fin, fin ? `Fin de semana: programa iniciado (${fin.weeks.length} semanas)` : 'Fin de semana: no iniciado · se creará', fin ? 'check_circle' : 'schedule'),
-        item(!!lab, lab ? 'Acomodación: programa iniciado' : 'Acomodación: no iniciado · se creará', lab ? 'check_circle' : 'schedule'),
-        item(!!sal, sal ? 'Salidas: programa iniciado' : 'Salidas: no iniciado · se creará', sal ? 'check_circle' : 'schedule'),
-      ].join('');
-    };
-    input.addEventListener('change', renderStatus);
-    renderStatus();
-    $('#autoStart').onclick = () => prepararMes(month);
+  // ---- Computar estado de cada programa ----
+  const midweekSlotsCount = (week) => {
+    let n = 0;
+    (week.sections || []).forEach(sec => (sec.parts || []).forEach(p => { n += midweekSlotsOf(sec, p).length; }));
+    return n;
+  };
+  const midweekMissing = (week) => {
+    const out = [];
+    if (!week.presidente) out.push({ key: 'presidente', label: 'Presidente' });
+    (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
+      const ap = p.assignments || {};
+      midweekSlotsOf(sec, p).forEach(s => { if (!ap[s.key]) out.push({ key: `mw_${si}_${p.num}_${s.key}`, label: `${sec.title} · parte ${p.num} · ${s.label}` }); });
+    }));
+    return out;
+  };
+  const laboresMissing = (program) => {
+    const out = [];
+    (program && program.weeks || []).forEach((w, wi) => {
+      const l = ensureLabores(w).labores;
+      LABORES_DEF.forEach(d => {
+        for (let si = 0; si < d.count; si++) {
+          const cur = Array.isArray(l[d.key]) ? l[d.key][si] : (si === 0 ? l[d.key] : '');
+          if (!cur) out.push({ key: `lab_${wi}_${d.key}_${si}`, label: `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}` });
+        }
+      });
+    });
+    return out;
+  };
+  const salidasMissing = (program) => {
+    const out = [];
+    (program && program.weeks || []).forEach((w, wi) => (w.outings || []).forEach((o, oi) => {
+      if (!o.oradorSalida) out.push({ key: `sal_${wi}_${oi}`, label: `Orador de salida ${oi + 1}` });
+    }));
+    return out;
+  };
+  const finMissing = (program) => {
+    const out = [];
+    (program && program.weeks || []).forEach((w, wi) => {
+      camposFinSemana(w).forEach(({ campo, role }) => {
+        if (!w[campo]) out.push({ key: `fin_${wi}_${campo}`, label: labelOf(campo), role });
+      });
+    });
+    return out;
   };
 
-  // ---- Paso 2: revisar guía y crear los programas faltantes ----
-  const prepararMes = async (m) => {
-    month = m;
-    const mws = state.midweeks.filter(x => String(x.id).slice(0, 7) === m);
-    if (!mws.length) {
-      // Sin guía cargada: solicitar cargarla para poder continuar.
-      setModal(`
-        <div class="text-center mb-6">
-          <span class="material-symbols-outlined text-6xl text-primary mb-2">menu_book</span>
-          <h2 class="font-headline-md text-headline-md text-primary">Falta la guía de actividades</h2>
-          <p class="text-on-surface-variant text-body-md">No hay reuniones de entre semana cargadas para ${mesTxt(m)}.</p>
-        </div>
-        <div class="bg-error-container rounded-xl border border-error p-4 mb-6 text-sm text-on-error-container">
-          Cargue el <b>PDF de la Guía de Actividades</b> de ${mesTxt(m)} (menú Carga → Reunión de entre semana) para poder continuar con la asignación automática.
-        </div>
-        <div class="flex justify-end gap-3 flex-wrap">
-          <button id="autoCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
-          <button id="autoLoadGuide" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Cargar guía</button>
-          <button id="autoRetry" class="px-5 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed">Ya la cargué · Continuar</button>
-        </div>
-      `);
-      $('#autoCancel').onclick = closeModal;
-      $('#autoLoadGuide').onclick = () => { closeModal(); go('uploads'); };
-      $('#autoRetry').onclick = async () => {
-        state.midweeks = await db.listMidweeks();
-        prepararMes(month);
-      };
-      return;
+  // ---- Cargar datos del mes ----
+  const load = async () => {
+    const mws = state.midweeks.filter(x => String(x.id).slice(0, 7) === month);
+    const [fin, lab, sal] = await Promise.all([db.getMonth(month), db.getLabores(month), db.getSalidas(month)]);
+    return { mws, fin, lab, sal };
+  };
+
+  // ---- Aviso de mes ya asignado ----
+  const mesAsignado = (d) => {
+    if (d.mws.some(w => w.presidente || (w.sections || []).some(sec => (sec.parts || []).some(p => Object.values(p.assignments || {}).some(v => v))))) return true;
+    if (d.fin && (d.fin.weeks || []).some(w => w.presidente || w.conductor || w.lector || w.estudioSinLectura)) return true;
+    if (d.lab && (d.lab.weeks || []).some(w => Object.values(w.labores || {}).some(v => (Array.isArray(v) ? v : [v]).some(x => x)))) return true;
+    if (d.sal && (d.sal.weeks || []).some(w => (w.outings || []).some(o => o.oradorSalida))) return true;
+    return false;
+  };
+
+  // ---- Reescribir: limpia todas las asignaciones del mes ----
+  const limpiarMes = async (d) => {
+    const writes = [];
+    d.mws.forEach(w => {
+      w.presidente = '';
+      (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => { p.assignments = {}; }));
+      writes.push(db.putMidweek(w));
+    });
+    if (d.fin) {
+      (d.fin.weeks || []).forEach(w => { w.presidente = ''; w.conductor = ''; w.lector = ''; w.estudioSinLectura = ''; });
+      writes.push(db.putMonth(d.fin));
     }
-
-    // Crear los programas del mes que no estén iniciados.
-    const creados = await crearProgramasFaltantes(m);
-    pasoEtapas(m, creados);
+    if (d.lab) {
+      (d.lab.weeks || []).forEach(w => { w.labores = newLabores(); });
+      writes.push(db.putLabores(d.lab));
+    }
+    if (d.sal) {
+      (d.sal.weeks || []).forEach(w => (w.outings || []).forEach(o => { o.oradorSalida = ''; }));
+      writes.push(db.putSalidas(d.sal));
+    }
+    await Promise.all(writes);
+    state.midweeks = await db.listMidweeks();
+    await syncAssignmentLog();
   };
 
+  // ---- Render de una card de programa ----
+  const card = (opts) => {
+    const { id, icono, titulo, desc, faltan, pct, done, accion, resumen } = opts;
+    const faltanHtml = faltan.length
+      ? `<div class="mt-3 bg-error-container/30 rounded-lg border border-error/40 p-3">
+          <p class="text-sm font-semibold text-error mb-2 flex items-center gap-1.5"><span class="material-symbols-outlined text-[16px]">report</span> Falta completar (${faltan.length})</p>
+          <ul class="text-sm text-on-error-container space-y-1 max-h-40 overflow-auto">
+            ${faltan.slice(0, 20).map(f => `<li class="flex items-start gap-1.5"><span class="material-symbols-outlined text-[14px] mt-0.5">circle</span>${escapeHtml(f.label)}</li>`).join('')}
+            ${faltan.length > 20 ? `<li class="text-on-surface-variant">… y ${faltan.length - 20} más</li>` : ''}
+          </ul>
+        </div>`
+      : done ? `<div class="mt-3 text-sm font-semibold text-tertiary flex items-center gap-1.5"><span class="material-symbols-outlined text-[18px]">check_circle</span> Completo</div>`
+      : '';
+    const resumenHtml = resumen
+      ? `<div class="mt-3 text-sm text-on-surface-variant">${resumen}</div>`
+      : '';
+    return `<section class="bg-surface-container-lowest rounded-xl border ${done ? 'border-tertiary' : 'border-outline-variant'} p-5 md:p-6">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-outlined text-[26px] ${done ? 'text-tertiary' : 'text-primary'}">${icono}</span>
+          <div>
+            <h3 class="font-headline-md text-headline-md text-primary">${titulo}</h3>
+            <p class="text-sm text-on-surface-variant">${desc}</p>
+          </div>
+        </div>
+        <span class="px-3 py-1 rounded-full font-label-md text-label-md ${done ? 'bg-tertiary-fixed text-on-tertiary-fixed' : 'bg-secondary-container text-on-secondary-container'}">${pct}%</span>
+      </div>
+      <div class="h-2 bg-surface-variant rounded-full overflow-hidden mt-4"><div class="h-full ${done ? 'bg-tertiary' : 'bg-primary'} transition-all" style="width:${pct}%"></div></div>
+      ${resumenHtml}
+      ${faltanHtml}
+      <div class="mt-4 flex flex-wrap gap-2 justify-end">${accion}</div>
+    </section>`;
+  };
+
+  // ---- Render principal ----
+  const render = async () => {
+    const d = await load();
+    const creadosTxt = sesion.creados.length ? ` · se creó: ${sesion.creados.join(', ')}` : '';
+    const yaAsignado = !sesion.rewrite && mesAsignado(d);
+    // Mientras el mes ya esté asignado (sin confirmar reescritura), los botones
+    // "Asignar" quedan deshabilitados para forzar el aviso previo.
+    const botonAsignar = (tipo, label) => `<button data-asignar="${tipo}" ${yaAsignado ? 'disabled' : ''} class="px-4 py-2 rounded-lg font-label-md text-label-md ${yaAsignado ? 'bg-surface-container-high text-on-surface-variant cursor-not-allowed' : 'bg-primary text-on-primary hover:opacity-90'}">${label}</button>`;
+
+    const mwMissing = d.mws.flatMap(midweekMissing);
+    const labMissing = laboresMissing(d.lab);
+    const salMissing = salidasMissing(d.sal);
+    const finMissing = finMissing(d.fin);
+    const mwTotal = d.mws.reduce((a, w) => a + 1 + midweekSlotsCount(w), 0);
+    const mwDone = d.mws.reduce((a, w) => a + (w.presidente ? 1 : 0) + (w.sections || []).reduce((aa, sec) => aa + (sec.parts || []).reduce((aaa, p) => aaa + Object.values(p.assignments || {}).filter(Boolean).length, 0), 0), 0);
+    const labTotal = (d.lab?.weeks || []).reduce((a, w) => a + LABORES_DEF.reduce((aa, dd) => aa + dd.count, 0), 0);
+    const labDone = labTotal - labMissing.length;
+    const salTotal = (d.sal?.weeks || []).reduce((a, w) => a + (w.outings || []).length, 0);
+    const salDone = salTotal - salMissing.length;
+    const finTotal = (d.fin?.weeks || []).reduce((a, w) => a + camposFinSemana(w).length, 0);
+    const finDone = finTotal - finMissing.length;
+    const pct = (done, total) => total ? Math.round((done / total) * 100) : 0;
+
+    const faltaGuia = !d.mws.length;
+    const cards = [];
+
+    // Card 1: Entre semana
+    cards.push(card({
+      id: 'entre', icono: 'calendar_view_week', titulo: 'Entre semana', desc: `Reunión de entre semana · ${d.mws.length} semana(s)`,
+      faltan: mwMissing, pct: pct(mwDone, mwTotal), done: !faltaGuia && mwMissing.length === 0,
+      resumen: sesion.reportes.entre ? `${sesion.reportes.entre.asignados} asignaciones hechas` : '',
+      accion: faltaGuia
+        ? `<button data-load-guide class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Cargar guía</button>`
+        : `<button data-ver="entre" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
+           ${botonAsignar('entre', 'Asignar')}`,
+    }));
+
+    // Card 2: Acomodación
+    cards.push(card({
+      id: 'acomodacion', icono: 'weekend', titulo: 'Acomodación', desc: 'Labores de atención (tras bambalinas)',
+      faltan: labMissing, pct: pct(labDone, labTotal), done: labTotal > 0 && labMissing.length === 0,
+      resumen: sesion.reportes.acomodacion ? `${sesion.reportes.acomodacion.asignados} asignaciones hechas` : '',
+      accion: `<button data-ver="labores" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
+               ${botonAsignar('acomodacion', 'Asignar')}`,
+    }));
+
+    // Card 3: Salidas
+    cards.push(card({
+      id: 'salidas', icono: 'campaign', titulo: 'Salidas', desc: 'Oradores para las salidas a congregaciones',
+      faltan: salMissing, pct: pct(salDone, salTotal), done: salTotal > 0 && salMissing.length === 0,
+      resumen: sesion.reportes.salidas ? `${sesion.reportes.salidas.asignados} asignaciones hechas` : '',
+      accion: `<button data-ver="salidas" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
+               ${botonAsignar('salidas', 'Asignar')}`,
+    }));
+
+    // Card 4: Fin de semana
+    cards.push(card({
+      id: 'fin', icono: 'event', titulo: 'Fin de semana', desc: 'Presidente, conductor y lector',
+      faltan: finMissing, pct: pct(finDone, finTotal), done: finTotal > 0 && finMissing.length === 0,
+      resumen: sesion.reportes.fin ? `${sesion.reportes.fin.asignados} asignaciones hechas` : '',
+      accion: `<button data-ver="fin" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
+               ${botonAsignar('fin', 'Asignar')}`,
+    }));
+
+    // Barra de estado (pasos)
+    const STEPS = [
+      { id: 'entre', titulo: 'Entre semana' },
+      { id: 'acomodacion', titulo: 'Acomodación y salidas' },
+      { id: 'fin', titulo: 'Fin de semana' },
+    ];
+    const pasoDone = {
+      entre: !faltaGuia && mwMissing.length === 0,
+      acomodacion: labMissing.length === 0 && salMissing.length === 0,
+      fin: finMissing.length === 0,
+    };
+    const barra = STEPS.map((s, i) => {
+      const done = pasoDone[s.id];
+      return `<div class="flex items-center gap-2 ${done ? 'text-tertiary' : 'text-on-surface-variant'}">
+        <span class="w-8 h-8 rounded-full ${done ? 'bg-tertiary text-on-tertiary' : 'bg-surface-container-high text-on-surface-variant'} flex items-center justify-center">
+          ${done ? '<span class="material-symbols-outlined text-[18px]">check</span>' : `<span class="material-symbols-outlined text-[18px]">${s.id === 'entre' ? 'calendar_view_week' : s.id === 'acomodacion' ? 'weekend' : 'event'}</span>`}
+        </span>
+        <span class="text-sm font-label-md whitespace-nowrap">${s.titulo}</span>
+        ${i < STEPS.length - 1 ? '<span class="flex-1 h-0.5 bg-outline-variant min-w-[8px]"></span>' : ''}
+      </div>`;
+    }).join('');
+
+    // Aviso de mes ya asignado
+    const aviso = yaAsignado
+      ? `<div class="bg-error-container rounded-xl border border-error p-4 mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-start gap-3">
+            <span class="material-symbols-outlined text-error text-[26px]">warning</span>
+            <div>
+              <p class="font-label-lg text-label-lg text-error">Este mes ya fue asignado y guardado</p>
+              <p class="text-sm text-on-error-container">Si continúa, se reescribirán todas las asignaciones de ${mesTxt(month)}.</p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button id="autoBack" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Volver</button>
+            <button id="autoRewrite" class="px-4 py-2 rounded-lg bg-error text-on-error font-label-md text-label-md hover:opacity-90">Reescribir todo</button>
+          </div>
+        </div>`
+      : '';
+
+    app.innerHTML = `
+      <div class="flex items-center gap-3 mb-2">
+        <button data-back class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary rounded-full">arrow_back</button>
+        <div>
+          <h1 class="font-headline-lg text-headline-lg text-primary">Asignación automática</h1>
+          <p class="text-on-surface-variant font-label-md">${mesTxt(month)}${creadosTxt}</p>
+        </div>
+      </div>
+
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+        <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant">
+          Mes a trabajar
+          <input id="autoMonth" type="month" value="${month}" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md font-semibold focus:border-primary">
+        </label>
+        <div class="flex items-stretch gap-2 bg-surface-container-low rounded-xl border border-outline-variant p-3 w-full md:w-auto">${barra}</div>
+      </div>
+
+      ${aviso}
+
+      <div id="autoCards" class="space-y-4">${cards.join('')}</div>
+
+      <div class="sticky bottom-0 bg-surface py-4 mt-8 flex gap-3 justify-end items-center flex-wrap">
+        <button id="autoSaveAll" class="px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">Guardar y ver programas</button>
+      </div>
+    `;
+
+    $('[data-back]').onclick = () => go('new');
+    $('#autoMonth').onchange = async (e) => {
+      month = e.target.value;
+      sesion.rewrite = false;
+      sesion.creados = [];
+      sesion.hechos = { entre: false, acomodacion: false, salidas: false, fin: false };
+      sesion.reportes = { entre: null, acomodacion: null, salidas: null, fin: null };
+      sesion.creados = await crearProgramasFaltantes(month);
+      state.midweeks = await db.listMidweeks();
+      render();
+    };
+    if ($('#autoBack')) $('#autoBack').onclick = () => go('new');
+    if ($('#autoRewrite')) $('#autoRewrite').onclick = async () => {
+      await limpiarMes(d);
+      sesion.rewrite = true;
+      toast('Asignaciones reescritas. Puede asignar de nuevo.', 'success');
+      render();
+    };
+    app.querySelectorAll('[data-load-guide]').forEach(b => b.onclick = () => go('uploads'));
+    app.querySelectorAll('[data-ver]').forEach(b => b.onclick = () => verPrograma(b.dataset.ver));
+    app.querySelectorAll('[data-asignar]').forEach(b => b.onclick = async () => {
+      const tipo = b.dataset.asignar;
+      const btn = b;
+      btn.disabled = true;
+      try {
+        if (tipo === 'entre') { sesion.reportes.entre = await etapaEntreSemana(month); sesion.hechos.entre = true; }
+        else if (tipo === 'acomodacion') { sesion.reportes.acomodacion = await etapaAcomodacion(month); sesion.hechos.acomodacion = true; }
+        else if (tipo === 'salidas') { sesion.reportes.salidas = await etapaSalidas(month); sesion.hechos.salidas = true; }
+        else if (tipo === 'fin') { sesion.reportes.fin = await etapaFinSemana(month); sesion.hechos.fin = true; }
+        await syncAssignmentLog();
+        toast('Asignación completada', 'success');
+      } catch (err) {
+        toast(err.message || 'Error al asignar', 'error');
+      }
+      btn.disabled = false;
+      render();
+    });
+    $('#autoSaveAll').onclick = async () => {
+      await syncAssignmentLog();
+      toast('Programas guardados', 'success');
+      verPrograma('general');
+    };
+  };
+
+  // Crear programas del mes que no estén iniciados (si falta la guía, solo se
+  // crean cuando existan semanas cargadas).
   const crearProgramasFaltantes = async (m) => {
     const year = Number(m.slice(0, 4));
     const monthNum = Number(m.slice(5, 7));
@@ -662,170 +895,13 @@ async function abrirAsistenteAuto() {
     return creados;
   };
 
-  // ---- Paso 3: etapas de asignación con barra de estado ----
-  // La asignación queda PENDIENTE hasta que el usuario confirma cada paso. En la
-  // etapa uno se ofrece completar los programas (con enlace a los incompletos)
-  // y el botón "Asignar" se convierte en "Continuar con asignación".
-  const pasoEtapas = (m, creados) => {
-    const creadosTxt = creados.length ? ` · se creó: ${creados.join(', ')}` : '';
-    const hechos = { entre: false, acomodacion: false, fin: false };
-    const reportes = [];
-    let paso = 1;
-    const STEPS = [
-      { id: 'entre', titulo: 'Entre semana', icon: 'calendar_view_week' },
-      { id: 'acomodacion', titulo: 'Acomodación y salidas', icon: 'weekend' },
-      { id: 'fin', titulo: 'Fin de semana', icon: 'event' },
-    ];
-    const wId = 'w' + Date.now();
+  // Antes de pintar: crear los programas del mes que no estén iniciados
+  // (fin de semana, acomodación y salidas no dependen de la guía; la reunión de
+  // entre semana sí, y esa card muestra el aviso de cargar la guía).
+  sesion.creados = await crearProgramasFaltantes(month);
+  state.midweeks = await db.listMidweeks();
 
-    const semanasIncompletas = (midweeks) => midweeks.filter(w => {
-      if (!w.presidente) return true;
-      for (const sec of (w.sections || [])) for (const p of (sec.parts || [])) {
-        const ap = p.assignments || {};
-        for (const s of midweekSlotsOf(sec, p)) if (!ap[s.key]) return true;
-      }
-      return false;
-    });
-
-    const barra = () => STEPS.map((s, i) => {
-      const done = hechos[s.id];
-      const current = i + 1 === paso;
-      const line = i < STEPS.length - 1;
-      return `<div class="flex items-center gap-2 ${done ? 'text-tertiary' : current ? 'text-primary' : 'text-on-surface-variant'}">
-        <span class="w-7 h-7 rounded-full ${done ? 'bg-tertiary text-on-tertiary' : current ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'} flex items-center justify-center font-label-md text-label-md shrink-0">
-          ${done ? '<span class="material-symbols-outlined text-[16px]">check</span>' : `<span class="material-symbols-outlined text-[16px]">${s.icon}</span>`}
-        </span>
-        <span class="text-sm font-label-md ${current ? 'font-bold' : ''} whitespace-nowrap">${s.titulo}</span>
-        ${line ? `<span class="flex-1 h-0.5 min-w-[12px] ${hechos[s.id] ? 'bg-tertiary' : 'bg-outline-variant'}"></span>` : ''}
-      </div>`;
-    }).join('');
-
-    const setContent = () => {
-      setModal(`
-        <div class="text-center mb-4">
-          <span class="material-symbols-outlined text-6xl text-primary mb-2">auto_awesome</span>
-          <h2 class="font-headline-md text-headline-md text-primary">Asignación automática</h2>
-          <p class="text-on-surface-variant text-body-md">${mesTxt(m)}${creadosTxt}</p>
-        </div>
-        <div class="flex items-stretch gap-2 mb-5 bg-surface-container-low rounded-xl border border-outline-variant p-3">
-          ${barra()}
-        </div>
-        <div id="${wId}Content"></div>
-        <div id="${wId}Reports" class="mt-4 space-y-3"></div>
-        <div class="mt-6 flex justify-end gap-3">
-          <button id="autoClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
-          <button id="${wId}Next" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Continuar con asignación</button>
-        </div>
-      `);
-      $('#autoClose').onclick = closeModal;
-      document.getElementById(wId + 'Next').onclick = runPaso;
-      renderPaso();
-    };
-
-    // Enlaces a las vistas para completar a mano cada programa.
-    const linkVistas = (pares) => `<div class="flex flex-wrap gap-2 mt-2">
-      ${pares.map(([tab, label, icon]) => `<button data-ver="${tab}" class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-outline text-sm font-label-md text-label-md hover:bg-surface-container">
-        <span class="material-symbols-outlined text-[16px]">${icon}</span> ${label}
-      </button>`).join('')}
-    </div>`;
-    const bindVistas = () => document.querySelectorAll(`#${wId}Content [data-ver]`).forEach(b => b.onclick = () => verPrograma(b.dataset.ver, m));
-
-    const renderPaso = async () => {
-      const c = document.getElementById(wId + 'Content');
-      const nextBtn = document.getElementById(wId + 'Next');
-      if (!c) return;
-      const ok = hechos.entre && hechos.acomodacion && hechos.fin;
-      if (ok) {
-        c.innerHTML = `
-          <div class="bg-tertiary-fixed/40 rounded-xl border border-tertiary p-4 text-center">
-            <span class="material-symbols-outlined text-primary text-4xl mb-1 inline-block">task_alt</span>
-            <p class="font-headline-md text-headline-md text-primary">Asignación completada</p>
-            <p class="text-on-surface-variant text-sm">Se marcaron los tres pasos. Puede revisar cada programa desde sus vistas.</p>
-          </div>
-          ${linkVistas([['fin','Fin de semana','event'],['entre','Entre semana','calendar_view_week'],['labores','Acomodación','weekend'],['salidas','Salidas','campaign'],['general','General Mensual','calendar_month']])}
-        `;
-        bindVistas();
-        nextBtn.disabled = true;
-        nextBtn.textContent = 'Listo';
-        nextBtn.onclick = closeModal;
-        return;
-      }
-
-      if (paso === 1) {
-        const incompletas = semanasIncompletas(state.midweeks.filter(x => String(x.id).slice(0, 7) === m));
-        c.innerHTML = `
-          <div class="flex items-start gap-3 mb-3">
-            <span class="material-symbols-outlined text-primary text-[20px] mt-0.5">${STEPS[0].icon}</span>
-            <div>
-              <p class="font-label-lg text-label-lg text-primary">Etapa 1 · Asignación entre semana</p>
-              <p class="text-sm text-on-surface-variant">La asignación queda pendiente. Antes de continuar puede completar a mano los programas.</p>
-            </div>
-          </div>
-          <div class="bg-surface-container-low rounded-xl border border-outline-variant p-4">
-            <p class="text-sm text-on-surface mb-2 flex items-center gap-1.5">
-              <span class="material-symbols-outlined text-[18px] ${incompletas.length ? 'text-error' : 'text-tertiary'}">${incompletas.length ? 'error' : 'check_circle'}</span>
-              ${incompletas.length ? `${incompletas.length} programa(s) de entre semana con puestos sin asignar.` : 'Todos los programas de entre semana tienen puestos asignados.'}
-            </p>
-            ${incompletas.length ? `<div class="flex flex-wrap gap-2">
-              <button data-ver="entre" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">
-                <span class="material-symbols-outlined text-[16px]">edit</span> Completar programas
-              </button>
-            </div>` : ''}
-          </div>
-          ${linkVistas([['entre','Entre semana','calendar_view_week']])}
-        `;
-        bindVistas();
-        nextBtn.textContent = 'Continuar con asignación';
-        nextBtn.disabled = false;
-      } else if (paso === 2) {
-        c.innerHTML = `
-          <div class="flex items-start gap-3 mb-3">
-            <span class="material-symbols-outlined text-primary text-[20px] mt-0.5">${STEPS[1].icon}</span>
-            <div>
-              <p class="font-label-lg text-label-lg text-primary">Etapa 2 · Acomodación y salidas</p>
-              <p class="text-sm text-on-surface-variant">Rellene primero las salidas a mano (el orador es texto libre) y luego continúe con la asignación de labores de acomodación.</p>
-            </div>
-          </div>
-          ${linkVistas([['labores','Acomodación','weekend'],['salidas','Salidas','campaign']])}
-        `;
-        bindVistas();
-        nextBtn.textContent = 'Continuar con asignación';
-        nextBtn.disabled = false;
-      } else if (paso === 3) {
-        c.innerHTML = `
-          <div class="flex items-start gap-3 mb-3">
-            <span class="material-symbols-outlined text-primary text-[20px] mt-0.5">${STEPS[2].icon}</span>
-            <div>
-              <p class="font-label-lg text-label-lg text-primary">Etapa 3 · Fin de semana</p>
-              <p class="text-sm text-on-surface-variant">Presidente, conductor y lector considerando acomodación y salidas ya asignadas.</p>
-            </div>
-          </div>
-          ${linkVistas([['fin','Fin de semana','event']])}
-        `;
-        bindVistas();
-        nextBtn.textContent = 'Continuar con asignación';
-        nextBtn.disabled = false;
-      }
-    };
-
-    const runPaso = async () => {
-      const nextBtn = document.getElementById(wId + 'Next');
-      if (nextBtn) { nextBtn.disabled = true; }
-      let rep = null;
-      if (paso === 1) { rep = await etapaEntreSemana(m); hechos.entre = true; paso = 2; }
-      else if (paso === 2) { rep = await etapaAcomodacion(m); hechos.acomodacion = true; paso = 3; }
-      else if (paso === 3) { rep = await etapaFinSemana(m); hechos.fin = true; paso = 4; }
-      if (rep) reportes.push(rep);
-      await syncAssignmentLog();
-      const reps = document.getElementById(wId + 'Reports');
-      if (reps) reps.innerHTML = reportes.map(renderReporte).join('');
-      setContent();
-    };
-
-    setContent();
-  };
-
-  pasoMes();
+  await render();
 }
 
 async function etapaEntreSemana(month) {
@@ -835,8 +911,7 @@ async function etapaEntreSemana(month) {
   await Promise.all(mwMes.map(w => db.putMidweek(w)));
   state.midweeks = await db.listMidweeks();
   return {
-    titulo: 'Etapa 1 · Entre semana completada',
-    resumen: [`Entre semana: ${repMw.asignados} asignaciones (${repMw.vacios.length} vacíos)`],
+    asignados: repMw.asignados,
     vacios: repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
   };
 }
@@ -848,10 +923,53 @@ async function etapaAcomodacion(month) {
   const repLab = automatizarAcomodacion(state.people, labMes, mwMes);
   await Promise.all(labMes.map(p => db.putLabores(p)));
   return {
-    titulo: 'Etapa 2 · Acomodación completada',
-    resumen: [`Acomodación: ${repLab.asignados} asignaciones (${repLab.vacios.length} vacíos)`],
+    asignados: repLab.asignados,
     vacios: repLab.vacios.map(v => ({ semana: v.semana, rol: v.role })),
   };
+}
+
+async function etapaSalidas(month) {
+  const salidas = await db.listSalidas();
+  const salMes = salidas.filter(p => p.id === month);
+  // El orador de salida se asigna con personas con rol "orador" que no estén ya
+  // ocupadas esa semana por acomodación, salidas o la reunión de fin de semana.
+  const [midweeks, months, labores] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listLabores()]);
+  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
+  const mesMes = months.filter(m => m.id === month);
+  const labMes = labores.filter(p => p.id === month);
+  const ocupados = new Map();
+  const marcar = (sat, id) => { if (id) { const s = new Set(ocupados.get(sat) || []); s.add(String(id)); ocupados.set(sat, s); } };
+  labMes.forEach(p => (p.weeks || []).forEach(w => {
+    const l = w.labores || {};
+    LABORES_DEF.forEach(dd => { const v = l[dd.key]; (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id)); });
+  }));
+  mesMes.forEach(p => (p.weeks || []).forEach(w => {
+    ['presidente', 'conductor', 'lector', 'estudioSinLectura'].forEach(f => marcar(w.date, w[f]));
+  }));
+  mwMes.forEach(w => {
+    const sat = addDays(w.id, 5);
+    if (w.presidente) marcar(sat, w.presidente);
+    (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => marcar(sat, id))));
+  });
+  // rol de salida: por defecto "orador"; sin roles → todas las personas.
+  const peopleForSalida = state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes('orador'));
+  let asignados = 0;
+  const vacios = [];
+  salMes.forEach(p => (p.weeks || []).forEach(w => {
+    const sat = String(w.saturday);
+    const ocup = new Set(ocupados.get(sat) || []);
+    (w.outings || []).forEach(o => {
+      if (o.oradorSalida) { marcar(sat, o.oradorSalida); return; }
+      const cand = peopleForSalida.find(x => !ocup.has(String(x.id)));
+      if (!cand) { vacios.push({ semana: sat, rol: 'orador' }); return; }
+      o.oradorSalida = cand.id;
+      ocup.add(String(cand.id));
+      marcar(sat, cand.id);
+      asignados++;
+    });
+  }));
+  await Promise.all(salMes.map(p => db.putSalidas(p)));
+  return { asignados, vacios };
 }
 
 async function etapaFinSemana(month) {
@@ -887,41 +1005,10 @@ async function etapaFinSemana(month) {
   state.midweeks = await db.listMidweeks();
 
   return {
-    titulo: 'Etapa 3 · Fin de semana completada',
-    resumen: [
-      `Entre semana (vacíos): ${repMw.asignados} asignaciones (${repMw.vacios.length} vacíos)`,
-      `Fin de semana: ${repFin.asignados} asignaciones (${repFin.vacios.length} vacíos)`,
-    ],
+    asignados: repMw.asignados + repFin.asignados,
     vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
              ...repFin.vacios.map(v => ({ semana: v.semana, rol: v.role }))],
   };
-}
-
-// Nombre legible de un rol/puesto para el reporte de la asignación automática.
-// "asignacion2" → "Presentación" (desde la lista de roles), "acomodacion_0" →
-// "Acomodación 1" (labores), "conductor" → "Cond. Atalaya" (campo de fin de semana).
-function rolLabel(rol) {
-  const r = String(rol || '');
-  const lab = LABORES_DEF.find(d => r.startsWith(d.key + '_'));
-  if (lab) return `${lab.label} ${Number(r.slice(lab.key.length + 1)) + 1}`;
-  const role = state.roles.find(x => String(x.id) === r);
-  if (role) return role.label;
-  const fid = FIELD_ROLE[r];
-  const fRole = fid && state.roles.find(x => String(x.id) === fid);
-  return fRole ? fRole.label : r;
-}
-
-function renderReporte(rep) {
-  const vaciosHtml = rep.vacios.length
-    ? `<p class="text-sm text-error mt-2">Sin suficientes personas libres en: ${rep.vacios.map(v => `${v.semana} (${rolLabel(v.rol)})`).join(', ')}.</p>`
-    : `<p class="text-sm text-tertiary mt-2">No quedaron puestos vacíos.</p>`;
-  return `<div class="bg-surface-container-low rounded-xl border border-outline-variant p-4">
-    <p class="font-label-lg text-label-lg text-primary">${rep.titulo}</p>
-    <ul class="text-sm text-on-surface mt-2 space-y-1">
-      ${rep.resumen.map(r => `<li>· ${r}</li>`).join('')}
-    </ul>
-    ${vaciosHtml}
-  </div>`;
 }
 
 async function renderNewBody() {

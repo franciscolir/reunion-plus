@@ -1043,7 +1043,7 @@ function peopleForRole(people, role) {
 
 // Mapa de los campos editables de la reunión de fin de semana según su tipo.
 // Solo los campos listados se automatizan (el orador es texto libre/manual).
-function camposFinSemana(w) {
+export function camposFinSemana(w) {
   if (w.type === 'assembly') return [];
   if (w.type === 'commemoration') return [{ campo: 'presidente', role: 'presidente' }];
   if (w.type === 'supervisor') return [
