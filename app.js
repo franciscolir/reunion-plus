@@ -536,7 +536,12 @@ async function abrirAsistenteAuto() {
   const inicial = state.progMonth || isoDate(new Date()).slice(0, 7);
   let month = inicial;
 
-  const setModal = (html) => { $('#modalCard').innerHTML = html; };
+  const setModal = (html) => {
+    $('#modalCard').innerHTML = html;
+    $('#modalCard').classList.add('modal-enter');
+    $('#modalRoot').classList.remove('hidden');
+    $('#modalBackdrop').onclick = closeModal;
+  };
   const mesTxt = (m) => `${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`;
   const verPrograma = (tab, m) => { closeModal(); state.progMonth = m; state.newTab = tab; go('new'); };
 
