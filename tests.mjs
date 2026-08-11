@@ -2,18 +2,18 @@
 // Ejecutar: node tests.mjs
 
 import {
-  MONTHS_ES, WEEK_TYPES, FIELD_ROLE, FIELD_LABELS,
+  MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
-  collectLaboresPersons, collectMidweekPersons, computeMidweekConflicts, dedupPersons, eligiblePeople,
-  LABORES_DEF, LABORE_ROLES, isLaborePerson, splitWords,
+  collectAtencionPersons, collectMidweekPersons, computeMidweekConflicts, dedupPersons, eligiblePeople,
+  ATENCION_DEF, ATENCION_ROLES, isAtencionPerson, splitWords,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
   computeCrossConflicts, canBePair,
-  midweekSlotsOf, automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
-  isStudentPerson, isStudentRole,
+  midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
+  isStudentPerson, isStudentLabore,
   extractAssignments, assignmentMetrics,
 } from './logic.js';
 import { readFileSync } from 'node:fs';
@@ -194,10 +194,10 @@ ok('cryptoId prefijo w_', id1.startsWith('w_'));
 console.log('[constants]');
 ok('MONTHS_ES 12 meses', MONTHS_ES.length === 12);
 ok('WEEK_TYPES 4 tipos', Object.keys(WEEK_TYPES).length === 4);
-ok('FIELD_ROLE mapea estudioSinLectura a conductor1', FIELD_ROLE.estudioSinLectura === 'conductor1');
-ok('FIELD_ROLE mapea oradorSalida a orador', FIELD_ROLE.oradorSalida === 'orador');
-ok('FIELD_ROLE mapea conductor a conductor1', FIELD_ROLE.conductor === 'conductor1');
-ok('FIELD_ROLE mapea lector a lector1', FIELD_ROLE.lector === 'lector1');
+ok('FIELD_LABORE mapea estudioSinLectura a conductor1', FIELD_LABORE.estudioSinLectura === 'conductor1');
+ok('FIELD_LABORE mapea oradorSalida a orador', FIELD_LABORE.oradorSalida === 'orador');
+ok('FIELD_LABORE mapea conductor a conductor1', FIELD_LABORE.conductor === 'conductor1');
+ok('FIELD_LABORE mapea lector a lector1', FIELD_LABORE.lector === 'lector1');
 
 // --- isoDate ---
 console.log('[isoDate]');
@@ -257,13 +257,13 @@ eq('límite max', upcomingEvents(cfgEvents, '2026-01-01', 1).length, 1);
 eq('end de visita en upcoming', upcomingEvents(cfgEvents, '2026-05-01', 5)[0].end, '2026-05-16');
 eq('end de asamblea en upcoming', upcomingEvents(cfgEvents, '2026-05-01', 5)[1].end, '2026-06-13');
 
-// --- Labores: collectLaboresPersons ---
-console.log('[collectLaboresPersons]');
-eq('labores vacías no recoge personas', collectLaboresPersons(undefined), []);
-eq('labores completas recoge 3 personas', collectLaboresPersons({
+// --- Labores: collectAtencionPersons ---
+console.log('[collectAtencionPersons]');
+eq('labores vacías no recoge personas', collectAtencionPersons(undefined), []);
+eq('labores completas recoge 3 personas', collectAtencionPersons({
   acomodacion: [1, 2], microfono: ['', 3], plataforma: 4, sonido: '',
 }).map(x => x.value), ['1', '2', '3', '4']);
-ok('claves labores correctas', collectLaboresPersons({ acomodacion: [1, 2] }).map(x => x.key).join(','), 'labores_acomodacion_0,labores_acomodacion_1');
+ok('claves labores correctas', collectAtencionPersons({ acomodacion: [1, 2] }).map(x => x.key).join(','), 'atencion_acomodacion_0,atencion_acomodacion_1');
 
 // --- collectWeekPersons incluye labores (fin de semana) ---
 console.log('[collectWeekPersons + labores]');
@@ -279,7 +279,7 @@ const mwLabDup = computeConflicts({ weeks: [{
   type: 'normal', presidente: 1, tituloDiscurso: 'T', orador: 'X', conductor: 2, lector: 3, departamento: 4,
   outings: [], labores: { acomodacion: [1, 5], microfono: ['', ''], plataforma: '', sonido: '' },
 }] });
-ok('labores repetidas con presidente detectadas', mwLabDup.perWeek[0].duplicates.includes('labores_acomodacion_0'));
+ok('labores repetidas con presidente detectadas', mwLabDup.perWeek[0].duplicates.includes('atencion_acomodacion_0'));
 ok('labores no repetidas no marcan', !mwLabDup.perWeek[0].duplicates.includes('labores_acomodacion_1'));
 
 // --- collectMidweekPersons ---
@@ -318,23 +318,23 @@ ok('entresemana sin duplicados: 0 errors', computeMidweekConflicts(mwkOk).errors
 
 // --- labelOfKey labores ---
 console.log('[labelOfKey labores]');
-ok('etiqueta de labores acomodacion 2', labelOfKey('labores_acomodacion_1') === 'labores de acomodación 2');
-ok('etiqueta de labores plataforma (1 solo)', labelOfKey('labores_plataforma_0') === 'labores de plataforma');
+ok('etiqueta de labores acomodacion 2', labelOfKey('atencion_acomodacion_1') === 'labores de acomodación 2');
+ok('etiqueta de labores plataforma (1 solo)', labelOfKey('atencion_plataforma_0') === 'labores de plataforma');
 
 // --- eligiblePeople (dedupe de ya asignados en la semana) ---
 console.log('[eligiblePeople]');
 const peopleE = [
-  { id: 1, name: 'Luis', roles: ['presidente', 'lector', 'acomodador'] },
-  { id: 2, name: 'Pedro', roles: ['presidente', 'lector'] },
-  { id: 3, name: 'Juan', roles: ['lector'] },
-  { id: 4, name: 'Ana', roles: [] },
+  { id: 1, name: 'Luis', labores: ['presidente', 'lector', 'acomodador'] },
+  { id: 2, name: 'Pedro', labores: ['presidente', 'lector'] },
+  { id: 3, name: 'Juan', labores: ['lector'] },
+  { id: 4, name: 'Ana', labores: [] },
 ];
 const weekLuis = { type: 'normal', presidente: 1, outings: [], labores: {} };
 ok('excluye a los ya asignados en la misma semana', eligiblePeople(weekLuis, peopleE, 'lector', '').map(p => p.name).sort().join(',') === 'Ana,Juan,Pedro');
 ok('mantiene al que ya ocupa el puesto', eligiblePeople(weekLuis, peopleE, 'presidente', 1).some(p => p.id === 1));
 ok('permite elegir en otra semana al asignado en esta (dedupe es intra-semana)', eligiblePeople({ type: 'normal', presidente: 2, outings: [], labores: {} }, peopleE, 'presidente', '').some(p => p.id === 1));
 ok('sin rol aplica solo el dedupe de asignados', eligiblePeople(weekLuis, peopleE, '', '').length === 3);
-ok('soporta predicado (labores) y excluye al asignado', eligiblePeople({ type: 'normal', labores: { acomodacion: ['1', ''] } }, peopleE, isLaborePerson, '').map(p => p.name).join(',') === 'Ana');
+ok('soporta predicado (labores) y excluye al asignado', eligiblePeople({ type: 'normal', labores: { acomodacion: ['1', ''] } }, peopleE, isAtencionPerson, '').map(p => p.name).join(',') === 'Ana');
 
 // --- Convertidores de PDF (carga de archivos) ---
 console.log('[convertPdfMidweeks]');
@@ -499,7 +499,7 @@ console.log('[computeCrossConflicts]');
   const ctx = {
     midweeks: [{ id: '2026-09-07', presidente: '1', sections: [] }],
     months: [],
-    labores: [{ id: '2026-09', weeks: [{ saturday: '2026-09-12', labores: { acomodacion: ['1', ''] } }] }],
+    atencion: [{ id: '2026-09', weeks: [{ saturday: '2026-09-12', labores: { acomodacion: ['1', ''] } }] }],
     salidas: [],
   };
   const c = computeCrossConflicts(ctx);
@@ -510,7 +510,7 @@ console.log('[computeCrossConflicts]');
   const ctx = {
     midweeks: [],
     months: [{ id: '2026-09', month: 9, weeks: [{ date: '2026-09-12', presidente: '2', type: 'normal' }] }],
-    labores: [{ id: '2026-09', weeks: [{ saturday: '2026-09-12', labores: { microfono: ['2', ''] } }] }],
+    atencion: [{ id: '2026-09', weeks: [{ saturday: '2026-09-12', labores: { microfono: ['2', ''] } }] }],
     salidas: [],
   };
   const c = computeCrossConflicts(ctx);
@@ -591,13 +591,13 @@ ok('una sola sin calificación: permitida', canBePair(p(1, '', ''), p(2, 'A', ''
 // Mixto sin enlace sigue inválido aunque falte la calificación.
 ok('mixto sin enlace inválido aunque falte calificación', canBePair(p(1, '', 'masculino'), p(2, 'A', 'femenino')) === false);
 
-console.log('[isStudentPerson / isStudentRole]');
-ok('isStudentRole asignacion2', isStudentRole('asignacion2') === true);
-ok('isStudentRole asignacion4 falso', isStudentRole('asignacion4') === false);
-ok('isStudentPerson con rol de presentación', isStudentPerson({ roles: ['asignacion2'] }));
-ok('isStudentPerson con rol de lectura', isStudentPerson({ roles: ['asignacion1'] }));
-ok('isStudentPerson sin roles', isStudentPerson({ roles: [] }));
-ok('isStudentPerson con rol ajeno', !isStudentPerson({ roles: ['presidente'] }));
+console.log('[isStudentPerson / isStudentLabore]');
+ok('isStudentLabore asignacion2', isStudentLabore('asignacion2') === true);
+ok('isStudentLabore asignacion4 falso', isStudentLabore('asignacion4') === false);
+ok('isStudentPerson con rol de presentación', isStudentPerson({ labores: ['asignacion2'] }));
+ok('isStudentPerson con rol de lectura', isStudentPerson({ labores: ['asignacion1'] }));
+ok('isStudentPerson sin roles', isStudentPerson({ labores: [] }));
+ok('isStudentPerson con rol ajeno', !isStudentPerson({ labores: ['presidente'] }));
 
 // --- Estructura de midweeks.json (datos para el análisis de reuniones) ---
 console.log('[estructura midweeks.json]');
@@ -612,13 +612,13 @@ ok('las partes tienen num, title y mins', mwWeeks.every(w => (w.sections || []).
 ok('cada semana tiene id y header', mwWeeks.every(w => w.id && w.header));
 ok('tesoros siempre tiene 3 partes', mwWeeks.every(w => (w.sections.find(s => s.id === 'tesoros') || {}).parts.length === 3));
 
-// --- LABORES_DEF / LABORE_ROLES / isLaborePerson ---
-console.log('[LABORES_DEF / labore roles]');
-eq('LABORES_DEF 4 roles con icono y cantidad', LABORES_DEF.map(d => `${d.key}:${d.count}:${!!d.icon}`), ['acomodacion:2:true', 'microfono:2:true', 'plataforma:1:true', 'sonido:1:true']);
-ok('LABORE_ROLES incluye roles de atención', ['audio', 'microf', 'plataforma', 'acomodador'].every(r => LABORE_ROLES.includes(r)));
-ok('isLaborePerson con rol de atención', isLaborePerson({ name: 'X', roles: ['audio'] }));
-ok('isLaborePerson sin roles incluida', isLaborePerson({ name: 'X' }));
-ok('isLaborePerson con roles ajenos excluida', !isLaborePerson({ name: 'X', roles: ['presidente'] }));
+// --- ATENCION_DEF / ATENCION_ROLES / isAtencionPerson ---
+console.log('[ATENCION_DEF / labore roles]');
+eq('ATENCION_DEF 4 roles con icono y cantidad', ATENCION_DEF.map(d => `${d.key}:${d.count}:${!!d.icon}`), ['acomodacion:2:true', 'microfono:2:true', 'plataforma:1:true', 'sonido:1:true']);
+ok('ATENCION_ROLES incluye roles de atención', ['audio', 'microf', 'plataforma', 'acomodador'].every(r => ATENCION_ROLES.includes(r)));
+ok('isAtencionPerson con rol de atención', isAtencionPerson({ name: 'X', labores: ['audio'] }));
+ok('isAtencionPerson sin roles incluida', isAtencionPerson({ name: 'X' }));
+ok('isAtencionPerson con roles ajenos excluida', !isAtencionPerson({ name: 'X', labores: ['presidente'] }));
 
 // --- midweekSlotsOf ---
 console.log('[midweekSlotsOf]');
@@ -641,7 +641,7 @@ console.log('[midweekSlotsOf]');
     ],
   };
   const [tes, mas, vida] = week.sections;
-  const slot = (sec, p) => midweekSlotsOf(sec, p).map(s => `${s.key}:${s.role}`);
+  const slot = (sec, p) => midweekSlotsOf(sec, p).map(s => `${s.key}:${s.labore}`);
   eq('tesoros discurso es asignacion4', slot(tes, tes.parts[0]), ['conductor:asignacion4']);
   eq('tesoros perlas es asignacion4', slot(tes, tes.parts[1]), ['conductor:asignacion4']);
   eq('tesoros lectura es asignacion1', slot(tes, tes.parts[2]), ['lector:asignacion1']);
@@ -742,14 +742,14 @@ console.log('[automatizarEntreSemana]');
   // El Estudio Bíblico solo exige el rol (conductor2/lector2), sin compatibilidad de
   // pareja: aunque la pareja no cumpliría canBePair (D sin enlace), se conserva.
   const soloRol = [
-    { id: 1, name: 'Conductor', roles: ['conductor2'], calificacion: 'D' },
-    { id: 2, name: 'Lector', roles: ['lector2'] },
+    { id: 1, name: 'Conductor', labores: ['conductor2'], calificacion: 'D' },
+    { id: 2, name: 'Lector', labores: ['lector2'] },
   ];
   const weekEstudio = mkWeek('2026-08-03');
   const partEstudio = weekEstudio.sections[2].parts[1]; // Estudio Bíblico
   partEstudio.assignments = { conductor: '1', lector: '2' };
   const repEst = automatizarEntreSemana(soloRol, [weekEstudio]);
-  const rolesVacios = repEst.vacios.map(v => v.role);
+  const rolesVacios = repEst.vacios.map(v => v.labore);
   ok('estudio bíblico no exige compatibilidad de pareja',
     partEstudio.assignments.conductor === '1' && partEstudio.assignments.lector === '2'
     && !rolesVacios.includes('conductor2') && !rolesVacios.includes('lector2'));
@@ -757,10 +757,10 @@ console.log('[automatizarEntreSemana]');
   // El pool de estudiantes acepta a quien tenga cualquier rol de estudiante:
   // personas con solo "lectura" (asignacion1) pueden tomar presentaciones (asignacion2).
   const estudiantesLectura = [
-    { id: 1, name: 'SL A', roles: ['asignacion1'] },
-    { id: 2, name: 'SL B', roles: ['asignacion1'] },
-    { id: 3, name: 'SL C', roles: ['asignacion1'] },
-    { id: 4, name: 'SL D', roles: ['asignacion1'] },
+    { id: 1, name: 'SL A', labores: ['asignacion1'] },
+    { id: 2, name: 'SL B', labores: ['asignacion1'] },
+    { id: 3, name: 'SL C', labores: ['asignacion1'] },
+    { id: 4, name: 'SL D', labores: ['asignacion1'] },
   ];
   const weekPres = mkWeek('2026-08-10');
   automatizarEntreSemana(estudiantesLectura, [weekPres]);
@@ -769,11 +769,11 @@ console.log('[automatizarEntreSemana]');
     (partPres.assignments || {}).estudiante === '2' && (partPres.assignments || {}).ayudante === '3');
 }
 
-// --- automatizarAcomodacion ---
-console.log('[automatizarAcomodacion]');
+// --- automatizarAtencion ---
+console.log('[automatizarAtencion]');
 {
   const people = [];
-  for (let i = 1; i <= 16; i++) people.push({ id: i, name: `A${i}`, roles: i <= 8 ? ['audio', 'microf'] : ['acomodador'] });
+  for (let i = 1; i <= 16; i++) people.push({ id: i, name: `A${i}`, labores: i <= 8 ? ['audio', 'microf'] : ['acomodador'] });
   const midweeks = [
     { id: '2026-07-06', presidente: 1, sections: [{ id: 'tesoros', parts: [{ num: 1, title: 'Discurso', mins: 10, assignments: { conductor: 2 } }] }] },
     { id: '2026-07-13', presidente: 4, sections: [{ id: 'tesoros', parts: [{ num: 1, title: 'Discurso', mins: 10, assignments: { conductor: 5 } }] }] },
@@ -785,7 +785,7 @@ console.log('[automatizarAcomodacion]');
       { saturday: '2026-07-18', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
     ],
   };
-  const rep = automatizarAcomodacion(people, [lab], midweeks);
+  const rep = automatizarAtencion(people, [lab], midweeks);
   const sat11 = lab.weeks[0].labores, sat18 = lab.weeks[1].labores;
   const ocupados11 = Object.values(sat11).flatMap(v => Array.isArray(v) ? v : [v]);
   const ocupados18 = Object.values(sat18).flatMap(v => Array.isArray(v) ? v : [v]);
@@ -802,7 +802,7 @@ console.log('[automatizarAcomodacion]');
   ok('el mismo labore no se repite con la misma persona en el mes',
     Object.values(porClave).every(arr => arr.length === new Set(arr).size));
   ok('acomodación asigna puestos', rep.asignados > 0);
-  // Las labores de entre semana (week.labores del midweek) también se rellenan.
+  // Las labores de entre semana (week.atencion del midweek) también se rellenan.
   ok('rellena labores de entre semana en el midweek',
     midweeks.every(mw => Object.values(mw.labores || {}).some(v => (Array.isArray(v) ? v : [v]).some(x => x))));
   // La persona en labores ES no debe ser la misma que en FS del mismo sábado.
@@ -821,7 +821,7 @@ console.log('[automatizarAcomodacion]');
 console.log('[automatizarFinSemana]');
 {
   const people = [];
-  for (let i = 1; i <= 6; i++) people.push({ id: i, name: `F${i}`, roles: ['presidente', 'conductor1', 'lector1'] });
+  for (let i = 1; i <= 6; i++) people.push({ id: i, name: `F${i}`, labores: ['presidente', 'conductor1', 'lector1'] });
   const months = [{
     id: '2026-07', year: 2026, month: 7,
     weeks: [
@@ -884,9 +884,9 @@ console.log('[extractAssignments]');
   ok('extrae pareja estudiante+ayudante', entries.some(e => e.personId === '4' && e.roleKey === 'asignacion2') && entries.some(e => e.personId === '5' && e.roleKey === 'asignacion2'));
   ok('extrae presidente de fin de semana', entries.some(e => e.personId === '1' && e.program === 'fin'));
   ok('extrae orador de salida', entries.some(e => e.personId === '4' && e.program === 'salidas'));
-  ok('extrae labores', entries.some(e => e.personId === '5' && e.program === 'labores' && e.roleKey === 'labores_acomodacion_0'));
-  ok('extrae labores de entre semana (midweek.labores)',
-    entries.some(e => e.personId === '5' && e.program === 'labores' && e.roleKey === 'labores_acomodacion_1'));
+  ok('extrae labores', entries.some(e => e.personId === '5' && e.program === 'atencion' && e.roleKey === 'atencion_acomodacion_0'));
+  ok('extrae labores de entre semana (midweek.atencion)',
+    entries.some(e => e.personId === '5' && e.program === 'atencion' && e.roleKey === 'atencion_acomodacion_1'));
   ok('no incluye el orador de texto libre', !entries.some(e => e.roleKey === 'orador' && e.program === 'fin'));
   const ana = entries.filter(e => e.personId === '1');
   ok('nombre de la persona se resuelve', ana.length > 0 && ana.every(e => e.name === 'Ana'));
@@ -900,10 +900,10 @@ console.log('[extractAssignments]');
 console.log('[assignmentMetrics]');
 {
   const people = [
-    { id: 1, name: 'Ana', roles: ['presidente', 'asignacion1'] },
-    { id: 2, name: 'Ben', roles: ['conductor1'] },
-    { id: 3, name: 'Carlos', roles: ['audio'] },
-    { id: 4, name: 'Diana', roles: ['presidente'] },
+    { id: 1, name: 'Ana', labores: ['presidente', 'asignacion1'] },
+    { id: 2, name: 'Ben', labores: ['conductor1'] },
+    { id: 3, name: 'Carlos', labores: ['audio'] },
+    { id: 4, name: 'Diana', labores: ['presidente'] },
   ];
   const roles = [
     { id: 'presidente', label: 'Presidente' },

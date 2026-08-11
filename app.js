@@ -1,37 +1,37 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
 import {
-  MONTHS_ES, WEEK_TYPES, FIELD_ROLE, FIELD_LABELS,
+  MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete,
-  dedupPersons, eligiblePeople, isLaborePerson, LABORES_DEF, collectMidweekPersons,
+  dedupPersons, eligiblePeople, isAtencionPerson, ATENCION_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
-  isStudentPerson, isStudentRole,
-  automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
+  isStudentPerson, isStudentLabore,
+  automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   camposFinSemana, extractAssignments, assignmentMetrics,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
 const state = {
   view: 'home',           // home | new | auto | edit | preview | outings | lists | uploads | eventos | labores | laboresGrupo | salidas | general | settings | about | midweeks | midweek | midweekPreview | midweekMonthPreview | midweekList
-  newTab: 'fin',          // 'fin' | 'entre' | 'labores' | 'laboresGrupo' | 'salidas' | 'general' (en Programas)
+  newTab: 'fin',          // 'fin' | 'entre' | 'atencion' | 'atencionGrupo' | 'salidas' | 'general' (en Programas)
   monthId: null,          // "YYYY-MM"
   month: null,
   previewMode: 'lista',   // lista | tabla
   people: [],
   departments: [],
   talks: [],              // lista de discursos públicos [{num, title}]
-  roles: [],              // roles del equipo [{id, label}]
+  labores: [],            // labores del equipo [{id, label}]
   midweeks: [],           // reuniones de entre semana
   config: null,           // configuración general
   toastsOpen: new Set(),
   mwMonth: null,          // mes seleccionado en la vista mensual de entre semana
   progMonth: null,        // mes seleccionado en Programas (selector global)
-  listsTab: 'roles',      // 'roles' | 'historial' (vista Personas)
+  listsTab: 'labores',    // 'labores' | 'historial' (vista Personas)
 };
 
 /* ---------- INIT ---------- */
@@ -52,10 +52,10 @@ async function refreshCatalogs() {
   state.talks = await db.listTalks();
   state.midweeks = await db.listMidweeks();
   state.config = await db.getConfig();
-  const saved = await db.getRoles(null);
-  state.roles = (saved && Array.isArray(saved) && saved.length)
+  const saved = await db.getLabores(null);
+  state.labores = (saved && Array.isArray(saved) && saved.length)
     ? saved
-    : DEFAULT_ROLES.map(r => ({ ...r }));
+    : DEFAULT_LABORES.map(r => ({ ...r }));
 }
 
 // Reconstruye el historial de asignaciones desde el estado actual de todos los
@@ -68,7 +68,7 @@ async function syncAssignmentLog() {
       db.listMidweeks(),
       db.listMonths(),
       db.listSalidas(),
-      db.listLabores(),
+      db.listAtencion(),
     ]);
     const entries = extractAssignments(midweeks, months, salidas, labores, state.people);
     await db.bulkPutAssignmentLog(entries);
@@ -149,8 +149,8 @@ function router() {
     case 'midweekPreview': renderMidweekPreview(segs[1]); break;
     case 'midweekMonthPreview': renderMidweekMonthPreview(segs[1]); break;
     case 'midweekList': renderMidweekList(); break;
-    case 'labores':  renderLabores(segs[1]); break;
-    case 'laboresGrupo': renderLaboresGrupo(segs[1]); break;
+    case 'atencion':  renderAtencion(segs[1]); break;
+    case 'atencionGrupo': renderAtencionGrupo(segs[1]); break;
     case 'salidas':  renderSalidas(segs[1]); break;
     case 'general':  renderGeneralMonth(segs[1]); break;
     case 'settings': renderSettings(); break;
@@ -477,7 +477,7 @@ async function renderNew() {
   renderTop();
   const app = $('#app');
   const [months, aseos, salidas, labores] = await Promise.all([
-    db.listMonths(), db.listAseos(), db.listSalidas(), db.listLabores(),
+    db.listMonths(), db.listAseos(), db.listSalidas(), db.listAtencion(),
   ]);
   const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
   const dataMonths = [...new Set([
@@ -493,8 +493,8 @@ async function renderNew() {
   const tabs = [
     { id: 'fin', label: 'Reunión de Fin de Semana' },
     { id: 'entre', label: 'Reunión de Entre Semana' },
-    { id: 'labores', label: 'Acomodacion' },
-    { id: 'laboresGrupo', label: 'Aseo' },
+    { id: 'atencion', label: 'Atención' },
+    { id: 'atencionGrupo', label: 'Aseo' },
     { id: 'salidas', label: 'Salidas' },
     { id: 'general', label: 'General Mensual' },
   ];
@@ -570,8 +570,8 @@ async function renderAutoAsignacion() {
   const sesion = {
     rewrite: false,            // el usuario confirmó reescribir un mes ya asignado
     creados: [],               // programas creados en esta sesión
-    hechos: { entre: false, acomodacion: false, salidas: false, fin: false },
-    reportes: { entre: null, acomodacion: null, salidas: null, fin: null },
+    hechos: { entre: false, atencion: false, salidas: false, fin: false },
+    reportes: { entre: null, atencion: null, salidas: null, fin: null },
   };
 
   const mesTxt = (m) => `${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`;
@@ -595,8 +595,8 @@ async function renderAutoAsignacion() {
   const laboresMissing = (program) => {
     const out = [];
     (program && program.weeks || []).forEach((w, wi) => {
-      const l = ensureLabores(w).labores;
-      LABORES_DEF.forEach(d => {
+      const l = ensureAtencion(w).labores;
+      ATENCION_DEF.forEach(d => {
         for (let si = 0; si < d.count; si++) {
           const cur = Array.isArray(l[d.key]) ? l[d.key][si] : (si === 0 ? l[d.key] : '');
           if (!cur) out.push({ key: `lab_${wi}_${d.key}_${si}`, label: `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}` });
@@ -615,8 +615,8 @@ async function renderAutoAsignacion() {
   const finMissing = (program) => {
     const out = [];
     (program && program.weeks || []).forEach((w, wi) => {
-      camposFinSemana(w).forEach(({ campo, role }) => {
-        if (!w[campo]) out.push({ key: `fin_${wi}_${campo}`, label: labelOf(campo), role });
+      camposFinSemana(w).forEach(({ campo, labore }) => {
+        if (!w[campo]) out.push({ key: `fin_${wi}_${campo}`, label: labelOf(campo), labore });
       });
     });
     return out;
@@ -625,7 +625,7 @@ async function renderAutoAsignacion() {
   // ---- Cargar datos del mes ----
   const load = async () => {
     const mws = state.midweeks.filter(x => String(x.id).slice(0, 7) === month);
-    const [fin, lab, sal] = await Promise.all([db.getMonth(month), db.getLabores(month), db.getSalidas(month)]);
+    const [fin, lab, sal] = await Promise.all([db.getMonth(month), db.getAtencion(month), db.getSalidas(month)]);
     return { mws, fin, lab, sal };
   };
 
@@ -651,8 +651,8 @@ async function renderAutoAsignacion() {
       writes.push(db.putMonth(d.fin));
     }
     if (d.lab) {
-      (d.lab.weeks || []).forEach(w => { w.labores = newLabores(); });
-      writes.push(db.putLabores(d.lab));
+      (d.lab.weeks || []).forEach(w => { w.labores = newAtencion(); });
+      writes.push(db.putAtencion(d.lab));
     }
     if (d.sal) {
       (d.sal.weeks || []).forEach(w => (w.outings || []).forEach(o => { o.oradorSalida = ''; }));
@@ -712,7 +712,7 @@ async function renderAutoAsignacion() {
     const finFaltan = finMissing(d.fin);
     const mwTotal = d.mws.reduce((a, w) => a + 1 + midweekSlotsCount(w), 0);
     const mwDone = d.mws.reduce((a, w) => a + (w.presidente ? 1 : 0) + (w.sections || []).reduce((aa, sec) => aa + (sec.parts || []).reduce((aaa, p) => aaa + Object.values(p.assignments || {}).filter(Boolean).length, 0), 0), 0);
-    const labTotal = (d.lab?.weeks || []).reduce((a, w) => a + LABORES_DEF.reduce((aa, dd) => aa + dd.count, 0), 0);
+    const labTotal = (d.lab?.weeks || []).reduce((a, w) => a + ATENCION_DEF.reduce((aa, dd) => aa + dd.count, 0), 0);
     const labDone = labTotal - labMissing.length;
     const salTotal = (d.sal?.weeks || []).reduce((a, w) => a + (w.outings || []).length, 0);
     const salDone = salTotal - salMissing.length;
@@ -734,13 +734,13 @@ async function renderAutoAsignacion() {
            ${botonAsignar('entre', 'Asignar')}`,
     }));
 
-    // Card 2: Acomodación
+    // Card 2: Atención
     cards.push(card({
-      id: 'acomodacion', icono: 'weekend', titulo: 'Acomodación', desc: 'Labores de atención (tras bambalinas)',
+      id: 'atencion', icono: 'weekend', titulo: 'Atención', desc: 'Atención y labores tras bambalinas',
       faltan: labMissing, pct: pct(labDone, labTotal), done: labTotal > 0 && labMissing.length === 0,
-      resumen: sesion.reportes.acomodacion ? `${sesion.reportes.acomodacion.asignados} asignaciones hechas` : '',
-      accion: `<button data-ver="labores" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
-               ${botonAsignar('acomodacion', 'Asignar')}`,
+      resumen: sesion.reportes.atencion ? `${sesion.reportes.atencion.asignados} asignaciones hechas` : '',
+      accion: `<button data-ver="atencion" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
+               ${botonAsignar('atencion', 'Asignar')}`,
     }));
 
     // Card 3: Salidas
@@ -764,12 +764,12 @@ async function renderAutoAsignacion() {
     // Barra de estado (pasos)
     const STEPS = [
       { id: 'entre', titulo: 'Entre semana' },
-      { id: 'acomodacion', titulo: 'Acomodación y salidas' },
+      { id: 'atencion', titulo: 'Atención y salidas' },
       { id: 'fin', titulo: 'Fin de semana' },
     ];
     const pasoDone = {
       entre: !faltaGuia && mwMissing.length === 0,
-      acomodacion: labMissing.length === 0 && salMissing.length === 0,
+      atencion: labMissing.length === 0 && salMissing.length === 0,
       fin: finFaltan.length === 0,
     };
     const barra = STEPS.map((s, i) => {
@@ -831,8 +831,8 @@ async function renderAutoAsignacion() {
       month = e.target.value;
       sesion.rewrite = false;
       sesion.creados = [];
-      sesion.hechos = { entre: false, acomodacion: false, salidas: false, fin: false };
-      sesion.reportes = { entre: null, acomodacion: null, salidas: null, fin: null };
+      sesion.hechos = { entre: false, atencion: false, salidas: false, fin: false };
+      sesion.reportes = { entre: null, atencion: null, salidas: null, fin: null };
       sesion.creados = await crearProgramasFaltantes(month);
       state.midweeks = await db.listMidweeks();
       render();
@@ -852,7 +852,7 @@ async function renderAutoAsignacion() {
       btn.disabled = true;
       try {
         if (tipo === 'entre') { sesion.reportes.entre = await etapaEntreSemana(month); sesion.hechos.entre = true; }
-        else if (tipo === 'acomodacion') { sesion.reportes.acomodacion = await etapaAcomodacion(month); sesion.hechos.acomodacion = true; }
+        else if (tipo === 'atencion') { sesion.reportes.atencion = await etapaAtencion(month); sesion.hechos.atencion = true; }
         else if (tipo === 'salidas') { sesion.reportes.salidas = await etapaSalidas(month); sesion.hechos.salidas = true; }
         else if (tipo === 'fin') { sesion.reportes.fin = await etapaFinSemana(month); sesion.hechos.fin = true; }
         await syncAssignmentLog();
@@ -882,10 +882,10 @@ async function renderAutoAsignacion() {
       await db.putMonth({ id: m, year, month: monthNum, weeks, published: false });
       creados.push('Fin de semana');
     }
-    if (!await db.getLabores(m)) {
-      const weeks = saturdaysOf(year, monthNum).map(d => ({ saturday: isoDate(d), labores: newLabores() }));
-      await db.putLabores({ id: m, weeks });
-      creados.push('Acomodación');
+    if (!await db.getAtencion(m)) {
+      const weeks = saturdaysOf(year, monthNum).map(d => ({ saturday: isoDate(d), labores: newAtencion() }));
+      await db.putAtencion({ id: m, weeks });
+      creados.push('Atención');
     }
     if (!await db.getSalidas(m)) {
       const weeks = saturdaysOf(year, monthNum).map(d => ({ saturday: isoDate(d), outings: [newOuting()] }));
@@ -912,22 +912,22 @@ async function etapaEntreSemana(month) {
   state.midweeks = await db.listMidweeks();
   return {
     asignados: repMw.asignados,
-    vacios: repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
+    vacios: repMw.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
   };
 }
 
-async function etapaAcomodacion(month) {
-  const [midweeks, labores] = await Promise.all([db.listMidweeks(), db.listLabores()]);
+async function etapaAtencion(month) {
+  const [midweeks, labores] = await Promise.all([db.listMidweeks(), db.listAtencion()]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const labMes = labores.filter(p => p.id === month);
-  const repLab = automatizarAcomodacion(state.people, labMes, mwMes);
+  const repLab = automatizarAtencion(state.people, labMes, mwMes);
   // Las labores de entre semana se guardan en cada week.labores del midweek.
-  await Promise.all(labMes.map(p => db.putLabores(p)));
+  await Promise.all(labMes.map(p => db.putAtencion(p)));
   await Promise.all(mwMes.map(w => db.putMidweek(w)));
   state.midweeks = await db.listMidweeks();
   return {
     asignados: repLab.asignados,
-    vacios: repLab.vacios.map(v => ({ semana: v.semana, rol: v.role })),
+    vacios: repLab.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
   };
 }
 
@@ -936,7 +936,7 @@ async function etapaSalidas(month) {
   const salMes = salidas.filter(p => p.id === month);
   // El orador de salida se asigna con personas con rol "orador" que no estén ya
   // ocupadas esa semana por acomodación, salidas o la reunión de fin de semana.
-  const [midweeks, months, labores] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listLabores()]);
+  const [midweeks, months, labores] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listAtencion()]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const mesMes = months.filter(m => m.id === month);
   const labMes = labores.filter(p => p.id === month);
@@ -944,7 +944,7 @@ async function etapaSalidas(month) {
   const marcar = (sat, id) => { if (id) { const s = new Set(ocupados.get(sat) || []); s.add(String(id)); ocupados.set(sat, s); } };
   labMes.forEach(p => (p.weeks || []).forEach(w => {
     const l = w.labores || {};
-    LABORES_DEF.forEach(dd => { const v = l[dd.key]; (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id)); });
+    ATENCION_DEF.forEach(dd => { const v = l[dd.key]; (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id)); });
   }));
   mesMes.forEach(p => (p.weeks || []).forEach(w => {
     ['presidente', 'conductor', 'lector', 'estudioSinLectura'].forEach(f => marcar(w.date, w[f]));
@@ -954,8 +954,8 @@ async function etapaSalidas(month) {
     if (w.presidente) marcar(sat, w.presidente);
     (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => marcar(sat, id))));
   });
-  // rol de salida: por defecto "orador"; sin roles → todas las personas.
-  const peopleForSalida = state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes('orador'));
+  // labor de salida: por defecto "orador"; sin labores → todas las personas.
+  const peopleForSalida = state.people.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('orador'));
   let asignados = 0;
   const vacios = [];
   salMes.forEach(p => (p.weeks || []).forEach(w => {
@@ -980,7 +980,7 @@ async function etapaFinSemana(month) {
     db.listMidweeks(),
     db.listMonths(),
     db.listSalidas(),
-    db.listLabores(),
+    db.listAtencion(),
   ]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const mesMes = months.filter(m => m.id === month);
@@ -993,7 +993,7 @@ async function etapaFinSemana(month) {
   salMes.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcar(w.saturday, o.oradorSalida))));
   labMes.forEach(p => (p.weeks || []).forEach(w => {
     const l = w.labores || {};
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id));
     });
@@ -1009,8 +1009,8 @@ async function etapaFinSemana(month) {
 
   return {
     asignados: repMw.asignados + repFin.asignados,
-    vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
-             ...repFin.vacios.map(v => ({ semana: v.semana, rol: v.role }))],
+    vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
+             ...repFin.vacios.map(v => ({ semana: v.semana, rol: v.labore }))],
   };
 }
 
@@ -1018,8 +1018,8 @@ async function renderNewBody() {
   const body = $('#newBody');
   if (!body) return;
   if (state.newTab === 'entre') { renderMidweeks({ embed: body, month: state.progMonth }); return; }
-  if (state.newTab === 'labores') { renderLabores(state.progMonth, { embed: body }); return; }
-  if (state.newTab === 'laboresGrupo') { renderLaboresGrupo(state.progMonth, { embed: body }); return; }
+  if (state.newTab === 'atencion') { renderAtencion(state.progMonth, { embed: body }); return; }
+  if (state.newTab === 'atencionGrupo') { renderAtencionGrupo(state.progMonth, { embed: body }); return; }
   if (state.newTab === 'salidas') { renderSalidas(state.progMonth, { embed: body }); return; }
   if (state.newTab === 'general') { renderGeneralMonth(state.progMonth, { embed: body }); return; }
   renderNewFin(body, state.progMonth);
@@ -1135,7 +1135,7 @@ async function renderEdit() {
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
       <div>
         <h1 class="font-headline-lg text-headline-lg text-primary">Edición Mensual</h1>
-        <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">Organice las sesiones y roles para ${MONTHS_ES[m.month - 1]} ${m.year}. Evite duplicidad de personas en la misma reunión.</p>
+        <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">Organice las sesiones y labores para ${MONTHS_ES[m.month - 1]} ${m.year}. Evite duplicidad de personas en la misma reunión.</p>
       </div>
       <div class="flex gap-3 w-full md:w-auto flex-wrap">
         <button id="btnOutings" class="flex items-center justify-center gap-2 border border-secondary text-secondary px-4 py-2.5 rounded-lg font-label-md text-label-md hover:bg-secondary-container transition-colors">
@@ -1206,8 +1206,8 @@ function renderWeeks() {
   container.querySelectorAll('[data-add-person]').forEach(b => {
     b.onclick = () => {
       const sel = b.parentElement?.querySelector('select[data-people]');
-      const role = sel?.dataset.role || '';
-      quickAddPerson(role).then(refreshPeopleSelects);
+      const labore = sel?.dataset.labore || '';
+      quickAddPerson(labore).then(refreshPeopleSelects);
     };
   });
   container.querySelectorAll('[data-talkpicker]').forEach(bindTalkPicker);
@@ -1295,7 +1295,7 @@ function outingRow(o, weekIdx, outIdx, conflicts) {
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div class="space-y-1">
         <label class="font-label-md text-label-md text-on-surface-variant">Orador</label>
-        <select data-outing-field="oradorSalida" data-outing-idx="${weekIdx}.${outIdx}" data-people data-role="orador" class="w-full bg-surface-bright border ${dup ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-md focus:border-primary">
+        <select data-outing-field="oradorSalida" data-outing-idx="${weekIdx}.${outIdx}" data-people data-labore="orador" class="w-full bg-surface-bright border ${dup ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-md focus:border-primary">
           <option value="">— Sin asignar —</option>
         </select>
       </div>
@@ -1432,7 +1432,7 @@ function talkPicker(name, idx, val, placeholder, conflicts) {
 }
 
 function peopleSelect(name, idx, val, label, conflicts) {
-  const role = FIELD_ROLE[name] || '';
+  const labore = FIELD_LABORE[name] || '';
   const hasConflict = conflicts.duplicates?.includes(name);
   const missing = conflicts.missing?.includes(name);
   const repeated = sameFieldOtherWeek(name, idx);
@@ -1442,11 +1442,11 @@ function peopleSelect(name, idx, val, label, conflicts) {
       ? `<span class="flex items-center gap-1 text-secondary font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">event_repeat</span> Ya designado este mes</span>`
       : '';
   const errClass = (hasConflict || missing) ? 'bg-error-container/20 border-error' : 'border-outline-variant';
-  const roleHint = role ? `data-role="${role}"` : '';
+  const laboreHint = labore ? `data-labore="${labore}"` : '';
   return `<div class="space-y-2 relative">
     <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between gap-2 flex-wrap">${label} ${badge}${missing ? '<span class="text-error font-bold text-[10px] uppercase ml-1">Falta</span>' : ''}</label>
     <div class="flex gap-2">
-      <select data-field="${name}" data-idx="${idx}" data-people ${roleHint} class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
+      <select data-field="${name}" data-idx="${idx}" data-people ${laboreHint} class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
         <option value="">— Sin asignar —</option>
       </select>
    </div>
@@ -1470,20 +1470,20 @@ function fillPeople(sel) {
   const field = sel.dataset.field;
   if (!state.month || !state.month.weeks[current]) return;
   const val = state.month.weeks[current][field];
-  const role = sel.dataset.role || '';
-  const list = eligiblePeople(state.month.weeks[current], state.people, role, val);
+  const labore = sel.dataset.labore || '';
+  const list = eligiblePeople(state.month.weeks[current], state.people, labore, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
-  fillSuggestions(sel, current, field, role, val);
+  fillSuggestions(sel, current, field, labore, val);
 }
 
-function fillSuggestions(sel, idx, field, role, val) {
+function fillSuggestions(sel, idx, field, labore, val) {
   const wrap = sel.closest('.space-y-2.relative')?.querySelector('.field-suggestions[data-fsug]');
   if (!wrap) return;
   if (val) { wrap.innerHTML = ''; return; }
   const week = state.month?.weeks?.[idx];
   if (!week) return;
-  const list = eligiblePeople(week, state.people, role, val);
+  const list = eligiblePeople(week, state.people, labore, val);
   wrap.innerHTML = list.slice(0, 6).map(p =>
     `<button type="button" data-fsug-pick="${idx}" data-fsug-field="${field}" data-fsug-id="${p.id}"
       class="px-2 py-0.5 rounded-full bg-primary-fixed/70 text-primary border border-primary/30 text-[11px] font-label-md hover:bg-primary hover:text-on-primary transition-colors">${escapeHtml(p.name.split(' ')[0])} ${escapeHtml((p.name.split(' ')[1] || '').slice(0, 1))}</button>`
@@ -1505,8 +1505,8 @@ function fillOutingPeople(sel) {
   const [wi, oi] = parts;
   const outing = state.month.weeks[wi].outings?.[oi];
   const val = outing ? outing.oradorSalida : '';
-  const role = sel.dataset.role || 'orador';
-  const list = eligiblePeople(state.month.weeks[wi], state.people, role, val);
+  const labore = sel.dataset.labore || 'orador';
+  const list = eligiblePeople(state.month.weeks[wi], state.people, labore, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
@@ -1919,7 +1919,7 @@ async function imageOutings() {
 }
 
 /* ---------- LISTAS: personas y grupos ---------- */
-const DEFAULT_ROLES = [
+const DEFAULT_LABORES = [
   { id: 'presidente',   label: 'Presidente' },
   { id: 'conductor1',   label: 'Cond. Atalaya' },
   { id: 'conductor2',   label: 'Cond. Libro' },
@@ -1949,7 +1949,7 @@ async function renderLists() {
       </div>
       <div class="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
         <div class="flex bg-surface-container-high p-1 rounded-lg" id="listsTabs">
-          <button data-tab="roles" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.listsTab === 'roles' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Roles</button>
+          <button data-tab="labores" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.listsTab === 'labores' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Labores</button>
           <button data-tab="historial" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.listsTab === 'historial' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Historial</button>
         </div>
         <div class="relative w-full sm:w-64">
@@ -1965,7 +1965,7 @@ async function renderLists() {
 
     <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant overflow-hidden">
       <div class="overflow-auto max-h-[70vh]">
-        <table class="w-full text-left border-collapse" id="rolesTable">
+        <table class="w-full text-left border-collapse" id="laboresTable">
           <thead><tr class="bg-surface-container border-b border-outline-variant"></tr></thead>
           <tbody class="divide-y divide-outline-variant/50" id="pList"></tbody>
         </table>
@@ -1974,8 +1974,8 @@ async function renderLists() {
 
     <div class="mt-6 flex justify-between flex-wrap gap-3">
       <div class="flex flex-wrap gap-3">
-        <button id="manageRolesBtn" class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
-          <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Roles
+        <button id="manageLaboresBtn" class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores
         </button>
       </div>
       <button id="addMemberBtn" class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2">
@@ -1991,29 +1991,29 @@ async function renderLists() {
     return;
   }
 
-  const thead = app.querySelector('#rolesTable thead tr');
+  const thead = app.querySelector('#laboresTable thead tr');
   thead.innerHTML = `
     <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[220px]">Miembro del Equipo</th>
-    ${state.roles.map(r => `<th class="p-4 font-label-md text-label-md text-on-surface-variant text-center w-14 whitespace-nowrap sticky top-0 bg-surface-container z-20" title="${escapeAttr(r.label)}">
-      <button data-markrole="${r.id}" class="material-symbols-outlined text-[16px] hover:text-primary block mx-auto mb-1" title="Marcar ${escapeAttr(r.label)} para todos">select_all</button>
+    ${state.labores.map(r => `<th class="p-4 font-label-md text-label-md text-on-surface-variant text-center w-14 whitespace-nowrap sticky top-0 bg-surface-container z-20" title="${escapeAttr(r.label)}">
+      <button data-marklabore="${r.id}" class="material-symbols-outlined text-[16px] hover:text-primary block mx-auto mb-1" title="Marcar ${escapeAttr(r.label)} para todos">select_all</button>
       <div class="rotate-180" style="writing-mode: vertical-rl; letter-spacing: 0.05em;">${r.label}</div>
     </th>`).join('')}
   `;
 
-  app.querySelectorAll('[data-markrole]').forEach(btn => btn.onclick = async () => {
-    const first = document.querySelector('#pList .role-checkbox');
+  app.querySelectorAll('[data-marklabore]').forEach(btn => btn.onclick = async () => {
+    const first = document.querySelector('#pList .labore-checkbox');
     if (first && first.disabled) { toast('Desbloquea la edición primero', 'info'); return; }
-    const role = btn.dataset.markrole;
-    const lbl = (state.roles.find(r => r.id === role) || {}).label || role;
-    const add = state.people.some(p => !(Array.isArray(p.roles) && p.roles.includes(role)));
+    const labore = btn.dataset.marklabore;
+    const lbl = (state.labores.find(r => r.id === labore) || {}).label || labore;
+    const add = state.people.some(p => !(Array.isArray(p.labores) && p.labores.includes(labore)));
     for (const p of state.people) {
-      const roles = Array.isArray(p.roles) ? [...p.roles] : [];
-      if (add) { if (!roles.includes(role)) roles.push(role); }
-      else { const i = roles.indexOf(role); if (i !== -1) roles.splice(i, 1); }
-      await db.setPersonRoles(p.id, roles);
-      p.roles = roles;
+      const labores = Array.isArray(p.labores) ? [...p.labores] : [];
+      if (add) { if (!labores.includes(labore)) labores.push(labore); }
+      else { const i = labores.indexOf(labore); if (i !== -1) labores.splice(i, 1); }
+      await db.setPersonLabores(p.id, labores);
+      p.labores = labores;
     }
-    document.querySelectorAll(`#pList .role-checkbox[data-prole="${role}"]`).forEach(cb => cb.checked = add);
+    document.querySelectorAll(`#pList .labore-checkbox[data-plabore="${labore}"]`).forEach(cb => cb.checked = add);
     toast(add ? `"${lbl}" marcado para todos` : `"${lbl}" desmarcado de todos`, 'success');
   });
 
@@ -2025,17 +2025,17 @@ async function renderLists() {
       toggleBtn.classList.remove('border-primary', 'text-primary');
       toggleBtn.classList.add('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
       toggleBtn.lastElementChild.textContent = 'Guardar y Bloquear';
-      $('#pList').querySelectorAll('.role-checkbox').forEach(cb => cb.disabled = false);
+      $('#pList').querySelectorAll('.labore-checkbox').forEach(cb => cb.disabled = false);
     } else {
       toggleBtn.classList.add('border-primary', 'text-primary');
       toggleBtn.classList.remove('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
       toggleBtn.lastElementChild.textContent = 'Desbloquear';
-      $('#pList').querySelectorAll('.role-checkbox').forEach(cb => cb.disabled = true);
+      $('#pList').querySelectorAll('.labore-checkbox').forEach(cb => cb.disabled = true);
     }
   };
   $('#addMemberBtn').onclick = openAddMemberModal;
 
-  $('#manageRolesBtn').onclick = renderRolesModal;
+  $('#manageLaboresBtn').onclick = renderLaboresModal;
 
   const search = $('#pSearch');
   search.addEventListener('input', () => {
@@ -2046,11 +2046,11 @@ async function renderLists() {
   });
 
   $('#pList').innerHTML = state.people.map(renderRows).join('') || `
-    <tr><td colspan="${state.roles.length + 1}" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>`;
+    <tr><td colspan="${state.labores.length + 1}" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>`;
   renderRowsBindings();
 }
 
-// Modal para añadir un miembro (usado en la vista Personas, tab Roles e Historial).
+// Modal para añadir un miembro (usado en la vista Personas, tab Labores e Historial).
 function openAddMemberModal() {
   openModal(`
   <div class="text-center">
@@ -2059,14 +2059,14 @@ function openAddMemberModal() {
     <form id="mdForm" class="space-y-4">
       <input id="mdName" type="text" placeholder="Nombre completo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary" autocomplete="off">
       ${personAttrsFields()}
-      <div class="flex flex-wrap justify-center gap-2" id="mdRoles"></div>
+      <div class="flex flex-wrap justify-center gap-2" id="mdLabores"></div>
       <div class="flex gap-3 justify-center pt-2">
         <button type="button" id="mdCancel2" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
         <button type="submit" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
       </div>
     </form>
   </div>`);
-  $('#mdRoles').innerHTML = state.roles.map(r =>
+  $('#mdLabores').innerHTML = state.labores.map(r =>
     `<label class="flex items-center gap-1.5 cursor-pointer text-[12px] font-label-md text-on-surface-variant"><input type="checkbox" data-mr="${r.id}" class="text-primary accent-primary"> ${r.label}</label>`
   ).join('');
   $('#mdCancel2').onclick = closeModal;
@@ -2074,9 +2074,9 @@ function openAddMemberModal() {
     e.preventDefault();
     const name = $('#mdName').value.trim();
     if (!name) { toast('Escribe un nombre', 'error'); return; }
-    const roles = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
+    const labores = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
     const attrs = readPersonAttrs();
-    try { await db.addPerson({ name, roles, ...attrs }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
+    try { await db.addPerson({ name, labores, ...attrs }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
     catch (err) { toast(err.message, 'error'); }
   };
 }
@@ -2093,10 +2093,10 @@ function avatarClassFor(name) {
 }
 
 function renderRows(p) {
-  const roles = Array.isArray(p.roles) ? p.roles : [];
-  const checks = state.roles.map(r => {
-    const on = roles.includes(r.id);
-    return `<td class="p-3 text-center"><div class="checkbox-cell"><input type="checkbox" data-prole="${r.id}" data-pid="${p.id}" class="text-primary role-checkbox" ${on ? 'checked' : ''} disabled></div></td>`;
+  const labores = Array.isArray(p.labores) ? p.labores : [];
+  const checks = state.labores.map(r => {
+    const on = labores.includes(r.id);
+    return `<td class="p-3 text-center"><div class="checkbox-cell"><input type="checkbox" data-plabore="${r.id}" data-pid="${p.id}" class="text-primary labore-checkbox" ${on ? 'checked' : ''} disabled></div></td>`;
   }).join('');
   return `<tr class="hover:bg-surface-container-low transition-colors group" data-norm="${escapeAttr(normalizeStr(p.name))}">
     <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10 border-l-4 border-l-transparent hover:border-l-primary">
@@ -2117,58 +2117,58 @@ function renderRowsBindings() {
   });
   $('#pList').querySelectorAll('[data-markall]').forEach(b => b.onclick = async () => {
     const tr = b.closest('tr');
-    const cbs = [...tr.querySelectorAll('.role-checkbox')];
+    const cbs = [...tr.querySelectorAll('.labore-checkbox')];
     if (cbs.length && cbs[0].disabled) { toast('Desbloquea la edición primero', 'info'); return; }
     const anyUnchecked = cbs.some(cb => !cb.checked);
     const pid = parseInt(b.dataset.markall, 10);
     const person = state.people.find(x => String(x.id) === String(pid));
     if (!person) return;
-    const roles = anyUnchecked ? state.roles.map(r => r.id) : [];
-    await db.setPersonRoles(pid, roles);
-    person.roles = roles;
+    const labores = anyUnchecked ? state.labores.map(r => r.id) : [];
+    await db.setPersonLabores(pid, labores);
+    person.labores = labores;
     cbs.forEach(cb => cb.checked = anyUnchecked);
-    toast(anyUnchecked ? 'Todos los roles marcados' : 'Roles desmarcados', 'success');
+    toast(anyUnchecked ? 'Todas las labores marcadas' : 'Labores desmarcadas', 'success');
   });
   $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
     if (await confirmDialog('¿Eliminar esta persona?')) { await db.deletePerson(parseInt(b.dataset.pdel, 10)); renderLists(); }
   });
-  $('#pList').querySelectorAll('[data-prole]').forEach(cb => cb.onchange = async () => {
+  $('#pList').querySelectorAll('[data-plabore]').forEach(cb => cb.onchange = async () => {
     const pid = parseInt(cb.dataset.pid, 10);
-    const role = cb.dataset.prole;
+    const labore = cb.dataset.plabore;
     const person = state.people.find(x => String(x.id) === String(pid));
     if (!person) return;
-    const roles = Array.isArray(person.roles) ? [...person.roles] : [];
-    const idx = roles.indexOf(role);
-    if (cb.checked && idx === -1) roles.push(role);
-    else if (!cb.checked && idx !== -1) roles.splice(idx, 1);
-    await db.setPersonRoles(pid, roles);
-    person.roles = roles;
+    const labores = Array.isArray(person.labores) ? [...person.labores] : [];
+    const idx = labores.indexOf(labore);
+    if (cb.checked && idx === -1) labores.push(labore);
+    else if (!cb.checked && idx !== -1) labores.splice(idx, 1);
+    await db.setPersonLabores(pid, labores);
+    person.labores = labores;
   });
 }
 
 /* ---------- Vista Historial de asignaciones (Personas) ---------- */
 // Consulta quién recibió una asignación hace más tiempo y métricas por persona.
-// Columnas: asignaciones último mes, promedio por mes, puede dar (tiene rol)
+// Columnas: asignaciones último mes, promedio por mes, puede dar (tiene labor)
 // pero no le ha tocado, última asignación y total.
 async function renderListsHistorial() {
   const app = $('#app');
-  const thead = app.querySelector('#rolesTable thead tr');
+  const thead = app.querySelector('#laboresTable thead tr');
   thead.innerHTML = `
     <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[220px]">Miembro</th>
     <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Cantidad de asignaciones en los últimos 30 días">Último mes</th>
     <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Promedio de asignaciones por mes">Promedio / mes</th>
     <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Total de asignaciones registradas">Total</th>
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-left sticky top-0 bg-surface-container z-20" title="Roles que puede dar (los tiene) pero aún no le han tocado">Puede dar, no le ha tocado</th>
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-left sticky top-0 bg-surface-container z-20" title="Labores que puede dar (las tiene) pero aún no le han tocado">Puede dar, no le ha tocado</th>
     <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Fecha de su última asignación (orden ascendente = hace más tiempo)">Última asignación</th>
   `;
   const tbody = app.querySelector('#pList');
   tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Cargando historial…</td></tr>';
 
   const log = await db.listAssignmentLog();
-  const metrics = assignmentMetrics(log, state.people, state.roles)
+  const metrics = assignmentMetrics(log, state.people, state.labores)
     .sort((a, b) => (a.lastDate || '') < (b.lastDate || '') ? -1 : ((a.lastDate || '') > (b.lastDate || '') ? 1 : 0));
 
-  const labelOfRole = (rid) => (state.roles.find(r => String(r.id) === String(rid)) || {}).label || rid;
+  const labelOfLabore = (rid) => (state.labores.find(r => String(r.id) === String(rid)) || {}).label || rid;
   const fmtDate = (iso) => {
     if (!iso) return '—';
     const d = new Date(iso + 'T00:00:00');
@@ -2177,7 +2177,7 @@ async function renderListsHistorial() {
 
   tbody.innerHTML = metrics.map(m => {
     const canGive = m.canGiveButNot.length
-      ? m.canGiveButNot.map(labelOfRole).join(', ')
+      ? m.canGiveButNot.map(labelOfLabore).join(', ')
       : '<span class="text-on-surface-variant/60">—</span>';
     return `<tr class="hover:bg-surface-container-low transition-colors" data-norm="${escapeAttr(normalizeStr(m.name))}">
       <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10">
@@ -2200,7 +2200,7 @@ async function renderListsHistorial() {
     });
   });
 
-  $('#manageRolesBtn').onclick = renderRolesModal;
+  $('#manageLaboresBtn').onclick = renderLaboresModal;
   $('#addMemberBtn').onclick = openAddMemberModal;
 }
 
@@ -2244,7 +2244,7 @@ function readPersonAttrs() {
 // Modal de perfil de un colaborador: género + calificación (A/B/C/D) + enlace para D.
 function openPersonProfile(person) {
   const p = { ...person };
-  p.roles = Array.isArray(p.roles) ? p.roles : [];
+  p.labores = Array.isArray(p.labores) ? p.labores : [];
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
   const genOpts = GENEROS.map(([v, l]) => `<option value="${v}" ${p.genero === v ? 'selected' : ''}>${l}</option>`).join('');
   const calOpts = CALIFICACIONES.map(c => `<option value="${c}" ${cal === c ? 'selected' : ''}>${c}${c === 'D' ? ' (enlace)' : ''}</option>`).join('');
@@ -2295,60 +2295,60 @@ function openPersonProfile(person) {
   };
 }
 
-function renderRolesModal() {
+function renderLaboresModal() {
   openModal(`
-    <h3 class="font-headline-md text-headline-md text-primary mb-2">Roles del equipo</h3>
-    <p class="text-on-surface-variant font-body-md text-body-md mb-4">Cree, renombre o elimine los roles que se asignan a los miembros.</p>
+    <h3 class="font-headline-md text-headline-md text-primary mb-2">Labores del equipo</h3>
+    <p class="text-on-surface-variant font-body-md text-body-md mb-4">Cree, renombre o elimine las labores que se asignan a los miembros.</p>
     <form id="rForm" class="flex gap-2 mb-4">
-      <input id="rName" type="text" placeholder="Nuevo rol (p. ej. Sonido)" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+      <input id="rName" type="text" placeholder="Nueva labor (p. ej. Sonido)" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
       <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Agregar</button>
     </form>
     <ul id="rList" class="divide-y divide-outline-variant max-h-80 overflow-y-auto"></ul>
     <button id="mdCloseR" class="mt-5 w-full px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
   `);
-  $('#rList').innerHTML = state.roles.map(r => `<li class="flex items-center justify-between py-3 gap-3 group">
+  $('#rList').innerHTML = state.labores.map(r => `<li class="flex items-center justify-between py-3 gap-3 group">
     <span class="font-body-md text-body-md">${escapeHtml(r.label)}</span>
     <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
       <button data-redit="${r.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Renombrar"><span class="material-symbols-outlined text-[18px]">edit</span></button>
       <button data-rdel="${r.id}" class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
     </div>
-  </li>`).join('') || `<li class="py-3 text-on-surface-variant text-sm">Sin roles.</li>`;
-  $('#rList').querySelectorAll('[data-redit]').forEach(b => b.onclick = () => editRoleModal(b.dataset.redit));
+  </li>`).join('') || `<li class="py-3 text-on-surface-variant text-sm">Sin labores.</li>`;
+  $('#rList').querySelectorAll('[data-redit]').forEach(b => b.onclick = () => editLaboreModal(b.dataset.redit));
   $('#rList').querySelectorAll('[data-rdel]').forEach(b => b.onclick = async () => {
     const id = b.dataset.rdel;
-    const role = state.roles.find(r => r.id === id);
-    if (!role) return;
-    if (!await confirmDialog(`¿Eliminar el rol "${role.label}"? Se quitará de todos los miembros.`, 'Eliminar')) return;
-    state.roles = state.roles.filter(r => r.id !== id);
-    await db.setRoles(state.roles);
+    const labore = state.labores.find(r => r.id === id);
+    if (!labore) return;
+    if (!await confirmDialog(`¿Eliminar la labor "${labore.label}"? Se quitará de todos los miembros.`, 'Eliminar')) return;
+    state.labores = state.labores.filter(r => r.id !== id);
+    await db.setLabores(state.labores);
     for (const p of state.people) {
-      if (Array.isArray(p.roles) && p.roles.includes(id)) {
-        p.roles = p.roles.filter(x => x !== id);
-        await db.setPersonRoles(p.id, p.roles);
+      if (Array.isArray(p.labores) && p.labores.includes(id)) {
+        p.labores = p.labores.filter(x => x !== id);
+        await db.setPersonLabores(p.id, p.labores);
       }
     }
-    toast('Rol eliminado', 'success');
-    renderRolesModal();
+    toast('Labor eliminada', 'success');
+    renderLaboresModal();
   });
   $('#rForm').onsubmit = async (e) => {
     e.preventDefault();
     const name = $('#rName').value.trim();
     if (!name) { toast('Escribe un nombre', 'error'); return; }
-    if (state.roles.some(r => r.label.toLowerCase() === name.toLowerCase())) { toast('Ese rol ya existe', 'error'); return; }
-    state.roles.push({ id: 'role_' + cryptoId(), label: name });
-    await db.setRoles(state.roles);
-    toast('Rol agregado', 'success');
-    renderRolesModal();
+    if (state.labores.some(r => r.label.toLowerCase() === name.toLowerCase())) { toast('Esa labor ya existe', 'error'); return; }
+    state.labores.push({ id: 'labore_' + cryptoId(), label: name });
+    await db.setLabores(state.labores);
+    toast('Labor agregada', 'success');
+    renderLaboresModal();
   };
   $('#mdCloseR').onclick = () => { closeModal(); renderLists(); };
 }
 
-function editRoleModal(id) {
-  const role = state.roles.find(r => r.id === id);
-  if (!role) return;
+function editLaboreModal(id) {
+  const labore = state.labores.find(r => r.id === id);
+  if (!labore) return;
   openModal(`
-    <h3 class="font-headline-md text-headline-md text-primary mb-4">Renombrar rol</h3>
-    <input id="editRName" type="text" value="${escapeAttr(role.label)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-4">
+    <h3 class="font-headline-md text-headline-md text-primary mb-4">Renombrar labor</h3>
+    <input id="editRName" type="text" value="${escapeAttr(labore.label)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-4">
     <div class="flex gap-3 justify-end">
       <button id="editRCancel" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
       <button id="editROk" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
@@ -2357,14 +2357,14 @@ function editRoleModal(id) {
   const save = async () => {
     const name = $('#editRName').value.trim();
     if (!name) { toast('Escribe un nombre', 'error'); return; }
-    if (state.roles.some(r => r.id !== id && r.label.toLowerCase() === name.toLowerCase())) { toast('Ese rol ya existe', 'error'); return; }
-    role.label = name;
-    await db.setRoles(state.roles);
-    toast('Rol actualizado', 'success');
+    if (state.labores.some(r => r.id !== id && r.label.toLowerCase() === name.toLowerCase())) { toast('Esa labor ya existe', 'error'); return; }
+    labore.label = name;
+    await db.setLabores(state.labores);
+    toast('Labor actualizada', 'success');
     closeModal();
-    renderRolesModal();
+    renderLaboresModal();
   };
-  $('#editRCancel').onclick = () => { closeModal(); renderRolesModal(); };
+  $('#editRCancel').onclick = () => { closeModal(); renderLaboresModal(); };
   $('#editROk').onclick = save;
   $('#editRName').addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
 }
@@ -2382,8 +2382,8 @@ const UPLOAD_TYPES = [
     key: 'people',
     title: 'Personas',
     icon: 'group',
-    desc: 'Lista de participantes con sus roles.',
-    pdfHint: 'Se extraen nombres y roles del PDF para revisar.',
+    desc: 'Lista de participantes con sus labores.',
+    pdfHint: 'Se extraen nombres y labores del PDF para revisar.',
   },
   {
     key: 'midweeks',
@@ -2950,14 +2950,15 @@ async function renderSettings() {
     if (!await confirmDialog('Restaurar reemplazará los datos actuales. ¿Continuar?', 'Restaurar')) return;
     try {
       const data = JSON.parse(await file.text());
-      if (data.people) for (const p of data.people) { await db.addPerson({ name: p.name, roles: Array.isArray(p.roles) ? p.roles : [] }); }
+      if (data.people) for (const p of data.people) { await db.addPerson({ name: p.name, labores: Array.isArray(p.labores) ? p.labores : (Array.isArray(p.roles) ? p.roles : []) }); }
       if (data.departments) for (const d of data.departments) { if (d.id) await db.updateDepartment(d); else await db.addDepartment(d.name); }
       if (data.months) for (const m of data.months) await db.putMonth(m);
       if (data.talks) await db.replaceAllTalks(data.talks);
       if (data.midweeks) await db.replaceAllMidweeks(data.midweeks);
       if (data.aseos) for (const a of data.aseos) await db.putAseo(a);
       if (data.salidas) for (const s of data.salidas) await db.putSalidas(s);
-      if (data.labores) for (const l of data.labores) await db.putLabores(l);
+      if (data.atencion) for (const l of data.atencion) await db.putAtencion(l);
+      else if (data.labores) for (const l of data.labores) await db.putAtencion(l);
       if (data.settings) {
         if (data.settings.congregation) await db.setSetting('congregation', data.settings.congregation);
         if (data.settings.config) await db.setConfig(data.settings.config);
@@ -2974,13 +2975,13 @@ async function renderSettings() {
       const res = await fetch('./participantes.json', { cache: 'no-cache' });
       if (res.ok) {
         const data = await res.json();
-        const rolesMap = data.roles || {};
+        const rolesMap = data.labores || data.roles || {};
         const merged = {};
-        for (const [role, names] of Object.entries(rolesMap)) {
+        for (const [labore, names] of Object.entries(rolesMap)) {
           for (const name of names) {
             const key = String(name).trim().toLowerCase();
-            if (!merged[key]) merged[key] = { name: String(name).trim(), roles: [] };
-            if (!merged[key].roles.includes(role)) merged[key].roles.push(role);
+            if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
+            if (!merged[key].labores.includes(labore)) merged[key].labores.push(labore);
           }
         }
         for (const p of await db.listPeople()) await db.deletePerson(p.id);
@@ -3215,18 +3216,18 @@ function midweekCardList(w, i) {
 }
 
 /* ---------- ACOMODACIÓN: programa de labores independiente por mes ---------- */
-async function renderLabores(monthId, opts = {}) {
+async function renderAtencion(monthId, opts = {}) {
   const embed = opts.embed;
   if (!embed) {
     state.month = null;
     renderTop();
   }
   const root = embed || $('#app');
-  const laboresList = await db.listLabores();
+  const laboresList = await db.listAtencion();
   const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
   const allMonths = [...new Set([...laboresList.map(p => p.id), ...mwMonths])].sort((a, b) => b.localeCompare(a));
   const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
-  let program = await db.getLabores(cur);
+  let program = await db.getAtencion(cur);
 
   // Cada columna es una semana de la organización (domingo que la cierra): la
   // reunión de fin de semana (sábado, del programa de acomodación) y la de entre
@@ -3237,12 +3238,12 @@ async function renderLabores(monthId, opts = {}) {
     return isoDate(d);
   };
   const slotValue = (week, key, si) => {
-    const l = ensureLabores(week).labores;
+    const l = ensureAtencion(week).labores;
     return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
   };
   const fmtShort = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
-  const laboreOpts = (week, curVal, collector) => `<option value="">— Sin asignar —</option>` +
-    eligiblePeople(week, state.people, isLaborePerson, curVal, collector).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+  const atencionOpts = (week, curVal, collector) => `<option value="">— Sin asignar —</option>` +
+    eligiblePeople(week, state.people, isAtencionPerson, curVal, collector).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 
   const render = () => {
     const finBySunday = new Map();
@@ -3264,7 +3265,7 @@ async function renderLabores(monthId, opts = {}) {
         const bits = [];
         if (fin) {
           bits.push(`<div class="flex flex-col gap-0.5">
-            <select data-labore-wi="${fin.wi}" data-labore-key="${key}" data-labore-si="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${laboreOpts(fin.w, curVal)}</select>
+            <select data-atencion-wi="${fin.wi}" data-atencion-key="${key}" data-atencion-si="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${atencionOpts(fin.w, curVal)}</select>
             <span class="text-[9px] uppercase text-on-surface-variant/70 tracking-wider">FS</span>
           </div>`);
         } else if (curVal) {
@@ -3272,7 +3273,7 @@ async function renderLabores(monthId, opts = {}) {
         }
         if (mw) {
           bits.push(`<div class="flex flex-col gap-0.5">
-            <select data-mwlabore-key="${key}" data-mwlabore-si="${si}" data-mwlabore-id="${mw.id}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${laboreOpts(mw, mwName, collectMidweekPersons)}</select>
+            <select data-mwatencion-key="${key}" data-mwatencion-si="${si}" data-mwatencion-id="${mw.id}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${atencionOpts(mw, mwName, collectMidweekPersons)}</select>
             <span class="text-[9px] uppercase text-on-surface-variant/70 tracking-wider">ES</span>
           </div>`);
         } else if (mwName) {
@@ -3297,7 +3298,7 @@ async function renderLabores(monthId, opts = {}) {
       </th>`).join('')}
     </tr></thead>`;
     const rows = [];
-    for (const d of LABORES_DEF) {
+    for (const d of ATENCION_DEF) {
       for (let si = 0; si < d.count; si++) {
         const cells = columns.map(c => `<td class="p-4 text-center font-body-md text-body-md align-top">${c.cell(d.key, si)}</td>`).join('');
         rows.push(`<tr class="border-b border-outline-variant/40">
@@ -3309,7 +3310,7 @@ async function renderLabores(monthId, opts = {}) {
 
     const title = embed
       ? ''
-      : `<h1 class="font-display-lg text-display-lg text-primary mb-2">Acomodación</h1>
+      : `<h1 class="font-display-lg text-display-lg text-primary mb-2">Atención</h1>
         <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Labores de atención (tras bambalinas) de ambas reuniones · ${MONTHS_ES[Number(cur.slice(5)) - 1]} ${cur.slice(0, 4)}.</p>`;
 
     const monthSelBlock = embed ? '' : `
@@ -3333,9 +3334,9 @@ async function renderLabores(monthId, opts = {}) {
       ${!program
         ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">
             <span class="material-symbols-outlined text-primary text-5xl mb-3 inline-block">work</span>
-            <p class="text-on-surface-variant font-body-lg">No hay programa de acomodación para este mes.</p>
+            <p class="text-on-surface-variant font-body-lg">No hay programa de atención para este mes.</p>
             <button id="laboresCreate" class="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
-              <span class="material-symbols-outlined text-[18px]">add_circle</span> Crear programa de acomodación
+              <span class="material-symbols-outlined text-[18px]">add_circle</span> Crear programa de atención
             </button>
           </div>`
         : columns.length === 0
@@ -3349,37 +3350,37 @@ async function renderLabores(monthId, opts = {}) {
     `;
 
     const monthSel = $('#labMonth');
-    if (monthSel) monthSel.onchange = (e) => go('labores', { monthId: e.target.value });
+    if (monthSel) monthSel.onchange = (e) => go('atencion', { monthId: e.target.value });
     const createBtn = root.querySelector('#laboresCreate');
     if (createBtn) createBtn.onclick = createProgram;
     if (!program) return;
 
-    root.querySelectorAll('select[data-labore-wi]').forEach(sel => {
+    root.querySelectorAll('select[data-atencion-wi]').forEach(sel => {
       sel.addEventListener('change', async () => {
         const wi = parseInt(sel.dataset.laboreWi, 10);
         const key = sel.dataset.laboreKey;
         const si = parseInt(sel.dataset.laboreSi, 10);
         const week = program.weeks[wi];
         if (!week) return;
-        ensureLabores(week);
+        ensureAtencion(week);
         const val = sel.value;
         if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
         else week.labores[key] = val;
-        await db.putLabores(program);
+        await db.putAtencion(program);
         await syncAssignmentLog();
         toast('Labor asignada', 'success');
         render();
       });
     });
 
-    root.querySelectorAll('select[data-mwlabore-key]').forEach(sel => {
+    root.querySelectorAll('select[data-mwatencion-key]').forEach(sel => {
       sel.addEventListener('change', async () => {
-        const key = sel.dataset.mwlaboreKey;
-        const si = parseInt(sel.dataset.mwlaboreSi, 10);
-        const mwId = sel.dataset.mwlaboreId;
+        const key = sel.dataset.mwatencionKey;
+        const si = parseInt(sel.dataset.mwatencionSi, 10);
+        const mwId = sel.dataset.mwatencionId;
         const week = state.midweeks.find(m => String(m.id) === String(mwId));
         if (!week) return;
-        ensureLabores(week);
+        ensureAtencion(week);
         const val = sel.value;
         if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
         else week.labores[key] = val;
@@ -3397,9 +3398,9 @@ async function renderLabores(monthId, opts = {}) {
   async function createProgram() {
     const year = Number(cur.slice(0, 4));
     const month = Number(cur.slice(5, 7));
-    const weeks = saturdaysOf(year, month).map(d => ({ saturday: isoDate(d), labores: newLabores() }));
+    const weeks = saturdaysOf(year, month).map(d => ({ saturday: isoDate(d), labores: newAtencion() }));
     program = { id: cur, weeks };
-    await db.putLabores(program);
+    await db.putAtencion(program);
     toast('Programa de acomodación creado', 'success');
     render();
   }
@@ -3408,7 +3409,7 @@ async function renderLabores(monthId, opts = {}) {
 }
 
 /* ---------- ASEO: programa de aseo independiente por mes ---------- */
-async function renderLaboresGrupo(monthId, opts = {}) {
+async function renderAtencionGrupo(monthId, opts = {}) {
   const embed = opts.embed;
   if (!embed) {
     state.month = null;
@@ -3698,7 +3699,7 @@ async function renderGeneralMonth(monthId, opts = {}) {
 
   const aseos = await db.listAseos();
   const salidasList = await db.listSalidas();
-  const laboresList = await db.listLabores();
+  const laboresList = await db.listAtencion();
   const aseoBySunday = new Map();
   aseos.forEach(a => (a.weeks || []).forEach(w => aseoBySunday.set(weekSunday(w.saturday), w)));
   const salidasBySunday = new Map();
@@ -3862,11 +3863,11 @@ function generalFsContent(w, outings) {
 // Labores combinadas (fin de semana FS + entre semana ES) del cuadro semanal.
 function generalLabores({ fin, mw, finLabores }) {
   const slot = (week, key, si) => {
-    const l = ensureLabores(week).labores;
+    const l = ensureAtencion(week).labores;
     return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
   };
   const fsWeek = finLabores || fin; // el fin de semana sale del programa de acomodación
-  const rows = LABORES_DEF.map(({ key, label, count }) => {
+  const rows = ATENCION_DEF.map(({ key, label, count }) => {
     const bits = [];
     for (let si = 0; si < count; si++) {
       const finName = fsWeek ? slot(fsWeek, key, si) : '';
@@ -3938,7 +3939,7 @@ async function renderMidweek(id) {
 
   const editor = $('#mwEditor');
   const presOpts = ['<option value="">— Sin asignar —</option>'];
-  const presList = state.people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes('presidente'));
+  const presList = state.people.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('presidente'));
   for (const person of presList) {
     presOpts.push(`<option value="${person.id}" ${String(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
   }
@@ -3948,7 +3949,7 @@ async function renderMidweek(id) {
         <h2 class="font-headline-md text-headline-md text-primary">Presidente</h2>
       </div>
       <select data-mw-presidente class="mwSel w-full bg-surface-bright border ${!week.presidente ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-md focus:border-primary">${presOpts.join('')}</select>
-      ${!week.presidente ? `<div class="mt-2 text-xs text-on-surface-variant" data-mwsugwrap="presidente">Sugerencias: ${mwSuggestChips(week, 'presidente', [], (p) => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes('presidente'), (list) => list)}</div>` : ''}
+      ${!week.presidente ? `<div class="mt-2 text-xs text-on-surface-variant" data-mwsugwrap="presidente">Sugerencias: ${mwSuggestChips(week, 'presidente', [], (p) => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('presidente'), (list) => list)}</div>` : ''}
     </div>` + (week.sections || []).map((sec, si) => {
     const parts = (sec.parts || []).map(p => {
       const slots = mwSlotsFor(sec, p);
@@ -3957,8 +3958,8 @@ async function renderMidweek(id) {
         const cur = ap[s.key];
         const opts = ['<option value="">— Sin asignar —</option>'];
         // Las partes de estudiante aceptan a cualquier estudiante (cualquier rol de
-        // estudiante o sin roles); el resto de puestos filtra por su rol exacto.
-        const roleFilter = isStudentRole(s.role) ? isStudentPerson : s.role;
+        // estudiante o sin labores); el resto de puestos filtra por su labor exacta.
+        const roleFilter = isStudentLabore(s.labore) ? isStudentPerson : s.labore;
         const list = eligiblePeople(week, state.people, roleFilter, cur, collectMidweekPersons);
         for (const person of list) {
           opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
@@ -4037,7 +4038,7 @@ async function renderMidweek(id) {
         p.assignments = ap;
       });
     });
-    week.labores = ensureLabores(week).labores;
+    week.labores = ensureAtencion(week).labores;
     const presSel = editor.querySelector('select[data-mw-presidente]');
     if (presSel) week.presidente = presSel.value;
     await db.putMidweek(week);
@@ -4348,8 +4349,8 @@ function compactWeekCard(w) {
 
 // Cuadro de labores compacto para la tarjeta mensual.
 function compactLabores(w) {
-  const l = ensureLabores(w).labores;
-  const rows = LABORES_DEF.map(({ key, label, count }) => {
+  const l = ensureAtencion(w).labores;
+  const rows = ATENCION_DEF.map(({ key, label, count }) => {
     const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido' ? l[key] : [l[key] || ''];
     const names = Array.from({ length: count }, (_, si) => { const v = slots[si] || ''; return v ? personNameOf(v) : null; }).filter(Boolean);
     return `<div class="flex justify-between text-[9px] leading-tight">
@@ -4358,15 +4359,15 @@ function compactLabores(w) {
     </div>`;
   }).join('');
   return `<div class="border-t border-dashed border-gray-300 mt-1.5 pt-1">
-    <div class="text-[8px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">LABORES · TRAS BAMBALINAS</div>
+    <div class="text-[8px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">ATENCIÓN · TRAS BAMBALINAS</div>
     ${rows}
   </div>`;
 }
 
 /* Cuadro de Atención departamentos (labores) para las vistas de lista */
 function previewLaboresBox(w) {
-  const l = ensureLabores(w).labores;
-  const rows = LABORES_DEF.map(({ key, label, count }) => {
+  const l = ensureAtencion(w).labores;
+  const rows = ATENCION_DEF.map(({ key, label, count }) => {
     const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
       ? l[key]
       : [l[key] || ''];
@@ -4380,7 +4381,7 @@ function previewLaboresBox(w) {
     </div>`;
   }).join('');
   return `<div class="mt-6 pt-3 border-t-2 border-dashed border-gray-300">
-    <div class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">LABORES · TRAS BAMBALINAS</div>
+    <div class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2">ATENCIÓN · TRAS BAMBALINAS</div>
     ${rows}
   </div>`;
 }
@@ -4408,17 +4409,17 @@ function renderAbout() {
 }
 
 /* ---------- Quick add persona (modal) ---------- */
-async function quickAddPerson(preselectRole = '') {
+async function quickAddPerson(preselectLabore = '') {
   return new Promise((resolve) => {
-    const allRoles = state.roles.map(r => `<label class="flex items-center gap-2 text-sm">
-      <input type="checkbox" data-prole="${r.id}" ${preselectRole === r.id ? 'checked' : ''} class="accent-primary">
+    const allLabores = state.labores.map(r => `<label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" data-plabore="${r.id}" ${preselectLabore === r.id ? 'checked' : ''} class="accent-primary">
       <span>${r.label}</span>
     </label>`).join('');
     openModal(`<div>
       <h3 class="font-headline-md text-headline-md text-primary mb-4">Agregar</h3>
       <input id="qpName" type="text" placeholder="Nombre completo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-4">
-      <p class="text-on-surface-variant font-label-md text-label-md mb-2">Roles:</p>
-      <div class="grid grid-cols-2 gap-2 mb-4">${allRoles}</div>
+      <p class="text-on-surface-variant font-label-md text-label-md mb-2">Labores:</p>
+      <div class="grid grid-cols-2 gap-2 mb-4">${allLabores}</div>
       <div class="flex gap-3 justify-end">
         <button id="qpCancel" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
         <button id="qpOk" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
@@ -4427,8 +4428,8 @@ async function quickAddPerson(preselectRole = '') {
     const submit = async () => {
       const name = $('#qpName').value.trim();
       if (!name) { toast('Nombre vacío', 'error'); return; }
-      const roles = Array.from(document.querySelectorAll('[data-prole]:checked')).map(c => c.dataset.prole);
-      try { await db.addPerson({ name, roles }); await refreshCatalogs(); toast('Persona agregada', 'success'); }
+      const labores = Array.from(document.querySelectorAll('[data-plabore]:checked')).map(c => c.dataset.plabore);
+      try { await db.addPerson({ name, labores }); await refreshCatalogs(); toast('Persona agregada', 'success'); }
       catch (err) { toast(err.message, 'error'); }
       closeModal(); resolve();
     };
@@ -4606,21 +4607,21 @@ function newWeek(date) {
     // Salidas (sólo relevantes si type === 'normal'): lista de oradores
     outings: [ newOuting() ],
     // Atencion departamentos (no son asignaciones del programa)
-    labores: newLabores(),
+    labores: newAtencion(),
   };
 }
 
-// Estructura por defecto de las labores de una semana (derivada de LABORES_DEF)
-function newLabores() {
-  return Object.fromEntries(LABORES_DEF.map(({ key, count }) => [key, count > 1 ? Array(count).fill('') : '']));
+// Estructura por defecto de las labores de una semana (derivada de ATENCION_DEF)
+function newAtencion() {
+  return Object.fromEntries(ATENCION_DEF.map(({ key, count }) => [key, count > 1 ? Array(count).fill('') : '']));
 }
 
 // Garantiza que una semana tenga su objeto de labores
-function ensureLabores(w) {
+function ensureAtencion(w) {
   if (!w) w = {};
-  if (!w.labores) w.labores = newLabores();
-  const d = newLabores();
-  LABORES_DEF.forEach(({ key }) => {
+  if (!w.labores) w.labores = newAtencion();
+  const d = newAtencion();
+  ATENCION_DEF.forEach(({ key }) => {
     let cur = w.labores[key];
     const slotCount = (Array.isArray(d[key]) ? d[key].length : 1);
     if (Array.isArray(d[key])) {
@@ -4769,7 +4770,7 @@ function pairWarning(sec, p) {
   const slots = midweekSlotsOf(sec, p);
   // La compatibilidad de pareja solo aplica a las presentaciones (asignacion2);
   // el Estudio Bíblico de la Congregación solo exige el rol.
-  if (!(slots.length === 2 && slots.some(s => s.role === 'asignacion2'))) return '';
+  if (!(slots.length === 2 && slots.some(s => s.labore === 'asignacion2'))) return '';
   const ap = p.assignments || {};
   const keys = Object.keys(ap).filter(k => ap[k]);
   if (keys.length < 2) return '';
@@ -4790,12 +4791,12 @@ function deptNameOf(id) {
 async function renderCrossAlerts(container, cur) {
   if (!container) return;
   const [months, midweeks, labores, salidas] = await Promise.all([
-    db.listMonths(), db.listMidweeks(), db.listLabores(), db.listSalidas(),
+    db.listMonths(), db.listMidweeks(), db.listAtencion(), db.listSalidas(),
   ]);
   const ctx = {
     months: months.filter(m => String(m.id).startsWith(cur)),
     midweeks: midweeks.filter(m => String(m.id).startsWith(cur)),
-    labores: labores.filter(p => String(p.id) === cur),
+    atencion: labores.filter(p => String(p.id) === cur),
     salidas: salidas.filter(p => String(p.id) === cur),
   };
   const conflicts = computeCrossConflicts(ctx);

@@ -2,7 +2,7 @@
 // Stores: months (programas mensuales), people, departments, settings, talks, midweeks, aseos
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -11,7 +11,7 @@ const STORE_TALKS = 'talks';        // keyPath: num (discurso n°)
 const STORE_MIDWEEKS = 'midweeks';   // key: "YYYY-MM-DD" (reunión de entre semana)
 const STORE_ASEOS = 'aseos';        // key: "YYYY-MM" (programa de aseo por mes)
 const STORE_SALIDAS = 'salidas';    // key: "YYYY-MM" (programa de salidas por mes)
-const STORE_LABORES = 'labores';    // key: "YYYY-MM" (programa de acomodación/labores por mes)
+const STORE_ATENCION = 'atencion';  // key: "YYYY-MM" (programa de atención/acomodación por mes)
 const STORE_ASSIGNMENT_LOG = 'assignment_log'; // keyPath: id (compuesto person+date+program+role) · historial de asignaciones
 
 let _db = null;
@@ -51,8 +51,13 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_SALIDAS)) {
         db.createObjectStore(STORE_SALIDAS, { keyPath: 'id' });
       }
-      if (!db.objectStoreNames.contains(STORE_LABORES)) {
-        db.createObjectStore(STORE_LABORES, { keyPath: 'id' });
+      // Migración v6→v7: el store de labores de acomodación pasa a llamarse
+      // 'atencion' (los "roles" del equipo pasan a llamarse "labores").
+      if (db.objectStoreNames.contains('labores') && !db.objectStoreNames.contains(STORE_ATENCION)) {
+        db.transaction('labores', 'readwrite').objectStore('labores').name = STORE_ATENCION;
+      }
+      if (!db.objectStoreNames.contains(STORE_ATENCION)) {
+        db.createObjectStore(STORE_ATENCION, { keyPath: 'id' });
       }
       if (!db.objectStoreNames.contains(STORE_ASSIGNMENT_LOG)) {
         db.createObjectStore(STORE_ASSIGNMENT_LOG, { keyPath: 'id' });
@@ -102,7 +107,11 @@ export async function listMonths() {
 export async function listPeople() {
   const db = await openDB();
   const all = await reqToPromise(tx(db, STORE_PEOPLE).getAll());
-  return all.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  // Compatibilidad: las personas guardadas con el campo antiguo `roles` se leen
+  // como `labores` (renombrado).
+  return all
+    .map(p => ({ ...p, labores: Array.isArray(p.labores) ? p.labores : (Array.isArray(p.roles) ? p.roles : []) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 
 export async function addPerson(payload) {
@@ -111,13 +120,13 @@ export async function addPerson(payload) {
   if (typeof payload === 'string') {
     const name = payload.trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, roles: [], cargos: [], genero: '', calificacion: '', createdAt: Date.now() };
+    record = { name, labores: [], cargos: [], genero: '', calificacion: '', createdAt: Date.now() };
   } else {
     const name = (payload.name || '').trim();
     if (!name) throw new Error('Nombre vacío');
     record = {
       name,
-      roles: Array.isArray(payload.roles) ? payload.roles : [],
+      labores: Array.isArray(payload.labores) ? payload.labores : (Array.isArray(payload.roles) ? payload.roles : []),
       cargos: Array.isArray(payload.cargos) ? payload.cargos : (typeof payload.cargos === 'string' && payload.cargos ? payload.cargos.split(',').map(s => s.trim()).filter(Boolean) : []),
       genero: payload.genero || '',
       calificacion: payload.calificacion || '',
@@ -144,8 +153,8 @@ export async function clearPeople() {
 }
 
 // Reemplaza toda la lista de personas desde un archivo con formato de
-// participantes.json: { roles: { <rol>: [nombres...], ... } }.
-// Inserta personas únicas (por nombre) con sus roles.
+// participantes.json: { roles: { <labor>: [nombres...], ... } }.
+// Inserta personas únicas (por nombre) con sus labores (puestos del equipo).
 export async function replaceAllPeople(data) {
   const rolesMap = (data && (data.roles || data.participantes)) || {};
   const merged = {};
@@ -153,29 +162,30 @@ export async function replaceAllPeople(data) {
     for (const name of (Array.isArray(names) ? names : [])) {
       const key = String(name).trim().toLowerCase();
       if (!key) continue;
-      if (!merged[key]) merged[key] = { name: String(name).trim(), roles: [] };
-      if (!merged[key].roles.includes(role)) merged[key].roles.push(role);
+      if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
+      if (!merged[key].labores.includes(role)) merged[key].labores.push(role);
     }
   }
   await clearPeople();
   const list = Object.values(merged);
-  for (const p of list) await addPerson({ name: p.name, roles: p.roles });
+  for (const p of list) await addPerson({ name: p.name, labores: p.labores });
   return list.length;
 }
 
-// Personas filtradas por rol. Si una persona no tiene `roles` (datos antiguos),
-// se incluye en todos los roles para no romper programas existentes.
-export async function listPeopleByRole(role) {
+// Personas filtradas por labor (puesto del equipo). Si una persona no tiene
+// `labores` (datos antiguos), se incluye en todos los puestos para no romper
+// programas existentes.
+export async function listPeopleByLabore(labore) {
   const all = await listPeople();
-  return all.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role));
+  return all.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore));
 }
 
-// Reemplaza los roles de una persona existente.
-export async function setPersonRoles(id, roles) {
+// Reemplaza las labores (puestos del equipo) de una persona existente.
+export async function setPersonLabores(id, labores) {
   const p = await listPeople();
   const person = p.find(x => String(x.id) === String(id));
   if (!person) throw new Error('Persona no encontrada');
-  person.roles = Array.isArray(roles) ? roles : [];
+  person.labores = Array.isArray(labores) ? labores : [];
   return updatePerson(person);
 }
 
@@ -218,14 +228,22 @@ export async function setSetting(key, value) {
   return reqToPromise(tx(db, STORE_SETTINGS, 'readwrite').put(value, key));
 }
 
-// ===== ROLES (lista editable de roles del equipo) =====
-const SETTING_ROLES = 'roles';
-export async function getRoles(fallback = null) {
-  const v = await getSetting(SETTING_ROLES, null);
-  return Array.isArray(v) && v.length ? v : fallback;
+// ===== LABORES (lista editable de puestos del equipo) =====
+const SETTING_LABORES = 'labores';
+const SETTING_ROLES_OLD = 'roles'; // clave antigua (migración)
+export async function getLabores(fallback = null) {
+  let v = await getSetting(SETTING_LABORES, null);
+  if (Array.isArray(v) && v.length) return v;
+  // Migración: leer la lista antigua guardada como 'roles'.
+  v = await getSetting(SETTING_ROLES_OLD, null);
+  if (Array.isArray(v) && v.length) {
+    await setSetting(SETTING_LABORES, v);
+    return v;
+  }
+  return fallback;
 }
-export async function setRoles(roles) {
-  return setSetting(SETTING_ROLES, Array.isArray(roles) ? roles : []);
+export async function setLabores(labores) {
+  return setSetting(SETTING_LABORES, Array.isArray(labores) ? labores : []);
 }
 
 // ===== CONFIG (configuración general) =====
@@ -375,27 +393,27 @@ export async function listSalidas() {
   return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 
-// ===== LABORES (programa de acomodación/labores por mes) =====
-export async function getLabores(id) {
+// ===== ATENCION (programa de atención/acomodación por mes) =====
+export async function getAtencion(id) {
   const db = await openDB();
-  return reqToPromise(tx(db, STORE_LABORES).get(id));
+  return reqToPromise(tx(db, STORE_ATENCION).get(id));
 }
 
-export async function putLabores(program) {
+export async function putAtencion(program) {
   const db = await openDB();
   program.updatedAt = Date.now();
   if (!program.createdAt) program.createdAt = program.updatedAt;
-  return reqToPromise(tx(db, STORE_LABORES, 'readwrite').put(program));
+  return reqToPromise(tx(db, STORE_ATENCION, 'readwrite').put(program));
 }
 
-export async function deleteLabores(id) {
+export async function deleteAtencion(id) {
   const db = await openDB();
-  return reqToPromise(tx(db, STORE_LABORES, 'readwrite').delete(id));
+  return reqToPromise(tx(db, STORE_ATENCION, 'readwrite').delete(id));
 }
 
-export async function listLabores() {
+export async function listAtencion() {
   const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_LABORES).getAll());
+  const all = await reqToPromise(tx(db, STORE_ATENCION).getAll());
   return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 
@@ -518,9 +536,9 @@ export async function seedIfEmpty() {
     // Migración: borrar las personas de muestra antiguas (las que vinieron del
     // seed inicial de versiones previas) que no figuren en participantes.json.
     await removeLegacyPeople(people, participantes);
-    // Luego enriquecer las restantes con sus roles.
+    // Luego enriquecer las restantes con sus labores.
     const refreshed = await listPeople();
-    await enrichRolesFromParticipantes(refreshed, participantes);
+    await enrichLaboresFromParticipantes(refreshed, participantes);
   }
 
   const depts = await listDepartments();
@@ -631,27 +649,28 @@ async function loadParticipantes() {
     }
     const data = await res.json();
     const rolesMap = data.roles || {};
-    // Insertar personas únicas (por nombre) con sus roles
+    // Insertar personas únicas (por nombre) con sus labores
     const merged = {};
     for (const [role, names] of Object.entries(rolesMap)) {
       for (const name of names) {
         const key = String(name).trim().toLowerCase();
-        if (!merged[key]) merged[key] = { name: String(name).trim(), roles: [] };
-        if (!merged[key].roles.includes(role)) merged[key].roles.push(role);
+        if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
+        if (!merged[key].labores.includes(role)) merged[key].labores.push(role);
       }
     }
     for (const p of Object.values(merged)) {
-      await addPerson({ name: p.name, roles: p.roles });
+      await addPerson({ name: p.name, labores: p.labores });
     }
   } catch (e) {
     console.warn('[Reunión+] No se pudo cargar participantes.json', e);
   }
 }
 
-// Para personas ya creadas, sincroniza sus roles con los del archivo participantes.json
-// (sin sobrescribir programas existentes). Conserva las personas añadidas a mano
-// (simplemente no tendrán roles asignados a menos que coincidan por nombre).
-async function enrichRolesFromParticipantes(existing, participantes) {
+// Para personas ya creadas, sincroniza sus labores con las del archivo
+// participantes.json (sin sobrescribir programas existentes). Conserva las
+// personas añadidas a mano (simplemente no tendrán labores asignadas a menos
+// que coincidan por nombre).
+async function enrichLaboresFromParticipantes(existing, participantes) {
   if (!participantes) {
     try {
       const res = await fetch('./participantes.json', { cache: 'no-cache' });
@@ -660,21 +679,21 @@ async function enrichRolesFromParticipantes(existing, participantes) {
     } catch (e) { return; }
   }
   const rolesMap = participantes.roles || {};
-  const rolesByName = {};
+  const laboresByName = {};
   for (const [role, names] of Object.entries(rolesMap)) {
     for (const name of names) {
       const key = String(name).trim().toLowerCase();
-      if (!rolesByName[key]) rolesByName[key] = [];
-      if (!rolesByName[key].includes(role)) rolesByName[key].push(role);
+      if (!laboresByName[key]) laboresByName[key] = [];
+      if (!laboresByName[key].includes(role)) laboresByName[key].push(role);
     }
   }
   for (const p of existing) {
-    const roles = rolesByName[(p.name || '').trim().toLowerCase()];
-    if (!roles) continue; // no está en el archivo: dejar intacta
-    const current = Array.isArray(p.roles) ? p.roles : [];
-    const merged = Array.from(new Set([...current, ...roles]));
+    const labores = laboresByName[(p.name || '').trim().toLowerCase()];
+    if (!labores) continue; // no está en el archivo: dejar intacta
+    const current = Array.isArray(p.labores) ? p.labores : [];
+    const merged = Array.from(new Set([...current, ...labores]));
     const sameOrder = merged.length === current.length && merged.every((r, i) => r === current[i]);
-    if (!sameOrder) { p.roles = merged; await updatePerson(p); }
+    if (!sameOrder) { p.labores = merged; await updatePerson(p); }
   }
 }
 
@@ -688,7 +707,7 @@ export async function exportAll() {
     midweeks: await listMidweeks(),
     aseos: await listAseos(),
     salidas: await listSalidas(),
-    labores: await listLabores(),
+    atencion: await listAtencion(),
     assignmentLog: await listAssignmentLog(),
     settings: {
       congregation: await getSetting('congregation', ''),

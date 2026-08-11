@@ -15,7 +15,7 @@ export const WEEK_TYPES = {
 
 // Mapea el nombre interno del campo al rol de la lista de personas.
 // Si un campo no está aquí (ej. orador de reunión normal), es texto libre.
-export const FIELD_ROLE = {
+export const FIELD_LABORE = {
   presidente:        'presidente',
   conductor:         'conductor1',   // Conductor Atalaya (fin de semana)
   lector:            'lector1',      // Lector Atalaya (fin de semana)
@@ -134,7 +134,7 @@ export function isSpecialDate(events, date) {
 }
 
 // Recoge todas las asignaciones de PERSONA (por ID) de una semana:
-// roles de la reunión principal + oradores de salidas. Devuelve
+// atencion de la reunión principal + oradores de salidas. Devuelve
 // [{ value: '<id>', key: 'presidente' | 'conductor' | 'lector' | 'estudioSinLectura' | 'salida_0' | ... }]
 // 'orador' (texto libre) NO se incluye porque no es un ID de persona.
 export function collectWeekPersons(w) {
@@ -155,50 +155,50 @@ export function collectWeekPersons(w) {
   }
   // Labores tras bambalinas: también cuentan para no repetir a una persona
   // dentro de la misma reunión de fin de semana.
-  collectLaboresPersons(w.labores).forEach(x => out.push(x));
+  collectAtencionPersons(w.labores).forEach(x => out.push(x));
   return out;
 }
 
 // Labores operativas (tras bambalinas) que también cuentan para detectar
 // personas duplicadas dentro de una reunión. Fuente única de verdad: el editor
 // (app.js) y la validación (aquí) usan esta misma definición.
-export const LABORES_DEF = [
+export const ATENCION_DEF = [
   { key: 'acomodacion', label: 'Acomodación', icon: 'weekend', count: 2 },
   { key: 'microfono',   label: 'Micrófono',   icon: 'mic', count: 2 },
   { key: 'plataforma',  label: 'Plataforma',  icon: 'grid_on', count: 1 },
   { key: 'sonido',      label: 'Sonido',      icon: 'volume_up', count: 1 },
 ];
 
-// Roles considerados de atención (sostienen la reunión). Filtran quién aparece
-// en los selectores de labores, igual que el resto de filtros por rol.
-export const LABORE_ROLES = [
+// Labores considerados de atención (sostienen la reunión). Filtran quién aparece
+// en los selectores de atencion, igual que el resto de filtros por rol.
+export const ATENCION_ROLES = [
   'audio', 'microf', 'plataforma', 'acomodador',
 ];
 
-// ¿La persona puede asignarse a labores? Sin roles (datos antiguos) se incluye,
-// igual que hacen el resto de selectores filtrados por rol.
-export function isLaborePerson(p) {
-  return !Array.isArray(p?.roles) || p.roles.length === 0 || p.roles.some(r => LABORE_ROLES.includes(r));
+// ¿La persona puede asignarse a atencion? Sin labores (datos antiguos) se incluye,
+// igual que hacen el resto de selectores filtrados por labor.
+export function isAtencionPerson(p) {
+  return !Array.isArray(p?.labores) || p.labores.length === 0 || p.labores.some(r => ATENCION_ROLES.includes(r));
 }
 
-// Recolecta las personas asignadas a labores → [{value, key}].
-// key: "labores_<clave>_<slotIdx>".
-export function collectLaboresPersons(labores) {
+// Recolecta las personas asignadas a atencion → [{value, key}].
+// key: "atencion_<clave>_<slotIdx>".
+export function collectAtencionPersons(atencion) {
   const out = [];
-  const l = labores || {};
-  for (const d of LABORES_DEF) {
+  const l = atencion || {};
+  for (const d of ATENCION_DEF) {
     const v = l[d.key];
     const values = Array.isArray(v) ? v : [v];
     for (let si = 0; si < d.count; si++) {
       const id = values[si];
-      if (id) out.push({ value: String(id), key: `labores_${d.key}_${si}` });
+      if (id) out.push({ value: String(id), key: `atencion_${d.key}_${si}` });
     }
   }
   return out;
 }
 
 // Recolecta TODAS las personas de una reunión de entresemana:
-// todos los "pads" con asignación en todas las secciones + labores.
+// todos los "pads" con asignación en todas las secciones + atencion.
 // key: "mw_<si>_<num>_<slot>" (si=sección, num=nº de parte, slot=rol).
 export function collectMidweekPersons(week) {
   const out = [];
@@ -211,7 +211,7 @@ export function collectMidweekPersons(week) {
       });
     });
   });
-  collectLaboresPersons(week.labores).forEach(x => out.push(x));
+  collectAtencionPersons(week.labores).forEach(x => out.push(x));
   return out;
 }
 
@@ -225,7 +225,7 @@ export function dedupPersons(persons) {
   return { byValue, dupKeys };
 }
 
-// Ids de personas ya asignadas en la semana (reunión + salidas + labores).
+// Ids de personas ya asignadas en la semana (reunión + salidas + atencion).
 // Para entre semana se pasa el colector collectMidweekPersons.
 export function assignedIds(week, collector) {
   return new Set((collector || collectWeekPersons)(week).map(x => x.value));
@@ -233,12 +233,12 @@ export function assignedIds(week, collector) {
 
 // Personas elegibles para un puesto: deben cumplir el rol/predicado y NO estar ya
 // asignadas en la misma semana, salvo la que ya ocupa ese puesto (currentId).
-// `role` puede ser un id de rol o una función predicado (p.ej. isLaborePerson).
-export function eligiblePeople(week, people, role, currentId, collector) {
+// `labore` puede ser un id de labor o una función predicado (p.ej. isAtencionPerson).
+export function eligiblePeople(week, people, labore, currentId, collector) {
   const assigned = assignedIds(week, collector);
-  const match = typeof role === 'function'
-    ? role
-    : (role ? (p) => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role) : () => true);
+  const match = typeof labore === 'function'
+    ? labore
+    : (labore ? (p) => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore) : () => true);
   return people.filter(p => match(p) && (!assigned.has(String(p.id)) || String(p.id) === String(currentId)));
 }
 
@@ -247,10 +247,10 @@ export function labelOf(f) { return FIELD_LABELS[f] || f; }
 // Etiqueta legible de un "key" de asignación (para mensajes de error).
 export function labelOfKey(key) {
   if (key.startsWith('salida_')) return `orador de salida ${parseInt(key.slice(7), 10) + 1}`;
-  if (key.startsWith('labores_')) {
-    const m = key.match(/^labores_(\w+)_(\d+)$/);
+  if (key.startsWith('atencion_')) {
+    const m = key.match(/^atencion_(\w+)_(\d+)$/);
     if (m) {
-      const d = LABORES_DEF.find(x => x.key === m[1]);
+      const d = ATENCION_DEF.find(x => x.key === m[1]);
       const label = d ? d.label : m[1];
       const suffix = d && d.count > 1 ? ` ${Number(m[2]) + 1}` : '';
       return `labores de ${label.toLowerCase()}${suffix}`;
@@ -330,7 +330,7 @@ export function computeOutingConflicts(month, i) {
 }
 
 // Conflictos de una reunión de entresemana: personas repetidas dentro de la
-// misma reunión (todos los pads + labores). Devuelve { dupKeys, errors }.
+// misma reunión (todos los pads + atencion). Devuelve { dupKeys, errors }.
 export function computeMidweekConflicts(week) {
   const persons = collectMidweekPersons(week);
   const { dupKeys } = dedupPersons(persons);
@@ -502,6 +502,7 @@ export function convertPdfPeople(text) {
   }
   const total = Object.values(roles).reduce((a, r) => a + r.length, 0);
   if (!total) return { data: null, warnings: ['No se detectaron nombres de personas'] };
+  // Formato del archivo participantes.json: clave `roles`.
   return { data: { roles }, warnings: ['Roles detectados: ' + (Object.keys(roles).join(', ') || 'revisar')] };
 }
 
@@ -922,7 +923,7 @@ export function weekSundayOf(iso) {
 }
 
 // Recolecta todas las asignaciones de persona de todos los programas.
-// context = { midweeks, months, labores, salidas }
+// context = { midweeks, months, atencion, salidas }
 // Cada item: { value (id persona), mes "YYYY-MM", semana (domingo), programa, rol, detalle }
 export function collectPersonAssignments(context) {
   const out = [];
@@ -944,9 +945,9 @@ export function collectPersonAssignments(context) {
       });
     }));
     const l = (mw.labores || {});
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const arr = Array.isArray(l[d.key]) ? l[d.key] : [l[d.key] || ''];
-      arr.forEach((id, si) => { if (id) add(id, mes, semana, 'entre', `labores_${d.key}_${si}`, `${d.label} ${si + 1} (entre semana) · ${header}`); });
+      arr.forEach((id, si) => { if (id) add(id, mes, semana, 'entre', `atencion_${d.key}_${si}`, `${d.label} ${si + 1} (entre semana) · ${header}`); });
     });
   });
 
@@ -961,10 +962,11 @@ export function collectPersonAssignments(context) {
     });
   }));
 
-  // Acomodación (labores del fin de semana)
-  (context.labores || []).forEach(p => (p.weeks || []).forEach(w => {
+  // Acomodación (atencion del fin de semana)
+  const atencion = (context.atencion || context.labores || []);
+  atencion.forEach(p => (p.weeks || []).forEach(w => {
     const l = (w.labores || {});
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const arr = Array.isArray(l[d.key]) ? l[d.key] : [l[d.key] || ''];
       arr.forEach((id, si) => { if (id) add(id, p.id, weekSundayOf(w.saturday), 'acomodacion', `${d.key}_${si}`, `${d.label} ${si + 1} (fin de semana)`); });
     });
@@ -1088,14 +1090,14 @@ export function canBePair(persona1, persona2) {
   return PAR_LIMIT.some(([a, b]) => (c1 === a && c2 === b) || (c1 === b && c2 === a));
 }
 
-// Roles de estudiantes (lectura + presentaciones + discurso estudiantil).
-export const STUDENT_ROLES = ['asignacion1', 'asignacion2', 'asignacion3'];
-export function isStudentRole(role) { return STUDENT_ROLES.includes(role); }
+// Labores de estudiantes (lectura + presentaciones + discurso estudiantil).
+export const STUDENT_LABORES = ['asignacion1', 'asignacion2', 'asignacion3'];
+export function isStudentLabore(labore) { return STUDENT_LABORES.includes(labore); }
 
-// Persona que puede asumir partes de estudiante: sin roles definidos o con
-// cualquiera de los roles de estudiante (lectura, presentación, discurso).
+// Persona que puede asumir partes de estudiante: sin labores definidas o con
+// cualquiera de las labores de estudiante (lectura, presentación, discurso).
 export function isStudentPerson(p) {
-  return !Array.isArray(p?.roles) || p.roles.length === 0 || p.roles.some(r => STUDENT_ROLES.includes(r));
+  return !Array.isArray(p?.labores) || p.labores.length === 0 || p.labores.some(r => STUDENT_LABORES.includes(r));
 }
 
 /* ---------- Estructura de partes de entre semana ---------- */
@@ -1107,47 +1109,47 @@ export function midweekSlotsOf(sec, part) {
   const idx = parts.indexOf(part);
   if (secId === 'tesoros') {
     // Última parte = Lectura de la Biblia (asignacion1); el resto son discursos (asignacion4).
-    if (idx === parts.length - 1) return [{ key: 'lector', label: 'Lector', role: 'asignacion1' }];
-    return [{ key: 'conductor', label: idx === 0 ? 'Discurso' : 'Perlas', role: 'asignacion4' }];
+    if (idx === parts.length - 1) return [{ key: 'lector', label: 'Lector', labore: 'asignacion1' }];
+    return [{ key: 'conductor', label: idx === 0 ? 'Discurso' : 'Perlas', labore: 'asignacion4' }];
   }
   if (secId === 'maestros') {
     // Presentaciones de 2 personas (asignacion2); si dice "discurso" es de 1 (asignacion3).
-    if (/discurso/i.test(String(part.title || ''))) return [{ key: 'conductor', label: 'Discurso', role: 'asignacion3' }];
-    return [{ key: 'estudiante', label: 'Estudiante', role: 'asignacion2' }, { key: 'ayudante', label: 'Ayudante', role: 'asignacion2' }];
+    if (/discurso/i.test(String(part.title || ''))) return [{ key: 'conductor', label: 'Discurso', labore: 'asignacion3' }];
+    return [{ key: 'estudiante', label: 'Estudiante', labore: 'asignacion2' }, { key: 'ayudante', label: 'Ayudante', labore: 'asignacion2' }];
   }
   if (secId === 'vida') {
     // Última parte = Estudio Bíblico de la Congregación (conductor2 + lector2);
     // las anteriores son discursos de la reunión (asignacion4).
-    if (idx === parts.length - 1) return [{ key: 'conductor', label: 'Conductor', role: 'conductor2' }, { key: 'lector', label: 'Lector', role: 'lector2' }];
-    return [{ key: 'conductor', label: 'Discurso', role: 'asignacion4' }];
+    if (idx === parts.length - 1) return [{ key: 'conductor', label: 'Conductor', labore: 'conductor2' }, { key: 'lector', label: 'Lector', labore: 'lector2' }];
+    return [{ key: 'conductor', label: 'Discurso', labore: 'asignacion4' }];
   }
   return [{ key: 'conductor', label: 'Conductor' }];
 }
 
-// Roles "no estudiante" (discursos de la reunión y estudio).
+// Labores "no estudiante" (discursos de la reunión y estudio).
 const ROL_NO_ESTUDIANTE = new Set(['asignacion4', 'conductor2', 'lector2']);
 
 /* ---------- Automatización de asignaciones ---------- */
 const ORDEN_CAL = ['A', 'B', 'C', 'D'];
 
-// Personas con un rol (o sin roles definidos).
-function peopleForRole(people, role) {
-  return people.filter(p => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes(role));
+// Personas con una labor (o sin labores definidas).
+function peopleForLabore(people, labore) {
+  return people.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore));
 }
 
 // Mapa de los campos editables de la reunión de fin de semana según su tipo.
 // Solo los campos listados se automatizan (el orador es texto libre/manual).
 export function camposFinSemana(w) {
   if (w.type === 'assembly') return [];
-  if (w.type === 'commemoration') return [{ campo: 'presidente', role: 'presidente' }];
+  if (w.type === 'commemoration') return [{ campo: 'presidente', labore: 'presidente' }];
   if (w.type === 'supervisor') return [
-    { campo: 'presidente', role: 'presidente' },
-    { campo: 'estudioSinLectura', role: 'conductor1' },
+    { campo: 'presidente', labore: 'presidente' },
+    { campo: 'estudioSinLectura', labore: 'conductor1' },
   ];
   return [
-    { campo: 'presidente', role: 'presidente' },
-    { campo: 'conductor', role: 'conductor1' },
-    { campo: 'lector', role: 'lector1' },
+    { campo: 'presidente', labore: 'presidente' },
+    { campo: 'conductor', labore: 'conductor1' },
+    { campo: 'lector', labore: 'lector1' },
   ];
 }
 
@@ -1175,17 +1177,17 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
     return !setOcup.has(String(p.id));
   };
 
-  const elegir = (weekId, role, key) => {
+  const elegir = (weekId, labore, key) => {
     // Para partes de estudiante (lectura, presentación, discurso estudiantil) se
-    // usa el pool de estudiantes (cualquier rol de estudiante o sin roles); el
+    // usa el pool de estudiantes (cualquier rol de estudiante o sin atencion); el
     // resto de puestos filtra por su rol exacto.
-    let cand = isStudentRole(role) ? people.filter(isStudentPerson) : peopleForRole(people, role);
+    let cand = isStudentLabore(labore) ? people.filter(isStudentPerson) : peopleForLabore(people, labore);
     // Prioridad de calificación solo para estudiantes.
-    if (isStudentRole(role)) {
+    if (isStudentLabore(labore)) {
       cand = cand.slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
     }
     const p = cand.find(x => elegible(x, key, weekId));
-    if (!p) { reporte.vacios.push({ semana: weekId, role, key }); return ''; }
+    if (!p) { reporte.vacios.push({ semana: weekId, labore, key }); return ''; }
     marcado(String(p.id), key, weekId);
     return String(p.id);
   };
@@ -1219,9 +1221,9 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
     (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(part => {
       const ap = { ...(part.assignments || {}) };
       midweekSlotsOf(sec, part).forEach(slot => {
-        if (!ROL_NO_ESTUDIANTE.has(slot.role)) return;
+        if (!ROL_NO_ESTUDIANTE.has(slot.labore)) return;
         if (ap[slot.key]) return;
-        const id = elegir(weekId, slot.role, `mw_${si}_${part.num}_${slot.key}`);
+        const id = elegir(weekId, slot.labore, `mw_${si}_${part.num}_${slot.key}`);
         if (id) ap[slot.key] = id;
       });
       part.assignments = ap;
@@ -1231,13 +1233,13 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
     (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(part => {
       const ap = { ...(part.assignments || {}) };
       const slots = midweekSlotsOf(sec, part);
-      if (!slots.every(s => isStudentRole(s.role))) return;
-      if (slots.length === 2 && slots[0].role === 'asignacion2') {
+      if (!slots.every(s => isStudentLabore(s.labore))) return;
+      if (slots.length === 2 && slots[0].labore === 'asignacion2') {
         // Pareja estudiante + ayudante: buscar una pareja compatible libre.
         const keyA = `mw_${si}_${part.num}_${slots[0].key}`;
         const keyB = `mw_${si}_${part.num}_${slots[1].key}`;
         if (ap[slots[0].key] && ap[slots[1].key]) return;
-        if (ap[slots[0].key] || ap[slots[1].key]) { reporte.vacios.push({ semana: weekId, role: 'asignacion2', key: keyA }); return; }
+        if (ap[slots[0].key] || ap[slots[1].key]) { reporte.vacios.push({ semana: weekId, labore: 'asignacion2', key: keyA }); return; }
         const cand = people.filter(isStudentPerson)
           .slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
         let found = false;
@@ -1252,12 +1254,12 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
           found = true;
           break;
         }
-        if (!found) { reporte.vacios.push({ semana: weekId, role: 'asignacion2', key: keyA }); reporte.vacios.push({ semana: weekId, role: 'asignacion2', key: keyB }); }
+        if (!found) { reporte.vacios.push({ semana: weekId, labore: 'asignacion2', key: keyA }); reporte.vacios.push({ semana: weekId, labore: 'asignacion2', key: keyB }); }
       } else {
         // 1 persona (lectura asignacion1 o discurso estudiantil asignacion3).
         const slot = slots[0];
         if (!ap[slot.key]) {
-          const id = elegir(weekId, slot.role, `mw_${si}_${part.num}_${slot.key}`);
+          const id = elegir(weekId, slot.labore, `mw_${si}_${part.num}_${slot.key}`);
           if (id) ap[slot.key] = id;
         }
       }
@@ -1268,13 +1270,13 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
   return reporte;
 }
 
-// Automatiza la acomodación de un mes: reparte los puestos de LABORES_DEF con
-// personas de atención libres en cada semana. Rellena las labores del fin de
-// semana (`labores`, { id, weeks:[{saturday, labores}] }) y las de la reunión de
+// Automatiza la acomodación de un mes: reparte los puestos de ATENCION_DEF con
+// personas de atención libres en cada semana. Rellena las atencion del fin de
+// semana (`atencion`, { id, weeks:[{saturday, atencion}] }) y las de la reunión de
 // entre semana (`midweeks`, en cada week.labores). Solo rellena puestos vacíos,
 // no repite el mismo labore a la misma persona en el mes y evita asignar a quien
 // ya participa en la reunión de entre semana de esa semana (E1). Devuelve reporte.
-export function automatizarAcomodacion(people, labores, midweeks) {
+export function automatizarAtencion(people, atencion, midweeks) {
   const reporte = { asignados: 0, vacios: [] };
   const ocupMw = new Map(); // saturday -> Set de personas de entre semana esa semana
   midweeks.forEach(mw => {
@@ -1282,22 +1284,22 @@ export function automatizarAcomodacion(people, labores, midweeks) {
     const set = new Set();
     if (mw.presidente) set.add(String(mw.presidente));
     (mw.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => { if (id) set.add(String(id)); })));
-    // También cuentan las labores de entre semana ya asignadas.
+    // También cuentan las atencion de entre semana ya asignadas.
     const l = mw.labores || {};
-    LABORES_DEF.forEach(d => { const v = l[d.key]; (Array.isArray(v) ? v : [v]).forEach(id => { if (id) set.add(String(id)); }); });
+    ATENCION_DEF.forEach(d => { const v = l[d.key]; (Array.isArray(v) ? v : [v]).forEach(id => { if (id) set.add(String(id)); }); });
     ocupMw.set(sat, set);
   });
   const laboreMes = new Map(); // personaId -> Set de claves labore usadas en el mes
 
-  // Rellena los puestos vacíos de un objeto labores `l` para una semana `sat`.
+  // Rellena los puestos vacíos de un objeto atencion `l` para una semana `sat`.
   // `prefijo` separa las claves de FS y ES para que no se bloqueen entre sí en
   // el mes (una persona puede hacer el mismo labore en una reunión distinta).
   const rellenar = (l, sat, ocupInicial, prefijo) => {
     const ocup = new Set(ocupInicial || []);
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       if (l[d.key] === undefined) l[d.key] = d.count > 1 ? Array(d.count).fill('') : '';
     });
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach((id, si) => {
         if (!id) return;
@@ -1305,14 +1307,14 @@ export function automatizarAcomodacion(people, labores, midweeks) {
         (laboreMes[String(id)] ||= new Set()).add(`${prefijo}${d.key}_${si}`);
       });
     });
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       for (let si = 0; si < d.count; si++) {
         const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
         if (cur) continue;
-        const cand = people.filter(isLaborePerson)
+        const cand = people.filter(isAtencionPerson)
           .find(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${prefijo}${d.key}_${si}`)));
-        if (!cand) { reporte.vacios.push({ semana: sat, role: `${d.key}_${si}` }); continue; }
+        if (!cand) { reporte.vacios.push({ semana: sat, labore: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
         else l[d.key] = cand.id;
         ocup.add(String(cand.id));
@@ -1323,24 +1325,24 @@ export function automatizarAcomodacion(people, labores, midweeks) {
   };
 
   // Labores del fin de semana (programa de acomodación).
-  labores.forEach(rec => (rec.weeks || []).forEach(w => {
-    rellenar(w.labores || {}, String(w.saturday), ocupMw.get(String(w.saturday)) || [], 'labores_');
+  atencion.forEach(rec => (rec.weeks || []).forEach(w => {
+    rellenar(w.labores || {}, String(w.saturday), ocupMw.get(String(w.saturday)) || [], 'atencion_');
   }));
 
   // Labores de entre semana (se guardan en cada week.labores del midweek).
   // Para no duplicar personas, se suma a los ocupados las del mismo sábado (FS).
   const fsPorSat = new Map();
-  labores.forEach(rec => (rec.weeks || []).forEach(w => {
+  atencion.forEach(rec => (rec.weeks || []).forEach(w => {
     const set = new Set();
     const l = w.labores || {};
-    LABORES_DEF.forEach(d => { const v = l[d.key]; (Array.isArray(v) ? v : [v]).forEach(id => { if (id) set.add(String(id)); }); });
+    ATENCION_DEF.forEach(d => { const v = l[d.key]; (Array.isArray(v) ? v : [v]).forEach(id => { if (id) set.add(String(id)); }); });
     fsPorSat.set(String(w.saturday), set);
   }));
   midweeks.forEach(mw => {
     const sat = addDays(mw.id, 5);
     const base = new Set(ocupMw.get(sat) || []);
     (fsPorSat.get(sat) || []).forEach(id => base.add(String(id)));
-    // Inicializar labores del midweek si aún no existen (garantiza persistir).
+    // Inicializar atencion del midweek si aún no existen (garantiza persistir).
     if (!mw.labores) mw.labores = {};
     rellenar(mw.labores, mw.id, base, 'es_');
   });
@@ -1352,7 +1354,7 @@ export function automatizarAcomodacion(people, labores, midweeks) {
 // persona (presidente, conductor, lector, estudioSinLectura según el tipo de
 // semana) sin repetir a quienes ya están en acomodación o salidas esa semana
 // (E2) ni repetir el mismo cargo en el mes (E4). Muta `months`. Devuelve reporte.
-export function automatizarFinSemana(people, months, salidas, labores) {
+export function automatizarFinSemana(people, months, salidas, atencion) {
   const reporte = { asignados: 0, vacios: [] };
   const cargoMes = {}; // personaId -> Set de cargos usados en el mes (E4)
   const ocupados = {}; // saturday -> Set de personas ocupadas (acomodación + salidas)
@@ -1361,9 +1363,9 @@ export function automatizarFinSemana(people, months, salidas, labores) {
     if (id) (ocupados[sat] ||= new Set()).add(String(id));
   };
   salidas.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcarOcupado(String(w.saturday), o.oradorSalida))));
-  labores.forEach(p => (p.weeks || []).forEach(w => {
+  atencion.forEach(p => (p.weeks || []).forEach(w => {
     const l = w.labores || {};
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach(id => marcarOcupado(String(w.saturday), id));
     });
@@ -1378,11 +1380,11 @@ export function automatizarFinSemana(people, months, salidas, labores) {
       if (id) { (cargoMes[String(id)] ||= new Set()).add(campo); ocup.add(String(id)); }
     });
     // Rellenar solo campos vacíos.
-    camposFinSemana(w).forEach(({ campo, role }) => {
+    camposFinSemana(w).forEach(({ campo, labore }) => {
       if (w[campo]) return;
-      const p = peopleForRole(people, role)
+      const p = peopleForLabore(people, labore)
         .find(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)));
-      if (!p) { reporte.vacios.push({ semana: sat, role: campo }); return; }
+      if (!p) { reporte.vacios.push({ semana: sat, labore: campo }); return; }
       w[campo] = p.id;
       (cargoMes[String(p.id)] ||= new Set()).add(campo);
       ocup.add(String(p.id));
@@ -1397,10 +1399,10 @@ export function automatizarFinSemana(people, months, salidas, labores) {
 // Extrae todas las asignaciones actuales de los programas en entradas de
 // historial. Cada entrada: { id, personId, name, date, program, roleKey, roleLabel }.
 //  · program: 'entre' (reunión de entre semana) | 'fin' (fin de semana)
-//  ·          | 'salidas' | 'labores' (acomodación)
+//  ·          | 'salidas' | 'atencion' (acomodación)
 //  · date: fecha de la semana (lunes para entre semana, sábado para el resto).
 //  · id: compuesto persona+fecha+programa+puesto → re-sincronizar no duplica.
-export function extractAssignments(midweeks, months, salidas, labores, people = []) {
+export function extractAssignments(midweeks, months, salidas, atencion, people = []) {
   const out = [];
   const nameOf = (id) => (people.find(p => String(p.id) === String(id)) || {}).name || '';
   const push = (personId, date, program, roleKey, roleLabel) => {
@@ -1414,62 +1416,62 @@ export function extractAssignments(midweeks, months, salidas, labores, people = 
     (w.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
       midweekSlotsOf(sec, p).forEach(slot => {
         const id = (p.assignments || {})[slot.key];
-        if (id) push(id, date, 'entre', slot.role, slot.label);
+        if (id) push(id, date, 'entre', slot.labore, slot.label);
       });
     }));
     // Labores de la reunión de entre semana (week.labores, gestionadas en acomodación).
     const l = w.labores || {};
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach((id, si) => {
-        if (id) push(id, addDays(w.id, 5), 'labores', `labores_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
+        if (id) push(id, addDays(w.id, 5), 'atencion', `atencion_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
       });
     });
   });
   (months || []).forEach(m => (m.weeks || []).forEach(w => {
     const date = String(w.date);
-    camposFinSemana(w).forEach(({ campo, role }) => {
-      if (w[campo]) push(w[campo], date, 'fin', role, labelOf(campo));
+    camposFinSemana(w).forEach(({ campo, labore }) => {
+      if (w[campo]) push(w[campo], date, 'fin', labore, labelOf(campo));
     });
   }));
   (salidas || []).forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => {
     if (o.oradorSalida) push(o.oradorSalida, String(w.saturday), 'salidas', 'orador', 'Orador de salida');
   })));
-  (labores || []).forEach(p => (p.weeks || []).forEach(w => {
+  (atencion || []).forEach(p => (p.weeks || []).forEach(w => {
     const l = w.labores || {};
-    LABORES_DEF.forEach(d => {
+    ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach((id, si) => {
-        if (id) push(id, String(w.saturday), 'labores', `labores_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
+        if (id) push(id, String(w.saturday), 'atencion', `atencion_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
       });
     });
   }));
   return out;
 }
 
-// Clave de rol usada para comparar con `roleKey` de las entradas. Los roles de
-// labores (audio/micrófono/plataforma/acomodador) se agrupan bajo 'labores_'.
-function roleKeyForRole(rid) {
-  return LABORE_ROLES.includes(rid) ? 'labores_' : rid;
+// Clave de labor usada para comparar con `roleKey` de las entradas. Las labores
+// de atencion (audio/micrófono/plataforma/acomodador) se agrupan bajo 'atencion_'.
+function laboreKeyForLabore(rid) {
+  return ATENCION_ROLES.includes(rid) ? 'atencion_' : rid;
 }
 
 // Métricas por persona a partir del historial: total, último mes (últimos 30
-// días), promedio por mes, roles que puede dar pero no le han tocado y fecha de
+// días), promedio por mes, labores que puede dar pero no le han tocado y fecha de
 // la última asignación. `now` se inyecta para poder probarlo.
-export function assignmentMetrics(entries, people, roles, now = new Date()) {
+export function assignmentMetrics(entries, people, labores, now = new Date()) {
   const nowIso = isoDate(now);
   const cutoff = String(addDays(nowIso, -30));
   const byPerson = {};
   (entries || []).forEach(e => { (byPerson[e.personId] ||= []).push(e); });
-  const seenRoles = new Set(roles && roles.map(r => r.id));
+  const seenLabores = new Set(labores && labores.map(r => r.id));
   return people.map(p => {
     const list = byPerson[String(p.id)] || [];
     const dates = list.map(e => e.date).filter(Boolean);
     const months = new Set(dates.map(d => String(d).slice(0, 7)));
     const lastMonth = list.filter(e => e.date >= cutoff).length;
-    const rolesOf = (Array.isArray(p.roles) && p.roles.length) ? p.roles : [];
-    const seenKeys = new Set(list.map(e => e.roleKey.startsWith('labores_') ? 'labores_' : e.roleKey));
-    const canGiveButNot = rolesOf.filter(r => seenRoles.has(r) && !seenKeys.has(roleKeyForRole(r)));
+    const rolesOf = (Array.isArray(p.labores) && p.labores.length) ? p.labores : [];
+    const seenKeys = new Set(list.map(e => e.roleKey.startsWith('atencion_') ? 'atencion_' : e.roleKey));
+    const canGiveButNot = rolesOf.filter(r => seenLabores.has(r) && !seenKeys.has(laboreKeyForLabore(r)));
     const lastDate = dates.length ? dates.reduce((a, b) => (a > b ? a : b), '') : '';
     return {
       personId: String(p.id),
