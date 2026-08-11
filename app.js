@@ -709,7 +709,7 @@ async function renderAutoAsignacion() {
     const mwMissing = d.mws.flatMap(midweekMissing);
     const labMissing = laboresMissing(d.lab);
     const salMissing = salidasMissing(d.sal);
-    const finMissing = finMissing(d.fin);
+    const finFaltan = finMissing(d.fin);
     const mwTotal = d.mws.reduce((a, w) => a + 1 + midweekSlotsCount(w), 0);
     const mwDone = d.mws.reduce((a, w) => a + (w.presidente ? 1 : 0) + (w.sections || []).reduce((aa, sec) => aa + (sec.parts || []).reduce((aaa, p) => aaa + Object.values(p.assignments || {}).filter(Boolean).length, 0), 0), 0);
     const labTotal = (d.lab?.weeks || []).reduce((a, w) => a + LABORES_DEF.reduce((aa, dd) => aa + dd.count, 0), 0);
@@ -717,7 +717,7 @@ async function renderAutoAsignacion() {
     const salTotal = (d.sal?.weeks || []).reduce((a, w) => a + (w.outings || []).length, 0);
     const salDone = salTotal - salMissing.length;
     const finTotal = (d.fin?.weeks || []).reduce((a, w) => a + camposFinSemana(w).length, 0);
-    const finDone = finTotal - finMissing.length;
+    const finDone = finTotal - finFaltan.length;
     const pct = (done, total) => total ? Math.round((done / total) * 100) : 0;
 
     const faltaGuia = !d.mws.length;
@@ -755,7 +755,7 @@ async function renderAutoAsignacion() {
     // Card 4: Fin de semana
     cards.push(card({
       id: 'fin', icono: 'event', titulo: 'Fin de semana', desc: 'Presidente, conductor y lector',
-      faltan: finMissing, pct: pct(finDone, finTotal), done: finTotal > 0 && finMissing.length === 0,
+      faltan: finFaltan, pct: pct(finDone, finTotal), done: finTotal > 0 && finFaltan.length === 0,
       resumen: sesion.reportes.fin ? `${sesion.reportes.fin.asignados} asignaciones hechas` : '',
       accion: `<button data-ver="fin" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
                ${botonAsignar('fin', 'Asignar')}`,
@@ -770,7 +770,7 @@ async function renderAutoAsignacion() {
     const pasoDone = {
       entre: !faltaGuia && mwMissing.length === 0,
       acomodacion: labMissing.length === 0 && salMissing.length === 0,
-      fin: finMissing.length === 0,
+      fin: finFaltan.length === 0,
     };
     const barra = STEPS.map((s, i) => {
       const done = pasoDone[s.id];
