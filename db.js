@@ -82,6 +82,56 @@ function reqToPromise(request) {
   });
 }
 
+// ===== COMMIT / SYNC (punto único de escritura) =====
+// Toda escritura pasa por commit(), que es el único lugar donde se notifica a
+// los hooks de sincronización (p. ej. Firebase). Los hooks se registran con
+// onSync(); mientras no haya ninguno (o estén en pausa), los stores modificados
+// se acumulan en una cola pendiente para no perder cambios. Al registrar un
+// hook se drena la cola.
+const syncHooks = new Set();
+const pendingSync = []; // nombres de store modificados pendientes de sincronizar
+
+// Registra un hook que se llamará con cada store modificado. Devuelve una
+// función para desregistrarlo. Al registrar el primero se drena la cola.
+export function onSync(hook) {
+  syncHooks.add(hook);
+  if (syncHooks.size === 1 && pendingSync.length) {
+    const pend = pendingSync.splice(0);
+    for (const store of pend) fireSync(store);
+  }
+  return () => syncHooks.delete(hook);
+}
+
+function fireSync(store) {
+  for (const h of syncHooks) {
+    try { h(store); } catch (e) { console.warn('[Reunión+] Fallo en hook de sincronización', e); }
+  }
+}
+
+function markDirty(store) {
+  if (syncHooks.size) fireSync(store);
+  else if (!pendingSync.includes(store)) pendingSync.push(store);
+}
+
+// Ejecuta una escritura en el store indicado y marca el store como modificado
+// (dispara la sincronización). `run(store)` recibe el objectStore en modo
+// readwrite y debe devolver lo que la función exportada debía devolver.
+async function commit(storeName, run) {
+  const db = await openDB();
+  const store = tx(db, storeName, 'readwrite');
+  const result = await run(store);
+  markDirty(storeName);
+  return result;
+}
+
+// Es igual que commit() pero no marca el store como modificado (para escrituras
+// de seed/importación que no deben sincronizarse registro a registro).
+async function commitSilent(storeName, run) {
+  const db = await openDB();
+  const store = tx(db, storeName, 'readwrite');
+  return run(store);
+}
+
 // ===== MONTHS =====
 export async function getMonth(id) {
   const db = await openDB();
@@ -89,15 +139,13 @@ export async function getMonth(id) {
 }
 
 export async function putMonth(month) {
-  const db = await openDB();
   month.updatedAt = Date.now();
   if (!month.createdAt) month.createdAt = month.updatedAt;
-  return reqToPromise(tx(db, STORE_MONTHS, 'readwrite').put(month));
+  return commit(STORE_MONTHS, (store) => reqToPromise(store.put(month)));
 }
 
 export async function deleteMonth(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_MONTHS, 'readwrite').delete(id));
+  return commit(STORE_MONTHS, (store) => reqToPromise(store.delete(id)));
 }
 
 export async function listMonths() {
@@ -117,7 +165,6 @@ export async function listPeople() {
 }
 
 export async function addPerson(payload) {
-  const db = await openDB();
   let record;
   if (typeof payload === 'string') {
     const name = payload.trim();
@@ -136,22 +183,19 @@ export async function addPerson(payload) {
       createdAt: Date.now(),
     };
   }
-  return reqToPromise(tx(db, STORE_PEOPLE, 'readwrite').add(record));
+  return commit(STORE_PEOPLE, (store) => reqToPromise(store.add(record)));
 }
 
 export async function updatePerson(person) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_PEOPLE, 'readwrite').put(person));
+  return commit(STORE_PEOPLE, (store) => reqToPromise(store.put(person)));
 }
 
 export async function deletePerson(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_PEOPLE, 'readwrite').delete(id));
+  return commit(STORE_PEOPLE, (store) => reqToPromise(store.delete(id)));
 }
 
 export async function clearPeople() {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_PEOPLE, 'readwrite').clear());
+  return commit(STORE_PEOPLE, (store) => reqToPromise(store.clear()));
 }
 
 // Reemplaza toda la lista de personas desde un archivo con formato de
@@ -168,10 +212,19 @@ export async function replaceAllPeople(data) {
       if (!merged[key].labores.includes(role)) merged[key].labores.push(role);
     }
   }
-  await clearPeople();
   const list = Object.values(merged);
-  for (const p of list) await addPerson({ name: p.name, labores: p.labores });
-  return list.length;
+  const now = Date.now();
+  // Reemplazo atómico en una sola transacción (sin disparar sync por persona).
+  return commit(STORE_PEOPLE, (store) => new Promise((resolve, reject) => {
+    let pending = 1 + list.length;
+    const done = () => { pending--; if (pending === 0) resolve(list.length); };
+    const cl = store.clear();
+    cl.onsuccess = done; cl.onerror = () => reject(cl.error);
+    for (const p of list) {
+      const r = store.add({ ...p, labores: p.labores, createdAt: now });
+      r.onsuccess = done; r.onerror = () => reject(r.error);
+    }
+  }));
 }
 
 // Personas filtradas por labor (puesto del equipo). Si una persona no tiene
@@ -188,6 +241,7 @@ export async function setPersonLabores(id, labores) {
   const person = p.find(x => String(x.id) === String(id));
   if (!person) throw new Error('Persona no encontrada');
   person.labores = Array.isArray(labores) ? labores : [];
+  person.updatedAt = Date.now();
   return updatePerson(person);
 }
 
@@ -199,23 +253,20 @@ export async function listDepartments() {
 }
 
 export async function addDepartment(name, opts = {}) {
-  const db = await openDB();
   name = (name || '').trim();
   if (!name) throw new Error('Nombre vacío');
   const record = { name, createdAt: Date.now() };
   if (opts.orden !== undefined) record.orden = opts.orden;
   if (opts.labores !== undefined) record.labores = opts.labores;
-  return reqToPromise(tx(db, STORE_DEPARTMENTS, 'readwrite').add(record));
+  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.add(record)));
 }
 
 export async function updateDepartment(dept) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_DEPARTMENTS, 'readwrite').put(dept));
+  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.put(dept)));
 }
 
 export async function deleteDepartment(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_DEPARTMENTS, 'readwrite').delete(id));
+  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.delete(id)));
 }
 
 // ===== SETTINGS =====
@@ -226,8 +277,7 @@ export async function getSetting(key, fallback = null) {
 }
 
 export async function setSetting(key, value) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_SETTINGS, 'readwrite').put(value, key));
+  return commit(STORE_SETTINGS, (store) => reqToPromise(store.put(value, key)));
 }
 
 // ===== LABORES (lista editable de puestos del equipo) =====
@@ -284,14 +334,11 @@ export async function listTalks() {
 }
 
 export async function clearTalks() {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_TALKS, 'readwrite').clear());
+  return commit(STORE_TALKS, (store) => reqToPromise(store.clear()));
 }
 
 export async function bulkPutTalks(talks) {
-  const db = await openDB();
-  const store = tx(db, STORE_TALKS, 'readwrite');
-  await new Promise((resolve, reject) => {
+  return commit(STORE_TALKS, (store) => new Promise((resolve, reject) => {
     let pending = talks.length;
     if (pending === 0) return resolve();
     for (const t of talks) {
@@ -299,13 +346,21 @@ export async function bulkPutTalks(talks) {
       r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
       r.onerror = () => reject(r.error);
     }
-  });
+  }));
 }
 
-// Reemplaza toda la lista de discursos (carga desde JSON)
+// Reemplaza toda la lista de discursos (carga desde JSON): clear + put atómicos.
 export async function replaceAllTalks(talks) {
-  await clearTalks();
-  await bulkPutTalks(talks);
+  return commit(STORE_TALKS, (store) => new Promise((resolve, reject) => {
+    let pending = 1 + talks.length;
+    const done = () => { pending--; if (pending === 0) resolve(); };
+    const cl = store.clear();
+    cl.onsuccess = done; cl.onerror = () => reject(cl.error);
+    for (const t of talks) {
+      const r = store.put(t);
+      r.onsuccess = done; r.onerror = () => reject(r.error);
+    }
+  }));
 }
 
 // Reemplaza discursos aceptando un array [{num,title}] o { discursos:[...] } o { talks:[...] }.
@@ -331,134 +386,17 @@ export async function getMidweek(id) {
 }
 
 export async function putMidweek(week) {
-  const db = await openDB();
   week.updatedAt = Date.now();
   if (!week.createdAt) week.createdAt = week.updatedAt;
-  return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').put(week));
+  return commit(STORE_MIDWEEKS, (store) => reqToPromise(store.put(week)));
 }
 
 export async function deleteMidweek(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').delete(id));
+  return commit(STORE_MIDWEEKS, (store) => reqToPromise(store.delete(id)));
 }
 
 export async function clearMidweeks() {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_MIDWEEKS, 'readwrite').clear());
-}
-
-// ===== ASEOS (programa de aseo por mes) =====
-export async function getAseo(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_ASEOS).get(id));
-}
-
-export async function putAseo(aseo) {
-  const db = await openDB();
-  aseo.updatedAt = Date.now();
-  if (!aseo.createdAt) aseo.createdAt = aseo.updatedAt;
-  return reqToPromise(tx(db, STORE_ASEOS, 'readwrite').put(aseo));
-}
-
-export async function deleteAseo(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_ASEOS, 'readwrite').delete(id));
-}
-
-export async function listAseos() {
-  const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_ASEOS).getAll());
-  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-}
-
-// ===== SALIDAS (programa de salidas por mes) =====
-export async function getSalidas(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_SALIDAS).get(id));
-}
-
-export async function putSalidas(program) {
-  const db = await openDB();
-  program.updatedAt = Date.now();
-  if (!program.createdAt) program.createdAt = program.updatedAt;
-  return reqToPromise(tx(db, STORE_SALIDAS, 'readwrite').put(program));
-}
-
-export async function deleteSalidas(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_SALIDAS, 'readwrite').delete(id));
-}
-
-export async function listSalidas() {
-  const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_SALIDAS).getAll());
-  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-}
-
-// ===== ATENCION (programa de atención/acomodación por mes) =====
-export async function getAtencion(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_ATENCION).get(id));
-}
-
-export async function putAtencion(program) {
-  const db = await openDB();
-  program.updatedAt = Date.now();
-  if (!program.createdAt) program.createdAt = program.updatedAt;
-  return reqToPromise(tx(db, STORE_ATENCION, 'readwrite').put(program));
-}
-
-export async function deleteAtencion(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_ATENCION, 'readwrite').delete(id));
-}
-
-export async function listAtencion() {
-  const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_ATENCION).getAll());
-  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
-}
-
-// ===== ASSIGNMENT LOG (historial de asignaciones) =====
-// Registro de cada asignación { id, personId, name, date, program, roleKey, roleLabel, updatedAt }.
-// id compuesto: "${personId}_${date}_${program}_${roleKey}" → al re-asignar el mismo puesto a otra
-// persona se crea una entrada nueva (la anterior se conserva) sin duplicar.
-export async function listAssignmentLog() {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG).getAll());
-}
-
-export async function getAssignmentLog(id) {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG).get(id));
-}
-
-// Inserta una entrada (put: si existe el mismo id, la sobrescribe).
-export async function putAssignmentLog(entry) {
-  const db = await openDB();
-  entry.updatedAt = Date.now();
-  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG, 'readwrite').put(entry));
-}
-
-// Guarda varias entradas en una sola transacción (upsert por id).
-export async function bulkPutAssignmentLog(entries) {
-  if (!entries.length) return;
-  const db = await openDB();
-  const store = tx(db, STORE_ASSIGNMENT_LOG, 'readwrite');
-  await new Promise((resolve, reject) => {
-    let pending = entries.length;
-    for (const e of entries) {
-      e.updatedAt = Date.now();
-      const r = store.put(e);
-      r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
-      r.onerror = () => reject(r.error);
-    }
-  });
-}
-
-export async function clearAssignmentLog() {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG, 'readwrite').clear());
+  return commit(STORE_MIDWEEKS, (store) => reqToPromise(store.clear()));
 }
 
 // Reemplaza todas las reuniones de entresemana desde un archivo tipo midweeks.json:
@@ -466,20 +404,17 @@ export async function clearAssignmentLog() {
 export async function replaceAllMidweeks(data) {
   const weeks = (Array.isArray(data) ? data : (Array.isArray(data?.weeks) ? data.weeks : []))
     .map((w, i) => (w && w.id) ? w : ({ ...w, id: midweekFallbackId(w, i) }));
-  await clearMidweeks();
-  if (weeks.length) {
-    const db = await openDB();
-    const store = tx(db, STORE_MIDWEEKS, 'readwrite');
-    await new Promise((resolve, reject) => {
-      let pending = weeks.length;
-      for (const w of weeks) {
-        const r = store.put(w);
-        r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
-        r.onerror = () => reject(r.error);
-      }
-    });
-  }
-  return weeks.length;
+  // clear + put atómicos en una sola transacción.
+  return commit(STORE_MIDWEEKS, (store) => new Promise((resolve, reject) => {
+    let pending = 1 + weeks.length;
+    const done = () => { pending--; if (pending === 0) resolve(weeks.length); };
+    const cl = store.clear();
+    cl.onsuccess = done; cl.onerror = () => reject(cl.error);
+    for (const w of weeks) {
+      const r = store.put(w);
+      r.onsuccess = done; r.onerror = () => reject(r.error);
+    }
+  }));
 }
 
 // Id de respaldo para una semana que no trae `id` (p. ej. JSON convertido sin id):
@@ -506,8 +441,7 @@ export async function seedMidweeks() {
     if (!res.ok) return;
     const data = await res.json();
     const weeks = Array.isArray(data.weeks) ? data.weeks : [];
-    const store = tx(await openDB(), STORE_MIDWEEKS, 'readwrite');
-    await new Promise((resolve, reject) => {
+    await commit(STORE_MIDWEEKS, (store) => new Promise((resolve, reject) => {
       let pending = weeks.length;
       if (pending === 0) return resolve();
       for (const w of weeks) {
@@ -515,11 +449,115 @@ export async function seedMidweeks() {
         r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
         r.onerror = () => reject(r.error);
       }
-    });
+    }));
     console.log('[Reunión+] Reuniones de entre semana cargadas:', weeks.length);
   } catch (e) {
     console.warn('[Reunión+] No se pudo cargar midweeks.json', e);
   }
+}
+
+// ===== ASEOS (programa de aseo por mes) =====
+export async function getAseo(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASEOS).get(id));
+}
+
+export async function putAseo(aseo) {
+  aseo.updatedAt = Date.now();
+  if (!aseo.createdAt) aseo.createdAt = aseo.updatedAt;
+  return commit(STORE_ASEOS, (store) => reqToPromise(store.put(aseo)));
+}
+
+export async function deleteAseo(id) {
+  return commit(STORE_ASEOS, (store) => reqToPromise(store.delete(id)));
+}
+
+export async function listAseos() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_ASEOS).getAll());
+  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+// ===== SALIDAS (programa de salidas por mes) =====
+export async function getSalidas(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_SALIDAS).get(id));
+}
+
+export async function putSalidas(program) {
+  program.updatedAt = Date.now();
+  if (!program.createdAt) program.createdAt = program.updatedAt;
+  return commit(STORE_SALIDAS, (store) => reqToPromise(store.put(program)));
+}
+
+export async function deleteSalidas(id) {
+  return commit(STORE_SALIDAS, (store) => reqToPromise(store.delete(id)));
+}
+
+export async function listSalidas() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_SALIDAS).getAll());
+  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+// ===== ATENCION (programa de atención/acomodación por mes) =====
+export async function getAtencion(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ATENCION).get(id));
+}
+
+export async function putAtencion(program) {
+  program.updatedAt = Date.now();
+  if (!program.createdAt) program.createdAt = program.updatedAt;
+  return commit(STORE_ATENCION, (store) => reqToPromise(store.put(program)));
+}
+
+export async function deleteAtencion(id) {
+  return commit(STORE_ATENCION, (store) => reqToPromise(store.delete(id)));
+}
+
+export async function listAtencion() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_ATENCION).getAll());
+  return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+// ===== ASSIGNMENT LOG (historial de asignaciones) =====
+// Registro de cada asignación { id, personId, name, date, program, roleKey, roleLabel, updatedAt }.
+// id compuesto: "${personId}_${date}_${program}_${roleKey}" → al re-asignar el mismo puesto a otra
+// persona se crea una entrada nueva (la anterior se conserva) sin duplicar.
+export async function listAssignmentLog() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG).getAll());
+}
+
+export async function getAssignmentLog(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG).get(id));
+}
+
+// Inserta una entrada (put: si existe el mismo id, la sobrescribe).
+export async function putAssignmentLog(entry) {
+  entry.updatedAt = Date.now();
+  return commit(STORE_ASSIGNMENT_LOG, (store) => reqToPromise(store.put(entry)));
+}
+
+// Guarda varias entradas en una sola transacción (upsert por id).
+export async function bulkPutAssignmentLog(entries) {
+  if (!entries.length) return;
+  return commit(STORE_ASSIGNMENT_LOG, (store) => new Promise((resolve, reject) => {
+    let pending = entries.length;
+    for (const e of entries) {
+      e.updatedAt = Date.now();
+      const r = store.put(e);
+      r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
+      r.onerror = () => reject(r.error);
+    }
+  }));
+}
+
+export async function clearAssignmentLog() {
+  return commit(STORE_ASSIGNMENT_LOG, (store) => reqToPromise(store.clear()));
 }
 
 // ===== SEED inicial =====
@@ -610,10 +648,9 @@ async function syncGroupsFromJson(existing, namesFromFile) {
 
 // Inserta un departamento con un id concreto (para preservar referencias).
 async function addDepartmentWithId(name, id) {
-  const db = await openDB();
   name = (name || '').trim();
   if (!name) throw new Error('Nombre vacío');
-  return reqToPromise(tx(db, STORE_DEPARTMENTS, 'readwrite').put({ id, name, createdAt: Date.now() }));
+  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.put({ id, name, createdAt: Date.now() })));
 }
 
 // Personas de muestra de versiones previas del seed (no vienen de participantes.json).
