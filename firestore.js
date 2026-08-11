@@ -68,6 +68,29 @@ async function deleteDoc(collection, id) {
   return id;
 }
 
+// Escribe muchos documentos en lotes (máx. 500 ops por batch en Firestore).
+// `docs` = [{ collection, id, data }]. Devuelve la cantidad de documentos escritos.
+// Idempotente: usa setDoc con id explícito (sobrescribe sin duplicar).
+export async function batchWrite(docs) {
+  const f = await initFirebase();
+  if (!f || !docs.length) return 0;
+  const { writeBatch, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
+  const now = Date.now();
+  let written = 0;
+  for (let i = 0; i < docs.length; i += 400) {
+    const chunk = docs.slice(i, i + 400);
+    const batch = writeBatch(f.db);
+    for (const d of chunk) {
+      const payload = { ...d.data, updatedAt: now };
+      if (!payload.createdAt) payload.createdAt = now;
+      batch.set(doc(f.db, d.collection, String(d.id)), payload);
+    }
+    await batch.commit();
+    written += chunk.length;
+  }
+  return written;
+}
+
 // Estado de conexión: true si Firebase está disponible y listo.
 export async function isFirebaseReady() {
   return !!(await initFirebase());

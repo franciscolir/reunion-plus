@@ -1,5 +1,8 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
+import { migrarDatos } from './migracion.js';
+import { isFirebaseConfigured } from './firebase-config.js';
+import { isFirebaseReady } from './firestore.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
@@ -2847,9 +2850,10 @@ async function renderSettings() {
               Restaurar <input id="setImport" type="file" accept="application/json" class="hidden">
             </label>
             <button id="setReloadLists" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
+            <button id="setMigrarFirebase" class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Migrar a Firebase</button>
             <button id="setReset" class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
           </div>
-          <p class="text-on-surface-variant text-caption mt-3">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas.</p>
+          <p class="text-on-surface-variant text-caption mt-3">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas. "Migrar a Firebase" sube todos los datos actuales a Cloud Firestore (requiere configurar <code>firebase-config.js</code>).</p>
         </div>
       </div>
     </div>
@@ -3007,6 +3011,35 @@ async function renderSettings() {
     await indexedDB.deleteDatabase('reunion-plus');
     toast('Base reiniciada. Recargando…', 'success');
     setTimeout(() => location.reload(), 800);
+  };
+  $('#setMigrarFirebase').onclick = async () => {
+    if (!isFirebaseConfigured()) {
+      toast('Firebase no está configurado. Complete firebase-config.js primero.', 'error');
+      return;
+    }
+    if (!await isFirebaseReady()) {
+      toast('No se pudo conectar con Firebase (¿sin conexión o SDK no disponible?).', 'error');
+      return;
+    }
+    if (!await confirmDialog('Se subirán TODOS los datos actuales a Cloud Firestore (idempotente: no duplica). ¿Continuar?', 'Migrar a Firebase')) return;
+    const btn = $('#setMigrarFirebase');
+    btn.disabled = true;
+    btn.textContent = 'Migrando…';
+    try {
+      const reporte = await migrarDatos();
+      if (reporte && reporte.error === 'firebase-no-configurado') {
+        toast('Firebase no configurado', 'error');
+      } else {
+        const detalle = Object.entries(reporte.colecciones || {})
+          .map(([c, n]) => `${c}: ${n}`).join(', ');
+        toast(`Migración completada · ${reporte.total} documentos (${detalle})`, 'success');
+      }
+    } catch (err) {
+      toast('Error al migrar: ' + (err.message || err), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Migrar a Firebase';
+    }
   };
 }
 
