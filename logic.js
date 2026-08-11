@@ -890,8 +890,20 @@ export function canBePair(persona1, persona2) {
   if (g1 && g2 && g1 !== g2) {
     return String(persona1.enlace || '') === String(persona2.id) && String(persona2.enlace || '') === String(persona1.id);
   }
+  // Sin género y sin calificación registrada: no se puede juzgar, se permite.
+  if (!c1 || !c2) return true;
   // Sin género: tabla de calificaciones.
   return PAR_LIMIT.some(([a, b]) => (c1 === a && c2 === b) || (c1 === b && c2 === a));
+}
+
+// Roles de estudiantes (lectura + presentaciones + discurso estudiantil).
+export const STUDENT_ROLES = ['asignacion1', 'asignacion2', 'asignacion3'];
+export function isStudentRole(role) { return STUDENT_ROLES.includes(role); }
+
+// Persona que puede asumir partes de estudiante: sin roles definidos o con
+// cualquiera de los roles de estudiante (lectura, presentación, discurso).
+export function isStudentPerson(p) {
+  return !Array.isArray(p?.roles) || p.roles.length === 0 || p.roles.some(r => STUDENT_ROLES.includes(r));
 }
 
 /* ---------- Estructura de partes de entre semana ---------- */
@@ -922,8 +934,6 @@ export function midweekSlotsOf(sec, part) {
 
 // Roles "no estudiante" (discursos de la reunión y estudio).
 const ROL_NO_ESTUDIANTE = new Set(['asignacion4', 'conductor2', 'lector2']);
-// Roles "estudiante" (lectura + presentaciones + discurso estudiantil).
-const ROL_ESTUDIANTE = new Set(['asignacion1', 'asignacion2', 'asignacion3']);
 
 /* ---------- Automatización de asignaciones ---------- */
 const ORDEN_CAL = ['A', 'B', 'C', 'D'];
@@ -974,9 +984,12 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
   };
 
   const elegir = (weekId, role, key) => {
-    let cand = peopleForRole(people, role);
+    // Para partes de estudiante (lectura, presentación, discurso estudiantil) se
+    // usa el pool de estudiantes (cualquier rol de estudiante o sin roles); el
+    // resto de puestos filtra por su rol exacto.
+    let cand = isStudentRole(role) ? people.filter(isStudentPerson) : peopleForRole(people, role);
     // Prioridad de calificación solo para estudiantes.
-    if (ROL_ESTUDIANTE.has(role)) {
+    if (isStudentRole(role)) {
       cand = cand.slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
     }
     const p = cand.find(x => elegible(x, key, weekId));
@@ -1026,14 +1039,14 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
     (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(part => {
       const ap = { ...(part.assignments || {}) };
       const slots = midweekSlotsOf(sec, part);
-      if (!slots.every(s => ROL_ESTUDIANTE.has(s.role))) return;
+      if (!slots.every(s => isStudentRole(s.role))) return;
       if (slots.length === 2 && slots[0].role === 'asignacion2') {
         // Pareja estudiante + ayudante: buscar una pareja compatible libre.
         const keyA = `mw_${si}_${part.num}_${slots[0].key}`;
         const keyB = `mw_${si}_${part.num}_${slots[1].key}`;
         if (ap[slots[0].key] && ap[slots[1].key]) return;
         if (ap[slots[0].key] || ap[slots[1].key]) { reporte.vacios.push({ semana: weekId, role: 'asignacion2', key: keyA }); return; }
-        const cand = peopleForRole(people, 'asignacion2')
+        const cand = people.filter(isStudentPerson)
           .slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
         let found = false;
         for (const a of cand) {

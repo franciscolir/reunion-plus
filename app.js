@@ -10,6 +10,7 @@ import {
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
+  isStudentPerson, isStudentRole,
   automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
 } from './logic.js';
 
@@ -3592,7 +3593,10 @@ async function renderMidweek(id) {
       const slotFields = slots.map(s => {
         const cur = ap[s.key];
         const opts = ['<option value="">— Sin asignar —</option>'];
-        const list = eligiblePeople(week, state.people, s.role, cur, collectMidweekPersons);
+        // Las partes de estudiante aceptan a cualquier estudiante (cualquier rol de
+        // estudiante o sin roles); el resto de puestos filtra por su rol exacto.
+        const roleFilter = isStudentRole(s.role) ? isStudentPerson : s.role;
+        const list = eligiblePeople(week, state.people, roleFilter, cur, collectMidweekPersons);
         for (const person of list) {
           opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
         }
@@ -3607,7 +3611,7 @@ async function renderMidweek(id) {
         <div class="flex-1">
           <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">${p.mins} min</p>
           <p class="font-body-lg text-body-lg text-on-surface">${escapeHtml(p.title)}</p>
-          ${pairWarning(p)}
+          ${pairWarning(sec, p)}
         </div>
         <div class="flex-1 flex flex-wrap gap-3">${slotFields}</div>
       </div>`;
@@ -3739,6 +3743,9 @@ function mwPairErrors(editor) {
   const byPart = {};
   editor.querySelectorAll('select.mwSel').forEach(sel => {
     if (!sel.value) return;
+    // La compatibilidad de pareja solo aplica a las presentaciones (asignacion2);
+    // el Estudio Bíblico de la Congregación solo exige el rol.
+    if (sel.dataset.slot !== 'estudiante' && sel.dataset.slot !== 'ayudante') return;
     const key = `${sel.dataset.sec}.${sel.dataset.part}`;
     (byPart[key] ||= []).push({ slot: sel.dataset.slot, id: sel.value });
   });
@@ -4406,7 +4413,11 @@ function personOf(id) {
 
 // Aviso de pareja para partes de a 2: devuelve HTML de alerta si los dos asignados
 // no son una pareja compatible (calificación + género + enlace).
-function pairWarning(p) {
+function pairWarning(sec, p) {
+  const slots = midweekSlotsOf(sec, p);
+  // La compatibilidad de pareja solo aplica a las presentaciones (asignacion2);
+  // el Estudio Bíblico de la Congregación solo exige el rol.
+  if (!(slots.length === 2 && slots.some(s => s.role === 'asignacion2'))) return '';
   const ap = p.assignments || {};
   const keys = Object.keys(ap).filter(k => ap[k]);
   if (keys.length < 2) return '';

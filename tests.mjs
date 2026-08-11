@@ -13,6 +13,7 @@ import {
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary,
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
+  isStudentPerson, isStudentRole,
 } from './logic.js';
 import { readFileSync } from 'node:fs';
 
@@ -490,6 +491,20 @@ ok('mismo género A+A válido', canBePair(p(1, 'A', 'masculino'), p(2, 'A', 'mas
 ok('mixto enlazados válido', canBePair(p(1, 'A', 'masculino', '2'), p(2, 'B', 'femenino', '1')));
 ok('mixto sin enlace inválido', canBePair(p(1, 'A', 'masculino'), p(2, 'B', 'femenino')) === false);
 ok('misma persona inválido', canBePair(p(1, 'A', ''), p(1, 'A', '')) === false);
+// Sin calificación/género registrado no se puede juzgar → permitido (evita bloquear
+// la asignación de presentaciones cuando faltan datos).
+ok('sin calificación ni género: permitida', canBePair(p(1, '', ''), p(2, '', '')) === true);
+ok('una sola sin calificación: permitida', canBePair(p(1, '', ''), p(2, 'A', '')) === true);
+// Mixto sin enlace sigue inválido aunque falte la calificación.
+ok('mixto sin enlace inválido aunque falte calificación', canBePair(p(1, '', 'masculino'), p(2, 'A', 'femenino')) === false);
+
+console.log('[isStudentPerson / isStudentRole]');
+ok('isStudentRole asignacion2', isStudentRole('asignacion2') === true);
+ok('isStudentRole asignacion4 falso', isStudentRole('asignacion4') === false);
+ok('isStudentPerson con rol de presentación', isStudentPerson({ roles: ['asignacion2'] }));
+ok('isStudentPerson con rol de lectura', isStudentPerson({ roles: ['asignacion1'] }));
+ok('isStudentPerson sin roles', isStudentPerson({ roles: [] }));
+ok('isStudentPerson con rol ajeno', !isStudentPerson({ roles: ['presidente'] }));
 
 // --- Estructura de midweeks.json (datos para el análisis de reuniones) ---
 console.log('[estructura midweeks.json]');
@@ -630,6 +645,35 @@ console.log('[automatizarEntreSemana]');
   w3.sections.forEach(sec => sec.parts.forEach(p => Object.values(p.assignments || {}).forEach(id => { if (id) idsW3.push(String(id)); })));
   ok('no asigna a personas ocupadas esa semana (E1/E2)',
     !idsW3.includes('1') && !idsW3.includes('2') && !idsW3.includes('3'));
+
+  // El Estudio Bíblico solo exige el rol (conductor2/lector2), sin compatibilidad de
+  // pareja: aunque la pareja no cumpliría canBePair (D sin enlace), se conserva.
+  const soloRol = [
+    { id: 1, name: 'Conductor', roles: ['conductor2'], calificacion: 'D' },
+    { id: 2, name: 'Lector', roles: ['lector2'] },
+  ];
+  const weekEstudio = mkWeek('2026-08-03');
+  const partEstudio = weekEstudio.sections[2].parts[1]; // Estudio Bíblico
+  partEstudio.assignments = { conductor: '1', lector: '2' };
+  const repEst = automatizarEntreSemana(soloRol, [weekEstudio]);
+  const rolesVacios = repEst.vacios.map(v => v.role);
+  ok('estudio bíblico no exige compatibilidad de pareja',
+    partEstudio.assignments.conductor === '1' && partEstudio.assignments.lector === '2'
+    && !rolesVacios.includes('conductor2') && !rolesVacios.includes('lector2'));
+
+  // El pool de estudiantes acepta a quien tenga cualquier rol de estudiante:
+  // personas con solo "lectura" (asignacion1) pueden tomar presentaciones (asignacion2).
+  const estudiantesLectura = [
+    { id: 1, name: 'SL A', roles: ['asignacion1'] },
+    { id: 2, name: 'SL B', roles: ['asignacion1'] },
+    { id: 3, name: 'SL C', roles: ['asignacion1'] },
+    { id: 4, name: 'SL D', roles: ['asignacion1'] },
+  ];
+  const weekPres = mkWeek('2026-08-10');
+  automatizarEntreSemana(estudiantesLectura, [weekPres]);
+  const partPres = weekPres.sections[1].parts[0]; // Presentación (pareja)
+  ok('estudiantes con rol de lectura pueden participar en presentación',
+    (partPres.assignments || {}).estudiante === '2' && (partPres.assignments || {}).ayudante === '3');
 }
 
 // --- automatizarAcomodacion ---
