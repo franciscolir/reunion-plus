@@ -510,10 +510,18 @@ export function convertPdfPeople(text) {
 // azar y re-separarlos con diccionario, usa la posición real de cada glifo:
 // agrupa por fila (Y) y pone un espacio solo donde hay un hueco horizontal entre
 // ítems (lectura "OCR por palabras"). Conserva hasEOL para los saltos de línea.
+//
+// La Guía de Actividades imprime Tesoros (izquierda) y Seamos Mejores Maestros
+// (derecha) en DOS columnas cuyas filas se intercalan verticalmente. Si se emite
+// fila a fila tal cual, las partes de ambas secciones se mezclan y el parser no
+// las asigna a su sección. Por eso, cuando se detectan dos columnas, se emite
+// primero toda la columna izquierda y luego la derecha.
 export function rebuildPdfWords(items) {
   const seq = [];
   for (const it of items || []) {
     if (it.str == null || it.str === '') continue;
+    // Descartar glifos decorativos (líneas de puntos/secciones del PDF).
+    if (/^[\u0002\u0003]+$/.test(String(it.str))) continue;
     const t = it.transform || [1, 0, 0, 1, 0, 0];
     const fs = it.height || Math.abs(t[3]) || 10;
     seq.push({
@@ -526,9 +534,55 @@ export function rebuildPdfWords(items) {
     });
   }
   if (!seq.length) return '';
+
+  // Detectar dos columnas mediante agrupación en X (k-means k=2 sobre los
+  // glifos de texto real). El hueco entre Tesoros (izquierda) y Seamos Mejores
+  // Maestros (derecha) no se detecta como un hueco global porque las líneas
+  // decorativas del PDF cruzan todo el ancho; el clustering separa los dos
+  // bloques por su posición horizontal media.
+  const glifos = seq.filter(i => !/^[\u0002\u0003\s]+$/.test(i.str));
+  if (glifos.length >= 50) {
+    const col = clusterX(glifos.map(i => i.x));
+    // Separación real de columnas: los centros de ambos bloques deben estar muy
+    // alejados (>180px). Las páginas de una sola columna (p. ej. Nuestra Vida
+    // Cristiana) también producen 2 clusters pero mucho más cercanos (~115px).
+    if (col && col.centros[1] - col.centros[0] > 180 && col.ns[0] > glifos.length * 0.2 && col.ns[1] > glifos.length * 0.2) {
+      const colMid = (col.centros[0] + col.centros[1]) / 2;
+      const izq = seq.filter(i => i.x < colMid);
+      const der = seq.filter(i => i.x >= colMid);
+      const a = emitPdfLines(izq);
+      const b = emitPdfLines(der);
+      return a && b ? a + '\n' + b : (a || b);
+    }
+  }
+  return emitPdfLines(seq);
+}
+
+// Separa valores de X en dos grupos (k-means k=2, inicializado en los extremos).
+// Devuelve { centros:[c0,c1], ns:[n0,n1] } o null si convergen a un solo grupo.
+function clusterX(xs) {
+  let c0 = Math.min(...xs);
+  let c1 = Math.max(...xs);
+  if (c1 - c0 < 50) return null;
+  for (let it = 0; it < 12; it++) {
+    const g0 = [], g1 = [];
+    for (const x of xs) (Math.abs(x - c0) <= Math.abs(x - c1) ? g0 : g1).push(x);
+    if (!g0.length || !g1.length) break;
+    const m0 = g0.reduce((a, b) => a + b, 0) / g0.length;
+    const m1 = g1.reduce((a, b) => a + b, 0) / g1.length;
+    if (m0 === c0 && m1 === c1) break;
+    c0 = m0; c1 = m1;
+  }
+  const n0 = xs.filter(x => Math.abs(x - c0) <= Math.abs(x - c1)).length;
+  const n1 = xs.length - n0;
+  return { centros: [c0, c1], ns: [n0, n1] };
+}
+
+// Agrupa los ítems en filas por proximidad vertical y emite una línea por fila
+// con espacios donde hay huecos horizontales entre palabras.
+function emitPdfLines(seq) {
   seq.sort((a, b) => b.y - a.y || a.x - b.x); // orden de lectura: filas de arriba abajo
 
-  // Agrupar en filas por proximidad vertical (tolerancia proporcional a la fuente).
   const lines = [];
   let cur = [];
   let lastY = null;

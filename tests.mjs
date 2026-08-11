@@ -401,6 +401,41 @@ console.log('[rebuildPdfWords]');
   ok('segunda fila con espacio antes del rango', lines[1] === 'JEREMIAS 13-15', `l1=${JSON.stringify(lines[1])}`);
 }
 {
+  // La guía imprime Tesoros (izquierda) y Seamos Mejores Maestros (derecha) en
+  // dos columnas cuyas filas se intercalan verticalmente. rebuildPdfWords debe
+  // emitir primero la columna izquierda completa y luego la derecha para que el
+  // parser asigne cada parte a su sección.
+  const fs = 10;
+  const glyph = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y], width: str.length * 6, height: fs });
+  const items = [];
+  // Izquierda (x≈50): "TESOROS DE LA BIBLIA", "1. Discurso (10 mins.)", "2. Perlas (10 mins.)"
+  // Derecha (x≈250): "SEAMOS MEJORES MAESTROS", "4. Empiece conversaciones (4 mins.)"
+  // Las filas se alternan: izq/derecha/izq/derecha para simular el intercalado.
+  const izq = [
+    [100, 'TESOROS'], [100, 'DE LA BIBLIA'],
+    [90, '1. Discurso (10 mins.)'],
+    [80, '2. Perlas escondidas (10 mins.)'],
+  ];
+  const der = [
+    [95, 'SEAMOS MEJORES MAESTROS'],
+    [70, '4. Empiece conversaciones (4 mins.)'],
+  ];
+  // Los glifos de cada columna se repiten para superar el umbral mínimo de
+  // detección (la página real tiene miles de glifos).
+  let n = 0;
+  for (let rep = 0; rep < 5; rep++) {
+    izq.forEach(([y, txt]) => { for (const ch of txt) { items.push(glyph(ch, 50 + n++ * 2, y)); } });
+    der.forEach(([y, txt]) => { for (const ch of txt) { items.push(glyph(ch, 250 + n++ * 2, y)); } });
+  }
+  const out = rebuildPdfWords(items);
+  const izqIdx = out.indexOf('TESOROS');
+  const derIdx = out.indexOf('MEJORES MAESTROS');
+  ok('columnas: izquierda (Tesoros) antes que derecha (Maestros)', izqIdx !== -1 && derIdx !== -1 && izqIdx < derIdx, `out=${JSON.stringify(out.slice(0, 120))}`);
+  ok('columnas: partes de Tesoros y Maestros sin mezclar',
+    /1\.\s*Discurso[\s\S]*2\.\s*Perlas/.test(out) && /4\.\s*Empiece/.test(out),
+    `out=${JSON.stringify(out.slice(0, 200))}`);
+}
+{
   // Texto naturalmente espaciado (lo que produce rebuildPdfWords): el parser
   // debe respetar los títulos sin usar el diccionario.
   const natural = [
