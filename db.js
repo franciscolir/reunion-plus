@@ -53,8 +53,10 @@ function openDB() {
       }
       // Migración v6→v7: el store de labores de acomodación pasa a llamarse
       // 'atencion' (los "roles" del equipo pasan a llamarse "labores").
+      // Se usa la transacción de cambio de versión ya abierta (no se puede
+      // llamar db.transaction() dentro de onupgradeneeded).
       if (db.objectStoreNames.contains('labores') && !db.objectStoreNames.contains(STORE_ATENCION)) {
-        db.transaction('labores', 'readwrite').objectStore('labores').name = STORE_ATENCION;
+        e.target.transaction.objectStore('labores').name = STORE_ATENCION;
       }
       if (!db.objectStoreNames.contains(STORE_ATENCION)) {
         db.createObjectStore(STORE_ATENCION, { keyPath: 'id' });
