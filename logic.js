@@ -1271,3 +1271,87 @@ export function automatizarFinSemana(people, months, salidas, labores) {
   }));
   return reporte;
 }
+
+/* ---------- Historial de asignaciones ---------- */
+
+// Extrae todas las asignaciones actuales de los programas en entradas de
+// historial. Cada entrada: { id, personId, name, date, program, roleKey, roleLabel }.
+//  · program: 'entre' (reunión de entre semana) | 'fin' (fin de semana)
+//  ·          | 'salidas' | 'labores' (acomodación)
+//  · date: fecha de la semana (lunes para entre semana, sábado para el resto).
+//  · id: compuesto persona+fecha+programa+puesto → re-sincronizar no duplica.
+export function extractAssignments(midweeks, months, salidas, labores, people = []) {
+  const out = [];
+  const nameOf = (id) => (people.find(p => String(p.id) === String(id)) || {}).name || '';
+  const push = (personId, date, program, roleKey, roleLabel) => {
+    if (!personId) return;
+    const pid = String(personId);
+    out.push({ id: `${pid}_${date}_${program}_${roleKey}`, personId: pid, name: nameOf(pid), date, program, roleKey, roleLabel });
+  };
+  (midweeks || []).forEach(w => {
+    const date = String(w.id);
+    if (w.presidente) push(w.presidente, date, 'entre', 'presidente', 'Presidente');
+    (w.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
+      midweekSlotsOf(sec, p).forEach(slot => {
+        const id = (p.assignments || {})[slot.key];
+        if (id) push(id, date, 'entre', slot.role, slot.label);
+      });
+    }));
+  });
+  (months || []).forEach(m => (m.weeks || []).forEach(w => {
+    const date = String(w.date);
+    camposFinSemana(w).forEach(({ campo, role }) => {
+      if (w[campo]) push(w[campo], date, 'fin', role, labelOf(campo));
+    });
+  }));
+  (salidas || []).forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => {
+    if (o.oradorSalida) push(o.oradorSalida, String(w.saturday), 'salidas', 'orador', 'Orador de salida');
+  })));
+  (labores || []).forEach(p => (p.weeks || []).forEach(w => {
+    const l = w.labores || {};
+    LABORES_DEF.forEach(d => {
+      const v = l[d.key];
+      (Array.isArray(v) ? v : [v]).forEach((id, si) => {
+        if (id) push(id, String(w.saturday), 'labores', `labores_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
+      });
+    });
+  }));
+  return out;
+}
+
+// Clave de rol usada para comparar con `roleKey` de las entradas. Los roles de
+// labores (audio/micrófono/plataforma/acomodador) se agrupan bajo 'labores_'.
+function roleKeyForRole(rid) {
+  return LABORE_ROLES.includes(rid) ? 'labores_' : rid;
+}
+
+// Métricas por persona a partir del historial: total, último mes (últimos 30
+// días), promedio por mes, roles que puede dar pero no le han tocado y fecha de
+// la última asignación. `now` se inyecta para poder probarlo.
+export function assignmentMetrics(entries, people, roles, now = new Date()) {
+  const nowIso = isoDate(now);
+  const cutoff = String(addDays(nowIso, -30));
+  const byPerson = {};
+  (entries || []).forEach(e => { (byPerson[e.personId] ||= []).push(e); });
+  const seenRoles = new Set(roles && roles.map(r => r.id));
+  return people.map(p => {
+    const list = byPerson[String(p.id)] || [];
+    const dates = list.map(e => e.date).filter(Boolean);
+    const months = new Set(dates.map(d => String(d).slice(0, 7)));
+    const lastMonth = list.filter(e => e.date >= cutoff).length;
+    const rolesOf = (Array.isArray(p.roles) && p.roles.length) ? p.roles : [];
+    const seenKeys = new Set(list.map(e => e.roleKey.startsWith('labores_') ? 'labores_' : e.roleKey));
+    const canGiveButNot = rolesOf.filter(r => seenRoles.has(r) && !seenKeys.has(roleKeyForRole(r)));
+    const lastDate = dates.length ? dates.reduce((a, b) => (a > b ? a : b), '') : '';
+    return {
+      personId: String(p.id),
+      name: p.name,
+      total: list.length,
+      lastMonth,
+      perMonth: months.size ? list.length / months.size : 0,
+      months: months.size,
+      canGiveButNot,
+      lastDate,
+    };
+  });
+}

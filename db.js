@@ -2,7 +2,7 @@
 // Stores: months (programas mensuales), people, departments, settings, talks, midweeks, aseos
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -12,6 +12,7 @@ const STORE_MIDWEEKS = 'midweeks';   // key: "YYYY-MM-DD" (reunión de entre sem
 const STORE_ASEOS = 'aseos';        // key: "YYYY-MM" (programa de aseo por mes)
 const STORE_SALIDAS = 'salidas';    // key: "YYYY-MM" (programa de salidas por mes)
 const STORE_LABORES = 'labores';    // key: "YYYY-MM" (programa de acomodación/labores por mes)
+const STORE_ASSIGNMENT_LOG = 'assignment_log'; // keyPath: id (compuesto person+date+program+role) · historial de asignaciones
 
 let _db = null;
 
@@ -52,6 +53,9 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(STORE_LABORES)) {
         db.createObjectStore(STORE_LABORES, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_ASSIGNMENT_LOG)) {
+        db.createObjectStore(STORE_ASSIGNMENT_LOG, { keyPath: 'id' });
       }
     };
 
@@ -395,6 +399,48 @@ export async function listLabores() {
   return all.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 
+// ===== ASSIGNMENT LOG (historial de asignaciones) =====
+// Registro de cada asignación { id, personId, name, date, program, roleKey, roleLabel, updatedAt }.
+// id compuesto: "${personId}_${date}_${program}_${roleKey}" → al re-asignar el mismo puesto a otra
+// persona se crea una entrada nueva (la anterior se conserva) sin duplicar.
+export async function listAssignmentLog() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG).getAll());
+}
+
+export async function getAssignmentLog(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG).get(id));
+}
+
+// Inserta una entrada (put: si existe el mismo id, la sobrescribe).
+export async function putAssignmentLog(entry) {
+  const db = await openDB();
+  entry.updatedAt = Date.now();
+  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG, 'readwrite').put(entry));
+}
+
+// Guarda varias entradas en una sola transacción (upsert por id).
+export async function bulkPutAssignmentLog(entries) {
+  if (!entries.length) return;
+  const db = await openDB();
+  const store = tx(db, STORE_ASSIGNMENT_LOG, 'readwrite');
+  await new Promise((resolve, reject) => {
+    let pending = entries.length;
+    for (const e of entries) {
+      e.updatedAt = Date.now();
+      const r = store.put(e);
+      r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
+      r.onerror = () => reject(r.error);
+    }
+  });
+}
+
+export async function clearAssignmentLog() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ASSIGNMENT_LOG, 'readwrite').clear());
+}
+
 // Reemplaza todas las reuniones de entresemana desde un archivo tipo midweeks.json:
 // { weeks: [...] } o un array directo de semanas. Devuelve el nº de semanas cargadas.
 export async function replaceAllMidweeks(data) {
@@ -643,6 +689,7 @@ export async function exportAll() {
     aseos: await listAseos(),
     salidas: await listSalidas(),
     labores: await listLabores(),
+    assignmentLog: await listAssignmentLog(),
     settings: {
       congregation: await getSetting('congregation', ''),
       lastMonthId: await getSetting('lastMonthId', null),

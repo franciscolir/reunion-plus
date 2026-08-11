@@ -14,6 +14,7 @@ import {
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
   isStudentPerson, isStudentRole,
+  extractAssignments, assignmentMetrics,
 } from './logic.js';
 import { readFileSync } from 'node:fs';
 
@@ -798,6 +799,89 @@ console.log('[automatizarFinSemana]');
   const meses2 = [{ id: '2026-07', year: 2026, month: 7, weeks: [w3] }];
   automatizarFinSemana(people, meses2, [], []);
   eq('conserva el presidente ya asignado en fin de semana', w3.presidente, '3');
+}
+
+// --- extractAssignments ---
+console.log('[extractAssignments]');
+{
+  const people = [
+    { id: 1, name: 'Ana' }, { id: 2, name: 'Ben' }, { id: 3, name: 'Carlos' },
+    { id: 4, name: 'Diana' }, { id: 5, name: 'Elena' },
+  ];
+  const midweeks = [{
+    id: '2026-08-10', header: '10-16 DE AGOSTO',
+    presidente: '1',
+    sections: [
+      { id: 'tesoros', title: 'Tesoros', parts: [
+        { num: 1, title: 'Discurso', mins: 10, assignments: { conductor: '2' } },
+        { num: 2, title: 'Lectura', mins: 4, assignments: { lector: '3' } },
+      ]},
+      { id: 'maestros', title: 'Maestros', parts: [
+        { num: 3, title: 'Presentación', mins: 5, assignments: { estudiante: '4', ayudante: '5' } },
+      ]},
+    ],
+  }];
+  const months = [{
+    id: '2026-08', year: 2026, month: 8,
+    weeks: [{ type: 'normal', date: '2026-08-15', presidente: '1', conductor: '2', lector: '3', orador: 'Orador' }],
+  }];
+  const salidas = [{ id: '2026-08', weeks: [{ saturday: '2026-08-15', outings: [{ oradorSalida: 4 }] }] }];
+  const labores = [{ id: '2026-08', weeks: [{ saturday: '2026-08-15', labores: { acomodacion: [5, ''], microfono: ['', ''], plataforma: '', sonido: '' } }] }];
+  const entries = extractAssignments(midweeks, months, salidas, labores, people);
+
+  ok('extrae presidente de entre semana', entries.some(e => e.personId === '1' && e.program === 'entre' && e.roleKey === 'presidente'));
+  ok('extrae conductor de entre semana', entries.some(e => e.personId === '2' && e.program === 'entre' && e.roleKey === 'asignacion4'));
+  ok('extrae lector de entre semana', entries.some(e => e.personId === '3' && e.program === 'entre' && e.roleKey === 'asignacion1'));
+  ok('extrae pareja estudiante+ayudante', entries.some(e => e.personId === '4' && e.roleKey === 'asignacion2') && entries.some(e => e.personId === '5' && e.roleKey === 'asignacion2'));
+  ok('extrae presidente de fin de semana', entries.some(e => e.personId === '1' && e.program === 'fin'));
+  ok('extrae orador de salida', entries.some(e => e.personId === '4' && e.program === 'salidas'));
+  ok('extrae labores', entries.some(e => e.personId === '5' && e.program === 'labores' && e.roleKey === 'labores_acomodacion_0'));
+  ok('no incluye el orador de texto libre', !entries.some(e => e.roleKey === 'orador' && e.program === 'fin'));
+  const ana = entries.filter(e => e.personId === '1');
+  ok('nombre de la persona se resuelve', ana.length > 0 && ana.every(e => e.name === 'Ana'));
+  // Idempotencia: re-extraer no cambia los ids.
+  const ids1 = entries.map(e => e.id).sort();
+  const ids2 = extractAssignments(midweeks, months, salidas, labores, people).map(e => e.id).sort();
+  eq('ids estables (idempotente)', ids1, ids2);
+}
+
+// --- assignmentMetrics ---
+console.log('[assignmentMetrics]');
+{
+  const people = [
+    { id: 1, name: 'Ana', roles: ['presidente', 'asignacion1'] },
+    { id: 2, name: 'Ben', roles: ['conductor1'] },
+    { id: 3, name: 'Carlos', roles: ['audio'] },
+    { id: 4, name: 'Diana', roles: ['presidente'] },
+  ];
+  const roles = [
+    { id: 'presidente', label: 'Presidente' },
+    { id: 'conductor1', label: 'Conductor' },
+    { id: 'asignacion1', label: 'Lectura' },
+    { id: 'audio', label: 'Audio' },
+  ];
+  const entries = [
+    { id: '1_2026-07-06_entre_presidente', personId: '1', date: '2026-07-06', program: 'entre', roleKey: 'presidente' },
+    { id: '1_2026-07-13_entre_presidente', personId: '1', date: '2026-07-13', program: 'entre', roleKey: 'presidente' },
+    { id: '2_2026-07-06_fin_conductor1', personId: '2', date: '2026-07-06', program: 'fin', roleKey: 'conductor1' },
+  ];
+  const now = new Date('2026-07-20T12:00:00'); // dentro de 30 días de las fechas
+  const metrics = assignmentMetrics(entries, people, roles, now);
+  const m1 = metrics.find(m => m.personId === '1');
+  const m2 = metrics.find(m => m.personId === '2');
+  const m3 = metrics.find(m => m.personId === '3');
+  const m4 = metrics.find(m => m.personId === '4');
+
+  ok('total de asignaciones de Ana = 2', m1.total === 2);
+  ok('último mes de Ana = 2', m1.lastMonth === 2);
+  ok('promedio por mes de Ana = 2', m1.perMonth === 2);
+  eq('última asignación de Ana', m1.lastDate, '2026-07-13');
+  ok('puede dar pero no le ha tocado: Ana tiene asignacion1 sin asignar',
+    m1.canGiveButNot.includes('asignacion1') && !m1.canGiveButNot.includes('presidente'));
+  ok('Ben con conductor1 asignado no tiene faltantes', m2.canGiveButNot.length === 0);
+  ok('Carlos (audio) puede dar pero no le ha tocado', m3.canGiveButNot.includes('audio'));
+  ok('Diana sin asignaciones tiene total 0 y presidente pendiente', m4.total === 0 && m4.canGiveButNot.includes('presidente'));
+  ok('Diana sin fecha de última asignación', m4.lastDate === '');
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===\n`);

@@ -12,6 +12,7 @@ import {
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   isStudentPerson, isStudentRole,
   automatizarEntreSemana, automatizarAcomodacion, automatizarFinSemana,
+  extractAssignments, assignmentMetrics,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
@@ -30,6 +31,7 @@ const state = {
   toastsOpen: new Set(),
   mwMonth: null,          // mes seleccionado en la vista mensual de entre semana
   progMonth: null,        // mes seleccionado en Programas (selector global)
+  listsTab: 'roles',      // 'roles' | 'historial' (vista Personas)
 };
 
 /* ---------- INIT ---------- */
@@ -54,6 +56,25 @@ async function refreshCatalogs() {
   state.roles = (saved && Array.isArray(saved) && saved.length)
     ? saved
     : DEFAULT_ROLES.map(r => ({ ...r }));
+}
+
+// Reconstruye el historial de asignaciones desde el estado actual de todos los
+// programas (entre semana, fin de semana, acomodación y salidas). Es idempotente:
+// las entradas tienen id compuesto persona+fecha+programa+puesto, así que
+// re-sincronizar actualiza las ya existentes y añade las nuevas sin duplicar.
+async function syncAssignmentLog() {
+  try {
+    const [midweeks, months, salidas, labores] = await Promise.all([
+      db.listMidweeks(),
+      db.listMonths(),
+      db.listSalidas(),
+      db.listLabores(),
+    ]);
+    const entries = extractAssignments(midweeks, months, salidas, labores, state.people);
+    await db.bulkPutAssignmentLog(entries);
+  } catch (e) {
+    console.warn('[Reunión+] No se pudo sincronizar el historial de asignaciones', e);
+  }
 }
 
 function registerSW() {
@@ -615,8 +636,7 @@ async function abrirAsistenteAuto() {
 
     // Crear los programas del mes que no estén iniciados.
     const creados = await crearProgramasFaltantes(m);
-    const rep1 = await etapa1(m);
-    pasoEtapas(m, creados, rep1);
+    pasoEtapas(m, creados);
   };
 
   const crearProgramasFaltantes = async (m) => {
@@ -642,70 +662,199 @@ async function abrirAsistenteAuto() {
     return creados;
   };
 
-  // ---- Paso 3: etapas de asignación + acceso a las vistas ----
-  const pasoEtapas = (m, creados, rep1) => {
+  // ---- Paso 3: etapas de asignación con barra de estado ----
+  // La asignación queda PENDIENTE hasta que el usuario confirma cada paso. En la
+  // etapa uno se ofrece completar los programas (con enlace a los incompletos)
+  // y el botón "Asignar" se convierte en "Continuar con asignación".
+  const pasoEtapas = (m, creados) => {
     const creadosTxt = creados.length ? ` · se creó: ${creados.join(', ')}` : '';
-    setModal(`
-      <div class="text-center mb-5">
-        <span class="material-symbols-outlined text-6xl text-primary mb-2">auto_awesome</span>
-        <h2 class="font-headline-md text-headline-md text-primary">Asignación automática</h2>
-        <p class="text-on-surface-variant text-body-md">${mesTxt(m)}${creadosTxt}</p>
-      </div>
-      <div id="autoReport" class="mb-5">${renderReporte(rep1)}</div>
-      <button id="autoEtapa2" class="w-full flex items-center justify-between gap-3 px-5 py-4 rounded-xl border border-primary text-left hover:bg-primary-fixed transition-colors">
-        <div>
-          <p class="font-label-lg text-label-lg text-primary">Etapa 2 · Fin de semana</p>
-          <p class="text-sm text-on-surface-variant">Presidente, conductor y lector considerando acomodación y salidas. Rellene primero las salidas a mano.</p>
+    const hechos = { entre: false, acomodacion: false, fin: false };
+    const reportes = [];
+    let paso = 1;
+    const STEPS = [
+      { id: 'entre', titulo: 'Entre semana', icon: 'calendar_view_week' },
+      { id: 'acomodacion', titulo: 'Acomodación y salidas', icon: 'weekend' },
+      { id: 'fin', titulo: 'Fin de semana', icon: 'event' },
+    ];
+    const wId = 'w' + Date.now();
+
+    const semanasIncompletas = (midweeks) => midweeks.filter(w => {
+      if (!w.presidente) return true;
+      for (const sec of (w.sections || [])) for (const p of (sec.parts || [])) {
+        const ap = p.assignments || {};
+        for (const s of midweekSlotsOf(sec, p)) if (!ap[s.key]) return true;
+      }
+      return false;
+    });
+
+    const barra = () => STEPS.map((s, i) => {
+      const done = hechos[s.id];
+      const current = i + 1 === paso;
+      const line = i < STEPS.length - 1;
+      return `<div class="flex items-center gap-2 ${done ? 'text-tertiary' : current ? 'text-primary' : 'text-on-surface-variant'}">
+        <span class="w-7 h-7 rounded-full ${done ? 'bg-tertiary text-on-tertiary' : current ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'} flex items-center justify-center font-label-md text-label-md shrink-0">
+          ${done ? '<span class="material-symbols-outlined text-[16px]">check</span>' : `<span class="material-symbols-outlined text-[16px]">${s.icon}</span>`}
+        </span>
+        <span class="text-sm font-label-md ${current ? 'font-bold' : ''} whitespace-nowrap">${s.titulo}</span>
+        ${line ? `<span class="flex-1 h-0.5 min-w-[12px] ${hechos[s.id] ? 'bg-tertiary' : 'bg-outline-variant'}"></span>` : ''}
+      </div>`;
+    }).join('');
+
+    const setContent = () => {
+      setModal(`
+        <div class="text-center mb-4">
+          <span class="material-symbols-outlined text-6xl text-primary mb-2">auto_awesome</span>
+          <h2 class="font-headline-md text-headline-md text-primary">Asignación automática</h2>
+          <p class="text-on-surface-variant text-body-md">${mesTxt(m)}${creadosTxt}</p>
         </div>
-        <span class="material-symbols-outlined text-primary">chevron_right</span>
-      </button>
-      <p class="text-on-surface-variant text-sm mt-4 mb-2">Consultar resultados en sus vistas:</p>
-      <div class="flex flex-wrap gap-2">
-        ${[['fin', 'Fin de semana'], ['entre', 'Entre semana'], ['labores', 'Acomodación'], ['salidas', 'Salidas'], ['general', 'General Mensual']]
-          .map(([tab, label]) => `<button data-ver="${tab}" class="px-3 py-2 rounded-lg border border-outline text-sm font-label-md text-label-md hover:bg-surface-container">${label}</button>`).join('')}
-      </div>
-      <div class="mt-6 flex justify-end">
-        <button id="autoClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
-      </div>
-    `);
-    $('#autoClose').onclick = closeModal;
-    $('#autoEtapa2').onclick = async () => {
-      const b = $('#autoEtapa2');
-      b.disabled = true;
-      const rep2 = await etapa2(m);
-      b.disabled = false;
-      $('#autoReport').innerHTML = renderReporte(rep1) + renderReporte(rep2);
+        <div class="flex items-stretch gap-2 mb-5 bg-surface-container-low rounded-xl border border-outline-variant p-3">
+          ${barra()}
+        </div>
+        <div id="${wId}Content"></div>
+        <div id="${wId}Reports" class="mt-4 space-y-3"></div>
+        <div class="mt-6 flex justify-end gap-3">
+          <button id="autoClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+          <button id="${wId}Next" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Continuar con asignación</button>
+        </div>
+      `);
+      $('#autoClose').onclick = closeModal;
+      document.getElementById(wId + 'Next').onclick = runPaso;
+      renderPaso();
     };
-    $('#modalCard').querySelectorAll('[data-ver]').forEach(b => b.onclick = () => verPrograma(b.dataset.ver, m));
+
+    // Enlaces a las vistas para completar a mano cada programa.
+    const linkVistas = (pares) => `<div class="flex flex-wrap gap-2 mt-2">
+      ${pares.map(([tab, label, icon]) => `<button data-ver="${tab}" class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-outline text-sm font-label-md text-label-md hover:bg-surface-container">
+        <span class="material-symbols-outlined text-[16px]">${icon}</span> ${label}
+      </button>`).join('')}
+    </div>`;
+    const bindVistas = () => document.querySelectorAll(`#${wId}Content [data-ver]`).forEach(b => b.onclick = () => verPrograma(b.dataset.ver, m));
+
+    const renderPaso = async () => {
+      const c = document.getElementById(wId + 'Content');
+      const nextBtn = document.getElementById(wId + 'Next');
+      if (!c) return;
+      const ok = hechos.entre && hechos.acomodacion && hechos.fin;
+      if (ok) {
+        c.innerHTML = `
+          <div class="bg-tertiary-fixed/40 rounded-xl border border-tertiary p-4 text-center">
+            <span class="material-symbols-outlined text-primary text-4xl mb-1 inline-block">task_alt</span>
+            <p class="font-headline-md text-headline-md text-primary">Asignación completada</p>
+            <p class="text-on-surface-variant text-sm">Se marcaron los tres pasos. Puede revisar cada programa desde sus vistas.</p>
+          </div>
+          ${linkVistas([['fin','Fin de semana','event'],['entre','Entre semana','calendar_view_week'],['labores','Acomodación','weekend'],['salidas','Salidas','campaign'],['general','General Mensual','calendar_month']])}
+        `;
+        bindVistas();
+        nextBtn.disabled = true;
+        nextBtn.textContent = 'Listo';
+        nextBtn.onclick = closeModal;
+        return;
+      }
+
+      if (paso === 1) {
+        const incompletas = semanasIncompletas(state.midweeks.filter(x => String(x.id).slice(0, 7) === m));
+        c.innerHTML = `
+          <div class="flex items-start gap-3 mb-3">
+            <span class="material-symbols-outlined text-primary text-[20px] mt-0.5">${STEPS[0].icon}</span>
+            <div>
+              <p class="font-label-lg text-label-lg text-primary">Etapa 1 · Asignación entre semana</p>
+              <p class="text-sm text-on-surface-variant">La asignación queda pendiente. Antes de continuar puede completar a mano los programas.</p>
+            </div>
+          </div>
+          <div class="bg-surface-container-low rounded-xl border border-outline-variant p-4">
+            <p class="text-sm text-on-surface mb-2 flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[18px] ${incompletas.length ? 'text-error' : 'text-tertiary'}">${incompletas.length ? 'error' : 'check_circle'}</span>
+              ${incompletas.length ? `${incompletas.length} programa(s) de entre semana con puestos sin asignar.` : 'Todos los programas de entre semana tienen puestos asignados.'}
+            </p>
+            ${incompletas.length ? `<div class="flex flex-wrap gap-2">
+              <button data-ver="entre" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">
+                <span class="material-symbols-outlined text-[16px]">edit</span> Completar programas
+              </button>
+            </div>` : ''}
+          </div>
+          ${linkVistas([['entre','Entre semana','calendar_view_week']])}
+        `;
+        bindVistas();
+        nextBtn.textContent = 'Continuar con asignación';
+        nextBtn.disabled = false;
+      } else if (paso === 2) {
+        c.innerHTML = `
+          <div class="flex items-start gap-3 mb-3">
+            <span class="material-symbols-outlined text-primary text-[20px] mt-0.5">${STEPS[1].icon}</span>
+            <div>
+              <p class="font-label-lg text-label-lg text-primary">Etapa 2 · Acomodación y salidas</p>
+              <p class="text-sm text-on-surface-variant">Rellene primero las salidas a mano (el orador es texto libre) y luego continúe con la asignación de labores de acomodación.</p>
+            </div>
+          </div>
+          ${linkVistas([['labores','Acomodación','weekend'],['salidas','Salidas','campaign']])}
+        `;
+        bindVistas();
+        nextBtn.textContent = 'Continuar con asignación';
+        nextBtn.disabled = false;
+      } else if (paso === 3) {
+        c.innerHTML = `
+          <div class="flex items-start gap-3 mb-3">
+            <span class="material-symbols-outlined text-primary text-[20px] mt-0.5">${STEPS[2].icon}</span>
+            <div>
+              <p class="font-label-lg text-label-lg text-primary">Etapa 3 · Fin de semana</p>
+              <p class="text-sm text-on-surface-variant">Presidente, conductor y lector considerando acomodación y salidas ya asignadas.</p>
+            </div>
+          </div>
+          ${linkVistas([['fin','Fin de semana','event']])}
+        `;
+        bindVistas();
+        nextBtn.textContent = 'Continuar con asignación';
+        nextBtn.disabled = false;
+      }
+    };
+
+    const runPaso = async () => {
+      const nextBtn = document.getElementById(wId + 'Next');
+      if (nextBtn) { nextBtn.disabled = true; }
+      let rep = null;
+      if (paso === 1) { rep = await etapaEntreSemana(m); hechos.entre = true; paso = 2; }
+      else if (paso === 2) { rep = await etapaAcomodacion(m); hechos.acomodacion = true; paso = 3; }
+      else if (paso === 3) { rep = await etapaFinSemana(m); hechos.fin = true; paso = 4; }
+      if (rep) reportes.push(rep);
+      await syncAssignmentLog();
+      const reps = document.getElementById(wId + 'Reports');
+      if (reps) reps.innerHTML = reportes.map(renderReporte).join('');
+      setContent();
+    };
+
+    setContent();
   };
 
   pasoMes();
 }
 
-async function etapa1(month) {
-  const [midweeks, labores] = await Promise.all([
-    db.listMidweeks(),
-    db.listLabores(),
-  ]);
+async function etapaEntreSemana(month) {
+  const midweeks = await db.listMidweeks();
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
-  const labMes = labores.filter(p => p.id === month);
   const repMw = automatizarEntreSemana(state.people, mwMes);
-  const repLab = automatizarAcomodacion(state.people, labMes, mwMes);
   await Promise.all(mwMes.map(w => db.putMidweek(w)));
-  await Promise.all(labMes.map(p => db.putLabores(p)));
   state.midweeks = await db.listMidweeks();
   return {
-    titulo: 'Etapa 1 completada',
-    resumen: [
-      `Entre semana: ${repMw.asignados} asignaciones (${repMw.vacios.length} vacíos)`,
-      `Acomodación: ${repLab.asignados} asignaciones (${repLab.vacios.length} vacíos)`,
-    ],
-    vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
-             ...repLab.vacios.map(v => ({ semana: v.semana, rol: v.role }))],
+    titulo: 'Etapa 1 · Entre semana completada',
+    resumen: [`Entre semana: ${repMw.asignados} asignaciones (${repMw.vacios.length} vacíos)`],
+    vacios: repMw.vacios.map(v => ({ semana: v.semana, rol: v.role })),
   };
 }
 
-async function etapa2(month) {
+async function etapaAcomodacion(month) {
+  const [midweeks, labores] = await Promise.all([db.listMidweeks(), db.listLabores()]);
+  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
+  const labMes = labores.filter(p => p.id === month);
+  const repLab = automatizarAcomodacion(state.people, labMes, mwMes);
+  await Promise.all(labMes.map(p => db.putLabores(p)));
+  return {
+    titulo: 'Etapa 2 · Acomodación completada',
+    resumen: [`Acomodación: ${repLab.asignados} asignaciones (${repLab.vacios.length} vacíos)`],
+    vacios: repLab.vacios.map(v => ({ semana: v.semana, rol: v.role })),
+  };
+}
+
+async function etapaFinSemana(month) {
   const [midweeks, months, salidas, labores] = await Promise.all([
     db.listMidweeks(),
     db.listMonths(),
@@ -738,7 +887,7 @@ async function etapa2(month) {
   state.midweeks = await db.listMidweeks();
 
   return {
-    titulo: 'Etapa 2 completada',
+    titulo: 'Etapa 3 · Fin de semana completada',
     resumen: [
       `Entre semana (vacíos): ${repMw.asignados} asignaciones (${repMw.vacios.length} vacíos)`,
       `Fin de semana: ${repFin.asignados} asignaciones (${repFin.vacios.length} vacíos)`,
@@ -1205,12 +1354,13 @@ function peopleSelect(name, idx, val, label, conflicts) {
   const errClass = (hasConflict || missing) ? 'bg-error-container/20 border-error' : 'border-outline-variant';
   const roleHint = role ? `data-role="${role}"` : '';
   return `<div class="space-y-2 relative">
-    <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between gap-2 flex-wrap">${label} ${badge}</label>
+    <label class="font-label-md text-label-md text-on-surface-variant flex items-center justify-between gap-2 flex-wrap">${label} ${badge}${missing ? '<span class="text-error font-bold text-[10px] uppercase ml-1">Falta</span>' : ''}</label>
     <div class="flex gap-2">
       <select data-field="${name}" data-idx="${idx}" data-people ${roleHint} class="flex-1 bg-surface-bright border ${errClass} rounded-lg p-2.5 font-body-md focus:border-primary">
         <option value="">— Sin asignar —</option>
       </select>
    </div>
+   <div class="field-suggestions flex flex-wrap gap-1 text-[11px]" data-fsug="${name}" data-fsug-idx="${idx}"></div>
   </div>`;
 }
 
@@ -1234,6 +1384,28 @@ function fillPeople(sel) {
   const list = eligiblePeople(state.month.weeks[current], state.people, role, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+  fillSuggestions(sel, current, field, role, val);
+}
+
+function fillSuggestions(sel, idx, field, role, val) {
+  const wrap = sel.closest('.space-y-2.relative')?.querySelector('.field-suggestions[data-fsug]');
+  if (!wrap) return;
+  if (val) { wrap.innerHTML = ''; return; }
+  const week = state.month?.weeks?.[idx];
+  if (!week) return;
+  const list = eligiblePeople(week, state.people, role, val);
+  wrap.innerHTML = list.slice(0, 6).map(p =>
+    `<button type="button" data-fsug-pick="${idx}" data-fsug-field="${field}" data-fsug-id="${p.id}"
+      class="px-2 py-0.5 rounded-full bg-primary-fixed/70 text-primary border border-primary/30 text-[11px] font-label-md hover:bg-primary hover:text-on-primary transition-colors">${escapeHtml(p.name.split(' ')[0])} ${escapeHtml((p.name.split(' ')[1] || '').slice(0, 1))}</button>`
+  ).join('');
+  wrap.querySelectorAll('button[data-fsug-pick]').forEach(b => b.onclick = () => {
+    const pid = b.dataset.fsugId;
+    if (![...sel.options].some(o => String(o.value) === pid)) {
+      sel.add(new Option(personNameOf(pid), pid));
+    }
+    sel.value = pid;
+    sel.dispatchEvent(new Event('change'));
+  });
 }
 
 // Rellena un select de orador de salida (data-outing-idx="wi.oi")
@@ -1276,6 +1448,7 @@ async function saveMonth() {
   }
   state.month.updatedAt = Date.now();
   await db.putMonth(state.month);
+  await syncAssignmentLog();
   toast('Cambios guardados', 'success');
 }
 
@@ -1685,11 +1858,15 @@ async function renderLists() {
         <p class="text-on-surface-variant font-body-md text-body-md">Asignar y gestionar responsabilidades del equipo.</p>
       </div>
       <div class="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+        <div class="flex bg-surface-container-high p-1 rounded-lg" id="listsTabs">
+          <button data-tab="roles" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.listsTab === 'roles' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Roles</button>
+          <button data-tab="historial" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.listsTab === 'historial' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Historial</button>
+        </div>
         <div class="relative w-full sm:w-64">
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="search">search</span>
           <input id="pSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md" placeholder="Buscar miembro..." type="text">
         </div>
-        <button class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors" id="toggleEditMode">
+        <button class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleEditMode">
           <span class="material-symbols-outlined text-[18px]">lock_open</span>
           <span id="editText">Desbloquear</span>
         </button>
@@ -1716,6 +1893,13 @@ async function renderLists() {
       </button>
     </div>
   `;
+
+  $('#listsTabs').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.listsTab = b.dataset.tab; renderLists(); });
+
+  if (state.listsTab === 'historial') {
+    renderListsHistorial();
+    return;
+  }
 
   const thead = app.querySelector('#rolesTable thead tr');
   thead.innerHTML = `
@@ -1759,35 +1943,7 @@ async function renderLists() {
       $('#pList').querySelectorAll('.role-checkbox').forEach(cb => cb.disabled = true);
     }
   };
-  $('#addMemberBtn').onclick = () => {
-    openModal(`
-    <div class="text-center">
-      <span class="material-symbols-outlined text-6xl text-primary mb-2">person_add</span>
-      <h3 class="font-headline-md text-headline-md text-primary mb-4">Añadir Miembro</h3>
-      <form id="mdForm" class="space-y-4">
-        <input id="mdName" type="text" placeholder="Nombre completo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary" autocomplete="off">
-        ${personAttrsFields()}
-        <div class="flex flex-wrap justify-center gap-2" id="mdRoles"></div>
-        <div class="flex gap-3 justify-center pt-2">
-          <button type="button" id="mdCancel2" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
-          <button type="submit" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
-        </div>
-      </form>
-    </div>`);
-    $('#mdRoles').innerHTML = state.roles.map(r =>
-      `<label class="flex items-center gap-1.5 cursor-pointer text-[12px] font-label-md text-on-surface-variant"><input type="checkbox" data-mr="${r.id}" class="text-primary accent-primary"> ${r.label}</label>`
-    ).join('');
-    $('#mdCancel2').onclick = closeModal;
-    $('#mdForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const name = $('#mdName').value.trim();
-      if (!name) { toast('Escribe un nombre', 'error'); return; }
-      const roles = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
-      const attrs = readPersonAttrs();
-      try { await db.addPerson({ name, roles, ...attrs }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
-      catch (err) { toast(err.message, 'error'); }
-    };
-  };
+  $('#addMemberBtn').onclick = openAddMemberModal;
 
   $('#manageRolesBtn').onclick = renderRolesModal;
 
@@ -1802,6 +1958,37 @@ async function renderLists() {
   $('#pList').innerHTML = state.people.map(renderRows).join('') || `
     <tr><td colspan="${state.roles.length + 1}" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>`;
   renderRowsBindings();
+}
+
+// Modal para añadir un miembro (usado en la vista Personas, tab Roles e Historial).
+function openAddMemberModal() {
+  openModal(`
+  <div class="text-center">
+    <span class="material-symbols-outlined text-6xl text-primary mb-2">person_add</span>
+    <h3 class="font-headline-md text-headline-md text-primary mb-4">Añadir Miembro</h3>
+    <form id="mdForm" class="space-y-4">
+      <input id="mdName" type="text" placeholder="Nombre completo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary" autocomplete="off">
+      ${personAttrsFields()}
+      <div class="flex flex-wrap justify-center gap-2" id="mdRoles"></div>
+      <div class="flex gap-3 justify-center pt-2">
+        <button type="button" id="mdCancel2" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+        <button type="submit" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
+      </div>
+    </form>
+  </div>`);
+  $('#mdRoles').innerHTML = state.roles.map(r =>
+    `<label class="flex items-center gap-1.5 cursor-pointer text-[12px] font-label-md text-on-surface-variant"><input type="checkbox" data-mr="${r.id}" class="text-primary accent-primary"> ${r.label}</label>`
+  ).join('');
+  $('#mdCancel2').onclick = closeModal;
+  $('#mdForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = $('#mdName').value.trim();
+    if (!name) { toast('Escribe un nombre', 'error'); return; }
+    const roles = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
+    const attrs = readPersonAttrs();
+    try { await db.addPerson({ name, roles, ...attrs }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
+    catch (err) { toast(err.message, 'error'); }
+  };
 }
 
 function initialsOf(name) {
@@ -1867,6 +2054,64 @@ function renderRowsBindings() {
     await db.setPersonRoles(pid, roles);
     person.roles = roles;
   });
+}
+
+/* ---------- Vista Historial de asignaciones (Personas) ---------- */
+// Consulta quién recibió una asignación hace más tiempo y métricas por persona.
+// Columnas: asignaciones último mes, promedio por mes, puede dar (tiene rol)
+// pero no le ha tocado, última asignación y total.
+async function renderListsHistorial() {
+  const app = $('#app');
+  const thead = app.querySelector('#rolesTable thead tr');
+  thead.innerHTML = `
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[220px]">Miembro</th>
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Cantidad de asignaciones en los últimos 30 días">Último mes</th>
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Promedio de asignaciones por mes">Promedio / mes</th>
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Total de asignaciones registradas">Total</th>
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-left sticky top-0 bg-surface-container z-20" title="Roles que puede dar (los tiene) pero aún no le han tocado">Puede dar, no le ha tocado</th>
+    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Fecha de su última asignación (orden ascendente = hace más tiempo)">Última asignación</th>
+  `;
+  const tbody = app.querySelector('#pList');
+  tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Cargando historial…</td></tr>';
+
+  const log = await db.listAssignmentLog();
+  const metrics = assignmentMetrics(log, state.people, state.roles)
+    .sort((a, b) => (a.lastDate || '') < (b.lastDate || '') ? -1 : ((a.lastDate || '') > (b.lastDate || '') ? 1 : 0));
+
+  const labelOfRole = (rid) => (state.roles.find(r => String(r.id) === String(rid)) || {}).label || rid;
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso + 'T00:00:00');
+    return `${d.getDate()} ${MONTHS_ES[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
+  };
+
+  tbody.innerHTML = metrics.map(m => {
+    const canGive = m.canGiveButNot.length
+      ? m.canGiveButNot.map(labelOfRole).join(', ')
+      : '<span class="text-on-surface-variant/60">—</span>';
+    return `<tr class="hover:bg-surface-container-low transition-colors" data-norm="${escapeAttr(normalizeStr(m.name))}">
+      <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10">
+        <div class="w-8 h-8 rounded-full ${avatarClassFor(m.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(m.name)}</div>
+        <span class="truncate">${escapeHtml(m.name)}</span>
+      </td>
+      <td class="p-4 text-center font-body-md text-body-md ${m.lastMonth ? 'text-primary font-semibold' : 'text-on-surface-variant'}">${m.lastMonth}</td>
+      <td class="p-4 text-center font-body-md text-body-md text-on-surface">${m.perMonth.toFixed(1)}</td>
+      <td class="p-4 text-center font-body-md text-body-md text-on-surface">${m.total}</td>
+      <td class="p-4 font-body-md text-body-md text-on-surface-variant max-w-[280px] truncate" title="${escapeAttr(canGive)}">${canGive}</td>
+      <td class="p-4 text-center font-body-md text-body-md text-on-surface whitespace-nowrap">${fmtDate(m.lastDate)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Sin asignaciones registradas todavía. Guarde o automatice programas para empezar a llevar el historial.</td></tr>';
+
+  const search = $('#pSearch');
+  if (search) search.addEventListener('input', () => {
+    const q = normalizeStr(search.value);
+    document.querySelectorAll('#pList tr').forEach(tr => {
+      tr.style.display = tr.dataset.norm.includes(q) ? '' : 'none';
+    });
+  });
+
+  $('#manageRolesBtn').onclick = renderRolesModal;
+  $('#addMemberBtn').onclick = openAddMemberModal;
 }
 
 /* ---------- Atributos de colaborador (género, calificación, enlace) ---------- */
@@ -3031,6 +3276,7 @@ async function renderLabores(monthId, opts = {}) {
         if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
         else week.labores[key] = val;
         await db.putLabores(program);
+        await syncAssignmentLog();
         toast('Labor asignada', 'success');
         render();
       });
@@ -3049,6 +3295,7 @@ async function renderLabores(monthId, opts = {}) {
         else week.labores[key] = val;
         await db.putMidweek(week);
         state.midweeks = await db.listMidweeks();
+        await syncAssignmentLog();
         toast('Labor asignada', 'success');
         render();
       });
@@ -3315,7 +3562,7 @@ async function renderSalidas(monthId, opts = {}) {
     const programBtn = embed ? embed.querySelector('#salidasProgram') : $('#salidasProgram');
     if (programBtn) programBtn.onclick = () => go('outings', { monthId: cur });
     const saveBtn = embed ? embed.querySelector('#salidasSave') : $('#salidasSave');
-    if (saveBtn) saveBtn.onclick = async () => { await db.putSalidas(program); toast('Salidas guardadas', 'success'); };
+    if (saveBtn) saveBtn.onclick = async () => { await db.putSalidas(program); await syncAssignmentLog(); toast('Salidas guardadas', 'success'); };
 
     renderCrossAlerts(embed ? embed.querySelector('#salidasCross') : $('#salidasCross'), cur);
   };
@@ -3610,7 +3857,8 @@ async function renderMidweek(id) {
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-headline-md text-headline-md text-primary">Presidente</h2>
       </div>
-      <select data-mw-presidente class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${presOpts.join('')}</select>
+      <select data-mw-presidente class="mwSel w-full bg-surface-bright border ${!week.presidente ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-md focus:border-primary">${presOpts.join('')}</select>
+      ${!week.presidente ? `<div class="mt-2 text-xs text-on-surface-variant" data-mwsugwrap="presidente">Sugerencias: ${mwSuggestChips(week, 'presidente', [], (p) => !Array.isArray(p.roles) || p.roles.length === 0 || p.roles.includes('presidente'), (list) => list)}</div>` : ''}
     </div>` + (week.sections || []).map((sec, si) => {
     const parts = (sec.parts || []).map(p => {
       const slots = mwSlotsFor(sec, p);
@@ -3625,10 +3873,12 @@ async function renderMidweek(id) {
         for (const person of list) {
           opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
         }
+        const missing = !cur;
         return `<div class="flex-1 min-w-[160px]">
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">${escapeHtml(s.label)} <span data-mwbadge="${si}.${p.num}.${s.key}" class="mw-conflict-badge hidden items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Conflicto</span></label>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">${escapeHtml(s.label)} ${missing ? '<span class="text-error font-bold text-[10px] uppercase ml-1">Falta</span>' : ''}<span data-mwbadge="${si}.${p.num}.${s.key}" class="mw-conflict-badge hidden items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Conflicto</span></label>
           <select data-sec="${si}" data-part="${p.num}" data-slot="${s.key}"
-            class="mwSel w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${opts.join('')}</select>
+            class="mwSel w-full bg-surface-bright border ${missing ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-md focus:border-primary">${opts.join('')}</select>
+          ${missing ? `<div class="mt-1.5 flex flex-wrap gap-1 text-[11px]" data-mwsugwrap="${si}.${p.num}.${s.key}">${mwSuggestChips(week, `${si}.${p.num}.${s.key}`, list, roleFilter, collectMidweekPersons)}</div>` : ''}
         </div>`;
       }).join('');
       return `<div class="flex flex-col md:flex-row gap-3 md:items-center md:gap-4 bg-surface-container-low rounded-lg p-4 border border-outline-variant">
@@ -3652,6 +3902,25 @@ async function renderMidweek(id) {
 
   mwRefreshConflicts(editor, week);
   editor.querySelectorAll('select[data-mw-presidente], select.mwSel').forEach(bindMwChange);
+  editor.querySelectorAll('button[data-mwsug]').forEach(btn => {
+    btn.onclick = () => {
+      const key = btn.dataset.mwsug;
+      const pid = btn.dataset.mwsugId;
+      let sel;
+      if (key === 'presidente') sel = editor.querySelector('select[data-mw-presidente]');
+      else {
+        const [si, part, slot] = key.split('.');
+        sel = editor.querySelector(`select[data-sec="${si}"][data-part="${part}"][data-slot="${slot}"]`);
+      }
+      if (!sel) return;
+      if (![...sel.options].some(o => String(o.value) === pid)) {
+        sel.add(new Option(personNameOf(pid), pid));
+      }
+      sel.value = pid;
+      btn.closest('[data-mwsugwrap]')?.remove();
+      sel.dispatchEvent(new Event('change'));
+    };
+  });
 
   renderCrossAlerts($('#mwCross'), String(id).slice(0, 7));
 
@@ -3683,6 +3952,7 @@ async function renderMidweek(id) {
     if (presSel) week.presidente = presSel.value;
     await db.putMidweek(week);
     state.midweeks = await db.listMidweeks();
+    await syncAssignmentLog();
     toast('Asignaciones guardadas', 'success');
     renderMidweek(id);
   };
@@ -3728,7 +3998,8 @@ function mwPairErrors(editor) {
 }
 
 // Estiliza selects duplicados y muestra un rótulo "Conflicto" parpadeante junto
-// al campo, igual que en la reunión de fin de semana.
+// al campo, igual que en la reunión de fin de semana. Mantiene el borde rojo de
+// los puestos vacíos (falta asignar).
 function mwRefreshConflicts(editor, week) {
   const dup = mwCurrentDupKeys(editor);
 
@@ -3740,15 +4011,41 @@ function mwRefreshConflicts(editor, week) {
     badge.classList.toggle('inline-flex', isDup);
   });
 
-  // selects (pads + presidente): borde rojo en duplicados
+  // selects (pads + presidente): borde rojo en duplicados o puestos vacíos
   editor.querySelectorAll('select.mwSel, select[data-mw-presidente]').forEach(sel => {
     let key;
     if (sel.classList.contains('mwSel')) key = `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`;
     else key = 'mw_presidente';
     const isDup = dup.has(key);
-    sel.classList.toggle('border-error', isDup);
-    sel.classList.toggle('border-outline-variant', !isDup);
+    const isMissing = !sel.value;
+    sel.classList.toggle('border-error', isDup || isMissing);
+    sel.classList.toggle('border-outline-variant', !isDup && !isMissing);
+    // ocultar el rótulo "Falta" cuando el puesto ya tiene asignación
+    const wrap = sel.closest('.flex-1.min-w-\\[160px\\]');
+    if (wrap) {
+      const label = wrap.querySelector('label');
+      if (label) {
+        const falta = [...label.children].find(n => n.textContent.trim() === 'Falta');
+        if (falta) falta.remove();
+      }
+    }
   });
+}
+
+// Sugerencias de nombres para completar un puesto vacío de la reunión de entre
+// semana. `key`: 'presidente' o "${si}.${partNum}.${slot}". `list`: personas ya
+// filtradas y elegibles (para presidente se calcula aquí). Genera chips que al
+// pulsarlos asignan la persona al puesto correspondiente.
+function mwSuggestChips(week, key, list, roleFilter, collector) {
+  const people = (list && list.length) ? list : (key === 'presidente'
+    ? eligiblePeople(week, state.people, 'presidente', '', collectMidweekPersons)
+    : eligiblePeople(week, state.people, roleFilter, '', collector || collectMidweekPersons));
+  const top = people.slice(0, 6);
+  if (!top.length) return '<span class="text-error">Sin personas libres</span>';
+  return top.map(p =>
+    `<button type="button" data-mwsug="${key}" data-mwsug-id="${p.id}"
+      class="px-2 py-0.5 rounded-full bg-primary-fixed/70 text-primary border border-primary/30 text-[11px] font-label-md hover:bg-primary hover:text-on-primary transition-colors">${escapeHtml(p.name.split(' ')[0])} ${escapeHtml((p.name.split(' ')[1] || '').slice(0, 1))}</button>`
+  ).join('');
 }
 
 function bindMwChange(node) {
