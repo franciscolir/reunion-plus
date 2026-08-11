@@ -673,26 +673,51 @@ export function convertPdfMidweeks(text) {
   return { data: { weeks: uniq }, warnings: [`Se detectaron ${uniq.length} semanas; revise títulos (el PDF separa las letras).`] };
 }
 
+// ¿El texto contiene los títulos de las tres secciones de la Guía de Actividades?
+function guideSectionsInText(text) {
+  const c = String(text || '').replace(/[\s\u0002\u0003´`]/g, '').toUpperCase();
+  return c.includes('TESOROS') &&
+    c.includes('MAESTROS') &&
+    (c.includes('NUESTRAVIDACRISTIANA') || (c.includes('VIDA') && c.includes('CRISTIANA')));
+}
+
 // Resumen de la Guía de Actividades detectada: meses, año y nº de semanas.
-// Devuelve null si el texto no se reconoce como guía.
+// Devuelve null si el texto no se reconoce como guía. Se considera guía válida
+// si se detectan semanas con formato "D-D DE MES" o si contiene los títulos de
+// las tres secciones (Tesoros de la Biblia, Seamos Mejores Maestros y Nuestra
+// Vida Cristiana), aunque no se hayan podido extraer las semanas.
 export function midweekGuideSummary(text) {
   const { data, warnings } = convertPdfMidweeks(text);
-  if (!data || !data.weeks || !data.weeks.length) return null;
-  const monthsSet = new Set();
-  let year = null;
-  for (const w of data.weeks) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(w.id || ''))) continue;
-    monthsSet.add(Number(w.id.slice(5, 7)));
-    if (year == null) year = Number(w.id.slice(0, 4));
+  if (data && data.weeks && data.weeks.length) {
+    const monthsSet = new Set();
+    let year = null;
+    for (const w of data.weeks) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(w.id || ''))) continue;
+      monthsSet.add(Number(w.id.slice(5, 7)));
+      if (year == null) year = Number(w.id.slice(0, 4));
+    }
+    if (monthsSet.size) {
+      return {
+        months: [...monthsSet].sort((a, b) => a - b).map(m => MONTHS_ES[m - 1]),
+        year,
+        weeksCount: data.weeks.length,
+        weeks: data.weeks,
+        warnings,
+      };
+    }
   }
-  if (!monthsSet.size) return null;
-  return {
-    months: [...monthsSet].sort((a, b) => a - b).map(m => MONTHS_ES[m - 1]),
-    year,
-    weeksCount: data.weeks.length,
-    weeks: data.weeks,
-    warnings,
-  };
+  // Válido por títulos aunque no se hayan detectado cabeceras de semana.
+  if (guideSectionsInText(text)) {
+    const yearMatch = String(text).replace(/[\s\u0002\u0003´`]/g, '').match(/\b(20\d{2})\b/);
+    return {
+      months: [],
+      year: yearMatch ? Number(yearMatch[1]) : new Date().getFullYear(),
+      weeksCount: 0,
+      weeks: [],
+      warnings: (warnings || []).concat('Se reconocieron los títulos de la guía, pero no se detectaron semanas con formato "D-D DE MES".'),
+    };
+  }
+  return null;
 }
 
 /* ---------- Conflictos cruzados entre programas (contexto global) ---------- */

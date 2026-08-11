@@ -377,6 +377,16 @@ ok('cada semana tiene las 3 secciones', gweeks.every(w => w.sections.map(s => s.
 ok('sin cabeceras repetidas', new Set(gweeks.map(w => w.header)).size === gweeks.length);
 ok('sin texto deja datos nulos', convertPdfMidweeks('texto sin semanas').data === null);
 
+console.log('[midweekGuideSummary]');
+ok('reconoce guía por cabeceras', midweekGuideSummary(guideText).weeksCount === 2);
+ok('null sin títulos ni cabeceras', midweekGuideSummary('texto cualquiera') === null);
+ok('válida por títulos de las tres secciones',
+  midweekGuideSummary('REUNIÓN DE ENTRE SEMANA\nTESOROS DE LA BIBLIA\nSEAMOS MEJORES MAESTROS\nNUESTRA VIDA CRISTIANA')?.weeksCount === 0);
+ok('válida por títulos con letras separadas',
+  midweekGuideSummary('T E S O R O S  D E  L A  B I B L I A\nSEAMOS MEJORES MAESTROS\nNUESTRA VIDA CRISTIANA')?.weeksCount === 0);
+ok('no válida si falta una sección', midweekGuideSummary('TESOROS DE LA BIBLIA\nSEAMOS MEJORES MAESTROS') === null);
+ok('año detectado por títulos', midweekGuideSummary('GUÍA 2026\nTESOROS DE LA BIBLIA\nSEAMOS MEJORES MAESTROS\nNUESTRA VIDA CRISTIANA')?.year === 2026);
+
 console.log('[convertPdfTalks]');
 ok('detecta discursos numerados', convertPdfTalks('1. La Biblia\n2- El Reino\n3: Esperanza').data.discursos.length === 3);
 ok('sin discursos devuelve nulo', convertPdfTalks('nada').data === null);

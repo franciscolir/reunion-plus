@@ -2092,7 +2092,11 @@ async function renderUploads() {
         if (type === 'midweeks') {
           const summary = midweekGuideSummary(text);
           if (!summary) {
-            showStatus(status, 'Este PDF no se reconoce como una Guía de Actividades. Se esperan cabeceras de semanas "D-D DE MES".', 'text-error');
+            showStatus(status, 'Este PDF no se reconoce como una Guía de Actividades. Se esperan los títulos "Tesoros de la Biblia", "Seamos Mejores Maestros" y "Nuestra Vida Cristiana", o cabeceras de semanas "D-D DE MES".', 'text-error');
+            return;
+          }
+          if (!summary.weeksCount) {
+            showStatus(status, 'Guía de Actividades reconocida por sus títulos, pero no se detectaron semanas con formato "D-D DE MES". Revisa el texto extraído.', 'text-error');
             return;
           }
           const label = summary.months.length === 1
