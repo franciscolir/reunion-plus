@@ -614,7 +614,7 @@ async function abrirAsistenteAuto() {
 
     // Crear los programas del mes que no estén iniciados.
     const creados = await crearProgramasFaltantes(m);
-    const rep1 = await ejecutarEtapa1(m);
+    const rep1 = await etapa1(m);
     pasoEtapas(m, creados, rep1);
   };
 
@@ -671,7 +671,7 @@ async function abrirAsistenteAuto() {
     $('#autoEtapa2').onclick = async () => {
       const b = $('#autoEtapa2');
       b.disabled = true;
-      const rep2 = await ejecutarEtapa2(m);
+      const rep2 = await etapa2(m);
       b.disabled = false;
       $('#autoReport').innerHTML = renderReporte(rep1) + renderReporte(rep2);
     };
