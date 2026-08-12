@@ -170,7 +170,7 @@ export async function reemplazarDiscursos(talks) {
   for (let i = 0; i < talks.length; i += 400) {
     const chunk = talks.slice(i, i + 400);
     const batch = writeBatch(f.db);
-    for (const t of chunk) batch.set(doc(f.db, 'discursos', String(t.num)), { num: t.num, title: t.title || '', createdAt: ahora });
+    for (const t of chunk) batch.set(doc(f.db, 'discursos', String(t.num)), { num: t.num, title: t.title || '', createdAt: ahora, updatedAt: ahora });
     await batch.commit();
   }
   return talks.length;
