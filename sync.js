@@ -183,6 +183,14 @@ async function pushStore(store) {
       const midweeks = await db.listMidweeks();
       await batchWrite(midweeks.map(reunionADocumento));
       setStatus('ok', `reuniones: ${midweeks.length}`);
+    } else if (store === 'talks') {
+      const talks = await db.listTalks();
+      await batchWrite(talks.map(t => ({
+        collection: 'discursos',
+        id: String(t.num),
+        data: { num: t.num, title: t.title || '', createdAt: Date.now() },
+      })));
+      setStatus('ok', `discursos: ${talks.length}`);
     } else if (store === 'months' || store === 'salidas' || store === 'atencion' || store === 'aseos') {
       // Reconstruir los programas de todos los meses afectados (el store cambió
       // completo, no sabemos qué mes; se sincronizan todos los meses existentes).
@@ -308,13 +316,14 @@ export async function pullAll() {
   _enabled = false;
   try {
     const f = await import('./firestore.js');
-    const [participantes, grupos, reuniones, programas, asignaciones, configuracion] = await Promise.all([
+    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos] = await Promise.all([
       f.obtenerParticipantes(),
       f.obtenerGrupos(),
       f.obtenerReuniones(),
       f.obtenerProgramas(),
       f.obtenerAsignaciones(),
       f.obtenerConfiguracion(),
+      f.obtenerDiscursos(),
     ]);
 
     // personas: participantes → registros people
@@ -377,6 +386,8 @@ export async function pullAll() {
       if (configuracion.config) await db.setConfigSilent(configuracion.config);
       if (Array.isArray(configuracion.laboresEquipo)) await db.setLaboresSilent(configuracion.laboresEquipo);
     }
+    // discursos
+    await db.replaceAllTalksSilent(discursos.map(d => ({ num: Number(d.num), title: d.title || '' })));
     setStatus('ok', 'pull completado');
     return { ok: true, participantes: participantes.length, programas: programas.length };
   } catch (e) {

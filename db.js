@@ -432,30 +432,6 @@ function midweekFallbackId(w, i) {
   return `mw_${Date.now().toString(36)}_${i}`;
 }
 
-// Carga desde midweeks.json solo cuando el store está vacío.
-export async function seedMidweeks() {
-  const existing = await listMidweeks();
-  if (existing.length > 0) return;
-  try {
-    const res = await fetch('./midweeks.json', { cache: 'no-cache' });
-    if (!res.ok) return;
-    const data = await res.json();
-    const weeks = Array.isArray(data.weeks) ? data.weeks : [];
-    await commit(STORE_MIDWEEKS, (store) => new Promise((resolve, reject) => {
-      let pending = weeks.length;
-      if (pending === 0) return resolve();
-      for (const w of weeks) {
-        const r = store.put(w);
-        r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
-        r.onerror = () => reject(r.error);
-      }
-    }));
-    console.log('[Reunión+] Reuniones de entre semana cargadas:', weeks.length);
-  } catch (e) {
-    console.warn('[Reunión+] No se pudo cargar midweeks.json', e);
-  }
-}
-
 // ===== ASEOS (programa de aseo por mes) =====
 export async function getAseo(id) {
   const db = await openDB();
@@ -560,84 +536,13 @@ export async function clearAssignmentLog() {
   return commit(STORE_ASSIGNMENT_LOG, (store) => reqToPromise(store.clear()));
 }
 
-// ===== SEED inicial =====
-// Datos iniciales de prueba/carga inicial. Los archivos JSON son SOLO seed y
-// respaldo: la app no depende de ellos para funcionar (fuente real: IndexedDB
-// local + Firestore en la nube). Si no existen, la app arranca igual con la
-// base vacía.
+// ===== SEED =====
+// Ya no se siembran datos desde archivos JSON: la fuente de verdad es Firestore
+// (la app descarga desde la nube al iniciar sesión si la base local está vacía).
+// seedIfEmpty se mantiene como no-op por compatibilidad con init().
 export async function seedIfEmpty() {
-  // Personas: solo si la base está vacía (primer uso). No se enriquece en cada
-  // arranque (evita sobrescribir labores editadas).
-  const people = await listPeople();
-  if (people.length === 0) {
-    await loadParticipantes();
-  }
-
-  // Grupos: solo si la base de grupos está vacía (evita re-sincronizar/borrar
-  // grupos editados por el usuario en cada arranque).
-  const depts = await listDepartments();
-  if (depts.length === 0) {
-    try {
-      const res = await fetch('./grupos.json', { cache: 'no-cache' });
-      if (res.ok) {
-        const data = await res.json();
-        const nombres = Array.isArray(data.grupos) ? data.grupos
-          : (Array.isArray(data.departamentos) ? data.departamentos : []);
-        for (const n of nombres.map(String)) await addDepartment(n);
-      }
-    } catch (e) { /* sin conexión: ignorar */ }
-  }
-
-  // Discursos: cargar desde discursos.json si la lista está vacía
-  const talks = await listTalks();
-  if (talks.length === 0) {
-    try {
-      const res = await fetch('./discursos.json', { cache: 'no-cache' });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length) {
-          await replaceAllTalks(data.map(d => ({ num: d.num, title: d.title })));
-          console.log('[Reunión+] Discursos cargados:', data.length);
-        }
-      }
-    } catch (e) {
-      console.warn('[Reunión+] No se pudo cargar discursos.json', e);
-    }
-  }
-  // Reuniones de entre semana: cargar desde midweeks.json si el store está vacío
-  await seedMidweeks();
+  // Sin seed JSON. Los datos llegan vía sync.js (pull desde Firebase).
 }
-
-
-// Carga inicial de personas con roles y departamentos desde participantes.json
-async function loadParticipantes() {
-  try {
-    const res = await fetch('./participantes.json', { cache: 'no-cache' });
-    if (!res.ok) {
-      // fallback a los ejemplos antiguos si no hay archivo
-      const ejemplos = ['Carlos Mendoza', 'Elena Rivas', 'Miguel Á. Torres', 'Lucía Fernández', 'Marcos Ruiz', 'Sofía Gaviria'];
-      for (const n of ejemplos) await addPerson({ name: n });
-      return;
-    }
-    const data = await res.json();
-    const rolesMap = data.roles || {};
-    // Insertar personas únicas (por nombre) con sus labores
-    const merged = {};
-    for (const [role, names] of Object.entries(rolesMap)) {
-      for (const name of names) {
-        const key = String(name).trim().toLowerCase();
-        if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
-        if (!merged[key].labores.includes(role)) merged[key].labores.push(role);
-      }
-    }
-    for (const p of Object.values(merged)) {
-      await addPerson({ name: p.name, labores: p.labores });
-    }
-  } catch (e) {
-    console.warn('[Reunión+] No se pudo cargar participantes.json', e);
-  }
-}
-
 
 // Exportar todo (backup)
 export async function exportAll() {
@@ -754,6 +659,20 @@ export async function setConfigSilent(cfg) {
 // Guarda las labores del equipo (sin disparar sync).
 export async function setLaboresSilent(labores) {
   await setSettingSilent('labores', Array.isArray(labores) ? labores : []);
+}
+
+// Reemplaza toda la lista de discursos (sin disparar sync). Usado en el pull.
+export async function replaceAllTalksSilent(talks) {
+  await commitSilent(STORE_TALKS, (store) => new Promise((resolve, reject) => {
+    let pending = 1 + talks.length;
+    const done = () => { pending--; if (pending === 0) resolve(); };
+    const cl = store.clear();
+    cl.onsuccess = done; cl.onerror = () => reject(cl.error);
+    for (const t of talks) {
+      const r = store.put(t);
+      r.onsuccess = done; r.onerror = () => reject(r.error);
+    }
+  }));
 }
 
 // ===== Mantenimiento local (borrado de datos) =====

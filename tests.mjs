@@ -16,7 +16,6 @@ import {
   isStudentPerson, isStudentLabore,
   extractAssignments, assignmentMetrics,
 } from './logic.js';
-import { readFileSync } from 'node:fs';
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra = '') {
@@ -598,19 +597,6 @@ ok('isStudentPerson con rol de presentación', isStudentPerson({ labores: ['asig
 ok('isStudentPerson con rol de lectura', isStudentPerson({ labores: ['asignacion1'] }));
 ok('isStudentPerson sin roles', isStudentPerson({ labores: [] }));
 ok('isStudentPerson con rol ajeno', !isStudentPerson({ labores: ['presidente'] }));
-
-// --- Estructura de midweeks.json (datos para el análisis de reuniones) ---
-console.log('[estructura midweeks.json]');
-const mwJson = JSON.parse(readFileSync(new URL('./midweeks.json', import.meta.url), 'utf8'));
-const mwWeeks = mwJson.weeks || [];
-ok('midweeks.json tiene semanas', mwWeeks.length > 0);
-ok('cada semana tiene secciones tesoros/maestros/vida', mwWeeks.every(w => {
-  const ids = (w.sections || []).map(s => s.id).join(',');
-  return ids === 'tesoros,maestros,vida';
-}));
-ok('las partes tienen num, title y mins', mwWeeks.every(w => (w.sections || []).every(s => (s.parts || []).every(p => p.num && p.title && typeof p.mins === 'number'))));
-ok('cada semana tiene id y header', mwWeeks.every(w => w.id && w.header));
-ok('tesoros siempre tiene 3 partes', mwWeeks.every(w => (w.sections.find(s => s.id === 'tesoros') || {}).parts.length === 3));
 
 // --- ATENCION_DEF / ATENCION_ROLES / isAtencionPerson ---
 console.log('[ATENCION_DEF / labore roles]');

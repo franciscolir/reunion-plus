@@ -13,9 +13,9 @@ Aplicación web progresiva (PWA) para crear el **programa mensual de reuniones**
   - **Asamblea** (sin reunión local)
   - **Conmemoración**
 - Validación automática de conflictos (misma persona en dos roles de la misma reunión) y campos obligatorios.
-- **Buscador de discursos** por número o palabra clave (lista cargada desde `discursos.json`).
-- Selectores de personas filtrados por **labor/rol** (presidente, conductor/orador-estudio, lector, orador) cargados desde `participantes.json`.
-- **Grupos** (departamentos de atención) cargados desde `grupos.json`.
+- **Buscador de discursos** por número o palabra clave (lista sincronizada desde Firestore).
+- Selectores de personas filtrados por **labor/rol** (presidente, conductor/orador-estudio, lector, orador) sincronizados desde Firestore.
+- **Grupos** (departamentos de atención) sincronizados desde Firestore.
 - **Salidas a congregaciones**:
   - Cuadro general con nombre de congregación, día y hora (múltiples congregaciones por mes).
   - Por semana normal, lista de oradores + discurso, con botón para añadir más.
@@ -45,9 +45,6 @@ firebase.json       Configuración de deploy (rules + hosting)
 sw.js               Service Worker (cache offline)
 styles.css          Estilos personalizados + reglas de impresión
 manifest.json       Manifest PWA
-discursos.json      Lista de discursos (nº + título)
-participantes.json  Roles de personas (presidente, lector, conductor, orador)
-grupos.json         Grupos de atención
 icons/              Íconos PWA
 favicon.png
 ```
@@ -65,6 +62,5 @@ O cualquier servidor estático servirá (la PWA no requiere build).
 
 ## Notas
 
-- `S-99_S.pdf` (lista oficial de discursos) **no se incluye** en el repositorio por restricciones de copyright. `discursos.json` es la lista derivada de números y títulos de uso interno.
+- `S-99_S.pdf` (lista oficial de discursos) **no se incluye** en el repositorio por restricciones de copyright. La lista de discursos se mantiene en Firestore (colección `discursos`).
 - `servidor.ps1` es un helper local opcional y queda excluido del control de versiones.
-- Los archivos JSON (`participantes.json`, `grupos.json`, `discursos.json`, `midweeks.json`) son **solo seed/datos iniciales**; la fuente real es IndexedDB + Firestore.

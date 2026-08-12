@@ -146,6 +146,11 @@ export const guardarAsignacion = (id, data) => writeDoc('asignaciones', id, data
 export const obtenerConfiguracion = () => readDoc('configuracion', 'general');
 export const guardarConfiguracion = (data) => writeDoc('configuracion', 'general', data);
 
+// ===== Discursos (lista pública) =====
+export const obtenerDiscursos = () => readAll('discursos');
+export const obtenerDiscurso = (num) => readDoc('discursos', String(num));
+export const guardarDiscurso = (num, data) => writeDoc('discursos', String(num), data);
+
 // ===== Usuarios (rol admin/reader; verifica en auth.js) =====
 export const obtenerUsuario = (uid) => readDoc('usuarios', uid);
 export const guardarUsuario = (uid, data) => writeDoc('usuarios', uid, data);
