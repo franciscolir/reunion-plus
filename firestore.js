@@ -9,24 +9,23 @@
 // Si Firebase no está configurado, todas las funciones devuelven null/[] y no
 // hacen ninguna llamada de red (la app sigue funcionando offline con IndexedDB).
 
-import { FIREBASE_CONFIG, FIREBASE_SDK_BASE, isFirebaseConfigured } from './firebase-config.js';
+import { FIREBASE_SDK_BASE, isFirebaseConfigured, getFirebaseApp } from './firebase-config.js';
 
-let _app = null;
 let _db = null;
 let _ready = false;
 
-// Inicializa Firebase de forma perezosa. Devuelve { app, db } o null si no hay
+// Inicializa Firestore de forma perezosa. Devuelve { db } o null si no hay
 // configuración / no se pudo cargar el SDK (sin red).
 async function initFirebase() {
-  if (_ready) return _db ? { app: _app, db: _db } : null;
+  if (_ready) return _db ? { db: _db } : null;
   _ready = true;
   if (!isFirebaseConfigured()) return null;
   try {
-    const { initializeApp } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-app.js');
+    const app = await getFirebaseApp();
+    if (!app) return null;
     const { getFirestore } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-    _app = initializeApp(FIREBASE_CONFIG);
-    _db = getFirestore(_app);
-    return { app: _app, db: _db };
+    _db = getFirestore(app);
+    return { db: _db };
   } catch (e) {
     console.warn('[Reunión+] Firebase no disponible (¿sin conexión o SDK no cargado?)', e);
     return null;

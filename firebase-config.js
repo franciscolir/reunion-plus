@@ -30,3 +30,22 @@ export function isFirebaseConfigured() {
     FIREBASE_CONFIG.projectId !== 'TU_PROYECTO'
   );
 }
+
+let _app = null;
+
+// Devuelve la app de Firebase inicializada UNA sola vez. auth.js y firestore.js
+// la comparten para evitar el error "Firebase App named '[DEFAULT]' already
+// exists" (initializeApp llamado dos veces). Devuelve null si no hay
+// configuración o si no se puede cargar el SDK (sin red).
+export async function getFirebaseApp() {
+  if (_app) return _app;
+  if (!isFirebaseConfigured()) return null;
+  try {
+    const { initializeApp } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-app.js');
+    _app = initializeApp(FIREBASE_CONFIG);
+    return _app;
+  } catch (e) {
+    console.warn('[Reunión+] No se pudo inicializar Firebase', e);
+    return null;
+  }
+}

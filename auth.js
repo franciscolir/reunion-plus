@@ -7,21 +7,21 @@
 // Mientras Firebase no esté configurado, auth.js queda inactivo: isAuthenticated()
 // devuelve false y las funciones de sesión no hacen nada (la app sigue offline).
 
-import { FIREBASE_CONFIG, FIREBASE_SDK_BASE, isFirebaseConfigured } from './firebase-config.js';
+import { FIREBASE_SDK_BASE, isFirebaseConfigured, getFirebaseApp } from './firebase-config.js';
 import { obtenerUsuario, guardarUsuario } from './firestore.js';
 
 let _auth = null;
 let _currentUser = null;      // { uid, email, rol }
 let _listeners = new Set();
 
-// Inicializa Firebase Auth de forma perezosa.
+// Inicializa Firebase Auth de forma perezosa (comparte la app con firestore.js).
 async function initAuth() {
   if (_auth) return _auth;
   if (!isFirebaseConfigured()) return null;
   try {
-    const { initializeApp } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-app.js');
+    const app = await getFirebaseApp();
+    if (!app) return null;
     const { getAuth } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-auth.js');
-    const app = initializeApp(FIREBASE_CONFIG);
     _auth = getAuth(app);
     return _auth;
   } catch (e) {
@@ -30,14 +30,30 @@ async function initAuth() {
   }
 }
 
+// Traduce el código de error de Firebase Auth a un mensaje legible.
+function errorLogin(msg) {
+  const m = String(msg || '');
+  if (/EMAIL_NOT_ENABLED|operation-not-allowed/.test(m)) return 'El acceso con correo/contraseña no está habilitado en la consola de Firebase (Authentication → Sign-in method).';
+  if (/INVALID_LOGIN_CREDENTIALS|invalid-credential|user-not-found|wrong-password/.test(m)) return 'Correo o contraseña incorrectos.';
+  if (/INVALID_EMAIL/.test(m)) return 'El correo no tiene un formato válido.';
+  if (/TOO_MANY_ATTEMPTS|too-many-requests/.test(m)) return 'Demasiados intentos. Espere un momento y vuelva a intentar.';
+  if (/NETWORK_ERROR|network-request-failed/.test(m)) return 'Sin conexión. Verifique su red e intente de nuevo.';
+  if (/user-disabled/.test(m)) return 'La cuenta está deshabilitada.';
+  return String(msg || 'No se pudo iniciar sesión.');
+}
+
 // Inicia sesión con email + contraseña.
 export async function login(email, password) {
   const auth = await initAuth();
   if (!auth) throw new Error('Firebase no configurado');
   const { signInWithEmailAndPassword } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-auth.js');
-  const cred = await signInWithEmailAndPassword(auth, email, password);
-  await refreshUser(cred.user);
-  return _currentUser;
+  try {
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    await refreshUser(cred.user);
+    return _currentUser;
+  } catch (err) {
+    throw new Error(errorLogin(err.message || err.code || err));
+  }
 }
 
 // Cierra sesión.
