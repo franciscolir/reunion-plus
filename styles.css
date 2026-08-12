@@ -175,3 +175,9 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
   from { opacity: 0; transform: translateX(20px); }
   to { opacity: 1; transform: translateX(0); }
 }
+
+/* Autenticación (Fase 6): un lector (reader) ve la app en modo consulta.
+   Los botones/acciones administrativas marcados con [data-admin] se ocultan.
+   Esto es SOLO una mejora de UX; la seguridad real está en Firestore Rules. */
+body.is-reader [data-admin] { display: none !important; }
+body.is-reader [data-admin-input] { pointer-events: none; opacity: .55; }

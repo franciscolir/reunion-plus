@@ -4,6 +4,7 @@ import { migrarDatos } from './migracion.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady } from './firestore.js';
 import { iniciarSync, pullAll, syncStatus } from './sync.js';
+import { login, logout, restoreSession, currentUser, isAuthenticated, isAdmin, onAuthChange } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
@@ -48,6 +49,9 @@ async function init() {
   bindGlobal();
   // Sincronización con Firebase (si está configurado). No bloquea el arranque.
   iniciarSync().catch(() => {});
+  // Autenticación: restaurar sesión persistente y actualizar la UI.
+  onAuthChange(() => renderAuthUI());
+  restoreSession().catch(() => {}).finally(renderAuthUI);
   window.addEventListener('hashchange', router);
   router();
 }
@@ -96,9 +100,95 @@ function bindGlobal() {
   document.getElementById('navToggle').addEventListener('click', () => {
     document.getElementById('sideNav').classList.toggle('hidden');
   });
+  document.getElementById('authBtn').addEventListener('click', onClickAuthBtn);
   window.addEventListener('online', updateOnline);
   window.addEventListener('offline', updateOnline);
   updateOnline();
+}
+
+// Estado de la autenticación en la interfaz (Fase 6). Si Firebase no está
+// configurado, el botón queda oculto y la app funciona sin login.
+function renderAuthUI() {
+  const btn = document.getElementById('authBtn');
+  const label = document.getElementById('authBtnLabel');
+  const badge = document.getElementById('sideAuthBadge');
+  const user = currentUser();
+  if (!isFirebaseConfigured()) {
+    if (btn) btn.style.display = 'none';
+    if (badge) badge.classList.add('hidden');
+    return;
+  }
+  if (!btn || !badge) return;
+  if (user) {
+    btn.style.display = 'flex';
+    btn.title = 'Cerrar sesión';
+    label.textContent = user.email || 'Salir';
+    badge.classList.remove('hidden');
+    badge.textContent = user.rol === 'admin' ? '👑 Admin' : '👁️ Solo lectura';
+    badge.className = `text-[11px] font-label-md mt-1 ${user.rol === 'admin' ? 'text-tertiary' : 'text-on-surface-variant'}`;
+  } else {
+    btn.style.display = 'flex';
+    btn.title = 'Iniciar sesión';
+    label.textContent = 'Entrar';
+    badge.classList.add('hidden');
+    badge.textContent = '';
+  }
+  // Ocultar/mostrar acciones administrativas según el rol (solo UX; la seguridad
+  // real está en Firestore Security Rules).
+  document.body.classList.toggle('is-reader', !!user && user.rol !== 'admin');
+  document.body.classList.toggle('is-admin', !!user && user.rol === 'admin');
+  document.body.classList.toggle('is-logged', !!user);
+}
+
+async function onClickAuthBtn() {
+  const user = currentUser();
+  if (user) {
+    await logout();
+    toast('Sesión cerrada', 'success');
+    renderAuthUI();
+    if (state.view === 'settings') renderSettings();
+    return;
+  }
+  openLoginModal();
+}
+
+// Modal de inicio de sesión (email + contraseña).
+function openLoginModal() {
+  openModal(`
+    <div class="text-center">
+      <span class="material-symbols-outlined text-6xl text-primary mb-2">lock</span>
+      <h3 class="font-headline-md text-headline-md text-primary mb-1">Iniciar sesión</h3>
+      <p class="text-on-surface-variant text-sm mb-4">Acceso con la cuenta de la congregación.</p>
+      <form id="loginForm" class="space-y-4 text-left">
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Correo electrónico</label>
+          <input id="loginEmail" type="email" required placeholder="usuario@ejemplo.com" autocomplete="email" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Contraseña</label>
+          <input id="loginPass" type="password" required placeholder="••••••••" autocomplete="current-password" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        </div>
+        <div class="flex gap-3 justify-end pt-2">
+          <button type="button" id="loginCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+          <button type="submit" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Entrar</button>
+        </div>
+      </form>
+    </div>`);
+  $('#loginCancel').onclick = closeModal;
+  $('#loginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const email = $('#loginEmail').value.trim();
+    const pass = $('#loginPass').value;
+    if (!email || !pass) { toast('Completa correo y contraseña', 'error'); return; }
+    try {
+      await login(email, pass);
+      closeModal();
+      toast('Sesión iniciada', 'success');
+      renderAuthUI();
+    } catch (err) {
+      toast('No se pudo iniciar sesión: ' + (err.message || err), 'error');
+    }
+  };
 }
 function updateOnline() {
   const btn = document.getElementById('onlineBtn');
@@ -271,7 +361,7 @@ async function renderHome() {
         <h1 class="font-display-lg text-display-lg text-primary mb-2">Tablero Principal</h1>
         <p class="font-body-lg text-body-lg text-on-surface-variant">Resumen de actividades y asignaciones para la semana en curso.</p>
       </div>
-      <button id="btnNew" class="flex items-center gap-2 bg-primary text-on-primary px-5 py-3 rounded-lg font-label-md text-label-md hover:shadow-lg transition-all active:scale-95 whitespace-nowrap">
+      <button id="btnNew" data-admin class="flex items-center gap-2 bg-primary text-on-primary px-5 py-3 rounded-lg font-label-md text-label-md hover:shadow-lg transition-all active:scale-95 whitespace-nowrap">
         <span class="material-symbols-outlined text-[20px]">add_circle</span>
         Nuevo Programa
       </button>
@@ -521,7 +611,7 @@ async function renderNew() {
           ${allMonths.map(id => `<option value="${id}" ${id === state.progMonth ? 'selected' : ''}>${MONTHS_ES[Number(id.slice(5)) - 1]} ${id.slice(0, 4)}</option>`).join('')}
         </select>
       </div>
-      <button id="autoBtn" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors" title="Asignación automática del mes">
+      <button id="autoBtn" data-admin class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors" title="Asignación automática del mes">
         <span class="material-symbols-outlined text-[18px]">auto_awesome</span> Asignación automática
       </button>
     </div>
@@ -710,7 +800,7 @@ async function renderAutoAsignacion() {
     const yaAsignado = !sesion.rewrite && mesAsignado(d);
     // Mientras el mes ya esté asignado (sin confirmar reescritura), los botones
     // "Asignar" quedan deshabilitados para forzar el aviso previo.
-    const botonAsignar = (tipo, label) => `<button data-asignar="${tipo}" ${yaAsignado ? 'disabled' : ''} class="px-4 py-2 rounded-lg font-label-md text-label-md ${yaAsignado ? 'bg-surface-container-high text-on-surface-variant cursor-not-allowed' : 'bg-primary text-on-primary hover:opacity-90'}">${label}</button>`;
+    const botonAsignar = (tipo, label) => `<button data-asignar="${tipo}" data-admin ${yaAsignado ? 'disabled' : ''} class="px-4 py-2 rounded-lg font-label-md text-label-md ${yaAsignado ? 'bg-surface-container-high text-on-surface-variant cursor-not-allowed' : 'bg-primary text-on-primary hover:opacity-90'}">${label}</button>`;
 
     const mwMissing = d.mws.flatMap(midweekMissing);
     const labMissing = laboresMissing(d.lab);
@@ -1043,7 +1133,7 @@ async function renderNewFin(body, progMonth) {
         <p class="font-label-md text-label-md text-on-surface-variant uppercase mb-2">Sábados detectados</p>
         <div id="nmPreview" class="flex flex-wrap gap-2"></div>
       </div>
-      <button id="nmCreate" class="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:opacity-90 active:scale-95 transition-all">
+      <button id="nmCreate" data-admin class="w-full bg-primary text-on-primary py-3 rounded-lg font-bold hover:opacity-90 active:scale-95 transition-all">
         Crear Programa
       </button>
     </div>
@@ -1980,11 +2070,11 @@ async function renderLists() {
 
     <div class="mt-6 flex justify-between flex-wrap gap-3">
       <div class="flex flex-wrap gap-3">
-        <button id="manageLaboresBtn" class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
+        <button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
           <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores
         </button>
       </div>
-      <button id="addMemberBtn" class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2">
+      <button id="addMemberBtn" data-admin class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2">
         <span class="material-symbols-outlined text-[18px]">add</span> Añadir Miembro
       </button>
     </div>
@@ -2852,10 +2942,10 @@ async function renderSettings() {
             <label class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container cursor-pointer">
               Restaurar <input id="setImport" type="file" accept="application/json" class="hidden">
             </label>
-            <button id="setReloadLists" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
-            <button id="setMigrarFirebase" class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Migrar a Firebase</button>
-            <button id="setPullFirebase" class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Descargar de Firebase</button>
-            <button id="setReset" class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
+            <button id="setReloadLists" data-admin class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
+            <button id="setMigrarFirebase" data-admin class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Migrar a Firebase</button>
+            <button id="setPullFirebase" data-admin class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Descargar de Firebase</button>
+            <button id="setReset" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
           </div>
           <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
           <p class="text-on-surface-variant text-caption mt-1">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas. "Migrar a Firebase" sube todos los datos actuales a Cloud Firestore; "Descargar de Firebase" sobrescribe los datos locales con los de la nube (requiere configurar <code>firebase-config.js</code>).</p>
