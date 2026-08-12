@@ -25,6 +25,15 @@ Aplicación web progresiva (PWA) para crear el **programa mensual de reuniones**
 - Exportación: Imprimir / PDF / Compartir (Web Share + portapapeles) / WhatsApp / Guardar como imagen.
 - Reutilización del mes anterior como base.
 - **Algoritmo de asignación automática explicable** (motivos por asignación, historial y regla 7 de flexibilización informada).
+- **Carga de Archivos** (menú “Carga”):
+  - **Conferencias**: subida de PDF → extracción de títulos numerados → reescritura de la colección `discursos`.
+  - **Personas**: plantilla descargable **Excel (.xls)** con columnas *Nombre / Género / Calificación / Grupo / Labores*; se llena, se convierte a PDF y se sube → extracción de datos → reescritura de la colección `participantes`.
+  - **Guía de Actividades**: subida de PDF → extracción de semanas → **carga acumulativa por fecha** (cada semana se guarda por su `id` YYYY-MM-DD; si la fecha ya existe se pregunta si reescribir).
+- **Resumen de base de datos interactivo** (en vista “Carga”): tarjetas clicables con listas y CRUD — **Personas** (lista + editar/eliminar + acceso a Departamentos), **Conferencias** (lista + añadir/editar/eliminar discursos), **Departamentos** (lista + añadir/renombrar/eliminar), **Semanas de entre semana** (lista + eliminar).
+- Vista previa en dos formatos: **lista** y **tabla**.
+- Exportación: Imprimir / PDF / Compartir (Web Share + portapapeles) / WhatsApp / Guardar como imagen.
+- Reutilización del mes anterior como base.
+- **Algoritmo de asignación automática explicable** (motivos por asignación, historial y regla 7 de flexibilización informada).
 - **Offline**: Service Worker + IndexedDB. La información se almacena localmente.
 - **Sincronización con Firebase** (Cloud Firestore): login con email/contraseña, roles `admin`/`reader`, y reglas de seguridad en el servidor.
 
@@ -32,13 +41,13 @@ Aplicación web progresiva (PWA) para crear el **programa mensual de reuniones**
 
 ```
 index.html          Shell SPA
-app.js              Lógica completa (router, vistas, validación, exportación)
-logic.js            Funciones puras (automatización, PDF, historial)
-db.js               Capa IndexedDB (months, people, departments, settings, talks)
+app.js              Lógica completa (router, vistas, validación, exportación, carga)
+logic.js            Funciones puras (automatización, PDF, historial, parseadores)
+db.js               Capa IndexedDB (months, people, departments, settings, talks, midweeks, aseos)
 firebase-config.js  Credenciales de Firebase (proyecto reunion-b6f14)
 firestore.js        Capa de acceso a Cloud Firestore
 auth.js             Autenticación (login/logout/sesión/rol)
-sync.js             Sincronización IndexedDB ↔ Firestore
+sync.js             Sincronización IndexedDB ↔ Firestore (cola offline, pull/push)
 migracion.js        Migración de datos local → Firestore
 firestore.rules     Reglas de seguridad de Firestore
 firebase.json       Configuración de deploy (rules + hosting)
@@ -47,6 +56,7 @@ styles.css          Estilos personalizados + reglas de impresión
 manifest.json       Manifest PWA
 icons/              Íconos PWA
 favicon.png
+vendor/pdfjs/       PDF.js v12.17.1 (parseo de PDF offline)
 ```
 
 ## Desarrollo
@@ -64,3 +74,4 @@ O cualquier servidor estático servirá (la PWA no requiere build).
 
 - `S-99_S.pdf` (lista oficial de discursos) **no se incluye** en el repositorio por restricciones de copyright. La lista de discursos se mantiene en Firestore (colección `discursos`).
 - `servidor.ps1` es un helper local opcional y queda excluido del control de versiones.
+- Los archivos PDF de la Guía de Actividades (`mwb_S_*.pdf`) y de materiales con copyright no se versionan.
