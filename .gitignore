@@ -1,10 +1,6 @@
 # Archivo temporal/local del servidor de pruebas
 servidor.ps1
 
-# Archivo temporal de migración (lo lee el botón "Importar discursos" en Ajustes).
-# El repositorio conserva la lista de discursos solo en Firestore.
-discursos.json
-
 # Material con copyright "Solo para uso de la congregación"
 S-99_S.pdf
 
