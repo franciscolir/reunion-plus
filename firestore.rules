@@ -1,0 +1,93 @@
+// firestore.rules - Reglas de seguridad de Cloud Firestore (Fase 7)
+// ==================================================================
+// Modelo de roles:
+//   - Usuario NO autenticado → sin lectura ni escritura.
+//   - reader  → solo lectura.
+//   - admin   → lectura + creación + actualización + eliminación.
+//
+// El rol se determina por el documento `usuarios/{uid}.rol`.
+// La seguridad está en estas reglas, NO en ocultar botones en la interfaz.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Helpers ----
+    function autenticado() {
+      return request.auth != null;
+    }
+    // ¿El usuario tiene un documento en `usuarios/{uid}` con rol admin?
+    function esAdmin() {
+      return autenticado() &&
+        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'admin';
+    }
+    // ¿El usuario tiene un documento en `usuarios/{uid}` con rol reader?
+    function esReader() {
+      return autenticado() &&
+        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'reader';
+    }
+    // ¿El documento corresponde al propio usuario autenticado?
+    function esPropietario(uid) {
+      return autenticado() && request.auth.uid == uid;
+    }
+    // Reglas por rol para cualquier colección de datos de la app.
+    function lecturaApp() { return autenticado(); }
+    function escrituraApp() { return esAdmin(); }
+
+    // ---- usuarios ----
+    // Cada usuario lee su propio documento; los admins leen todos.
+    // Cualquier usuario autenticado puede crear SU documento (primer login),
+    // pero siempre con rol 'reader' (nunca admin). Solo un admin puede
+    // promocionar/cambiar/eliminar roles.
+    match /usuarios/{uid} {
+      allow read: if autenticado() && (esAdmin() || esPropietario(uid));
+      allow create: if esPropietario(uid) && request.resource.data.rol == 'reader';
+      allow update: if esAdmin();
+      allow delete: if esAdmin();
+    }
+
+    // ---- participantes ----
+    match /participantes/{id} {
+      allow read: if lecturaApp();
+      allow write: if escrituraApp();
+    }
+
+    // ---- grupos ----
+    match /grupos/{id} {
+      allow read: if lecturaApp();
+      allow write: if escrituraApp();
+    }
+
+    // ---- reuniones (entre semana) ----
+    match /reuniones/{id} {
+      allow read: if lecturaApp();
+      allow write: if escrituraApp();
+    }
+
+    // ---- programas (mensual: fin de semana + salidas + atencion + aseo) ----
+    match /programas/{mes} {
+      allow read: if lecturaApp();
+      allow write: if escrituraApp();
+    }
+
+    // ---- asignaciones (historial) ----
+    match /asignaciones/{id} {
+      allow read: if lecturaApp();
+      allow write: if escrituraApp();
+    }
+
+    // ---- discursos (lista pública de discursos) ----
+    match /discursos/{num} {
+      allow read: if lecturaApp();
+      allow write: if escrituraApp();
+    }
+
+    // ---- configuracion ----
+    match /configuracion/{id} {
+      allow read: if lecturaApp();
+      allow write: if escrituraApp();
+    }
+  }
+}

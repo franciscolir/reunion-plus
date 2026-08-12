@@ -9,7 +9,7 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=18">
+  <link rel="stylesheet" href="./styles.css?v=19">
   <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
   <script id="tailwind-config">
     tailwind.config = {
@@ -106,6 +106,10 @@
     <nav class="hidden md:flex gap-8 items-center h-full" id="topNav"></nav>
     <div class="flex items-center gap-2">
       <button id="onlineBtn" class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary" title="Estado de conexión">cloud</button>
+      <button id="authBtn" class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-primary font-label-md text-label-md" title="Iniciar sesión" style="display:none">
+        <span class="material-symbols-outlined text-[18px]">account_circle</span>
+        <span id="authBtnLabel">Entrar</span>
+      </button>
       <button id="settingsBtn" class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary" title="Ajustes">settings</button>
     </div>
   </header>
@@ -115,6 +119,7 @@
     <div class="mb-4">
       <h2 class="font-headline-md text-headline-md text-primary">Reunión+</h2>
       <p class="text-on-surface-variant font-label-md text-label-md">Planificador Mensual</p>
+      <p id="sideAuthBadge" class="hidden text-[11px] font-label-md mt-1"></p>
     </div>
     <nav class="flex flex-col gap-1 flex-1" id="sideNavItems"></nav>
     <div class="pt-4 border-t border-outline-variant flex flex-col gap-1">
@@ -143,6 +148,7 @@
   <!-- Footer móvil action bar (reutilizable) -->
   <div id="actionBar" class="hidden fixed bottom-0 left-0 w-full bg-surface border-t border-outline-variant px-margin-desktop py-3 z-50"></div>
 
-  <script type="module" src="./app.js?v=18"></script>
+  <script src="./vendor/pdfjs/pdf.min.js"></script>
+  <script type="module" src="./app.js?v=123"></script>
 </body>
 </html>

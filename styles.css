@@ -40,6 +40,41 @@
   vertical-align: middle;
 }
 
+/* Checkboxs de la matriz de roles */
+input[type="checkbox"].role-checkbox {
+  appearance: none;
+  background-color: transparent;
+  margin: 0;
+  font: inherit;
+  color: currentColor;
+  width: 1.15em;
+  height: 1.15em;
+  border: 1px solid currentColor;
+  border-radius: 0.15em;
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+}
+input[type="checkbox"].role-checkbox::before {
+  content: "";
+  width: 0.65em;
+  height: 0.65em;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em var(--form-control-color, currentColor);
+  background-color: currentColor;
+  transform-origin: center;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+input[type="checkbox"].role-checkbox:checked::before { transform: scale(1); }
+input[type="checkbox"].role-checkbox:disabled {
+  color: #727878;
+  cursor: not-allowed;
+  border-color: #c1c8c7;
+}
+input[type="checkbox"].role-checkbox:disabled:checked::before { background-color: #727878; }
+.checkbox-cell { display: flex; justify-content: center; align-items: center; }
+
 .week-card-accent { border-left: 4px solid #032121; }
 
 .conflict-dot { animation: pulse-error 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
@@ -51,6 +86,25 @@
 .editorial-line {
   height: 1px;
   background: linear-gradient(to right, #727878 0%, transparent 100%);
+}
+
+.mw-sep { border-bottom: 1px solid #d1d5db; }
+
+/* Documento de reunión de entre semana (vista final) */
+#mwDoc { font-family: 'Open Sans', Georgia, serif; color: #333; }
+#mwDoc h1, #mwDoc h2 { font-family: 'Playfair Display', Georgia, serif; }
+#mwDoc .bg-highlight { background-color: #f1f1f1; }
+#mwDoc .border-b-custom { border-bottom: 1px solid #d1d5db; }
+
+/* Vista final mensual de entre semana: documento compacto en una hoja */
+@media print {
+  #mwDoc {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+  }
+  .mw-month-doc .grid { gap: 2mm !important; }
 }
 
 .week-card { transition: transform 0.3s ease, box-shadow 0.3s ease; }
@@ -121,3 +175,9 @@
   from { opacity: 0; transform: translateX(20px); }
   to { opacity: 1; transform: translateX(0); }
 }
+
+/* Autenticación (Fase 6): un lector (reader) ve la app en modo consulta.
+   Los botones/acciones administrativas marcados con [data-admin] se ocultan.
+   Esto es SOLO una mejora de UX; la seguridad real está en Firestore Rules. */
+body.is-reader [data-admin] { display: none !important; }
+body.is-reader [data-admin-input] { pointer-events: none; opacity: .55; }
