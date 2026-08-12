@@ -12,7 +12,11 @@
 //      projectId, storageBucket, messagingSenderId, appId).
 //   3. Activa Authentication (email/password) y Firestore (modo de prueba
 //      inicialmente).
-//   4. Aplica las reglas de seguridad de Firestore (ver FASE 7 / security.rules).
+//   4. Aplica las reglas de seguridad de Firestore (Fase 7). Puedes desplegarlas
+//      desde la consola (Firestore → Reglas → pegar firestore.rules) o con la
+//      CLI:  firebase deploy --only firestore:rules
+//   5. Promueve a 'admin' el documento de tu usuario en la colección 'usuarios'
+//      (los nuevos usuarios se crean con rol 'reader').
 //
 // Los valores de abajo son PLACEHOLDERS. La app detecta que Firebase NO está
 // configurado y continúa usando solo IndexedDB hasta que los completes.
