@@ -820,10 +820,16 @@ async function renderAutoAsignacion() {
     const cards = [];
 
     // Card 1: Entre semana
+    const resumenEntre = sesion.reportes.entre
+      ? `${sesion.reportes.entre.asignados} asignaciones hechas` +
+        (sesion.reportes.entre.flexiones && sesion.reportes.entre.flexiones.length
+          ? ` · ${sesion.reportes.entre.flexiones.length} asignación(es) con regla flexibilizada`
+          : '')
+      : '';
     cards.push(card({
       id: 'entre', icono: 'calendar_view_week', titulo: 'Entre semana', desc: `Reunión de entre semana · ${d.mws.length} semana(s)`,
       faltan: mwMissing, pct: pct(mwDone, mwTotal), done: !faltaGuia && mwMissing.length === 0,
-      resumen: sesion.reportes.entre ? `${sesion.reportes.entre.asignados} asignaciones hechas` : '',
+      resumen: resumenEntre,
       accion: faltaGuia
         ? `<button data-load-guide class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Cargar guía</button>`
         : `<button data-ver="entre" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
@@ -917,6 +923,8 @@ async function renderAutoAsignacion() {
 
       <div id="autoCards" class="space-y-4">${cards.join('')}</div>
 
+      ${panelMotivos(sesion.reportes)}
+
       <div class="sticky bottom-0 bg-surface py-4 mt-8 flex gap-3 justify-end items-center flex-wrap">
         <button id="autoSaveAll" class="px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">Guardar y ver programas</button>
       </div>
@@ -1000,15 +1008,58 @@ async function renderAutoAsignacion() {
   await render();
 }
 
+// Panel con el detalle "algoritmo explicable": motivos por asignación y avisos
+// de reglas flexibilizadas (Fase 9).
+function panelMotivos(reportes) {
+  const partes = [];
+  if (reportes.entre && reportes.entre.motivos && reportes.entre.motivos.length) {
+    const items = reportes.entre.motivos.map(m =>
+      `<div class="border-b border-outline-variant/40 pb-2 mb-2 last:border-0 last:mb-0">
+        <p class="text-sm font-semibold text-primary">${escapeHtml(m.nombre || '')} · ${escapeHtml(rolLegible(m.labore))}</p>
+        <ul class="text-xs text-on-surface-variant mt-1 space-y-0.5">
+          ${m.motivos.map(t => `<li class="flex items-start gap-1.5"><span class="material-symbols-outlined text-[12px] mt-0.5">check_circle</span><span>${escapeHtml(t)}</span></li>`).join('')}
+        </ul>
+      </div>`).join('');
+    partes.push(`<div class="mt-4">
+      <h3 class="font-label-lg text-label-lg text-primary mb-2">¿Por qué se asignó así?</h3>
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-sm">${items}</div>
+    </div>`);
+  }
+  if (reportes.entre && reportes.entre.flexiones && reportes.entre.flexiones.length) {
+    const flex = reportes.entre.flexiones.length;
+    partes.push(`<p class="text-sm text-error mt-2 flex items-center gap-1.5">
+      <span class="material-symbols-outlined text-[16px]">warning</span>
+      ${flex} asignación(es) requirieron flexibilizar una regla de repetición por falta de candidatos perfectos. Revise los resultados.
+    </p>`);
+  }
+  return partes.join('');
+}
+
+// Nombre legible de un puesto/rol para los motivos.
+function rolLegible(labore) {
+  if (!labore) return '—';
+  const lab = ATENCION_DEF.find(d => String(labore).startsWith(d.key + '_'));
+  if (lab) return `${lab.label} ${(Number(String(labore).slice(lab.key.length + 1)) || 0) + 1}`;
+  const r = state.labores.find(x => String(x.id) === String(labore));
+  if (r) return r.label;
+  const fid = FIELD_LABORE[labore];
+  const fRole = fid && state.labores.find(x => String(x.id) === fid);
+  return fRole ? fRole.label : String(labore);
+}
+
 async function etapaEntreSemana(month) {
-  const midweeks = await db.listMidweeks();
+  const [midweeks, log] = await Promise.all([db.listMidweeks(), db.listAssignmentLog()]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
-  const repMw = automatizarEntreSemana(state.people, mwMes);
+  const historial = log.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') }));
+  const nombres = Object.fromEntries(state.people.map(p => [String(p.id), p.name]));
+  const repMw = automatizarEntreSemana(state.people, mwMes, null, { historial, nombres });
   await Promise.all(mwMes.map(w => db.putMidweek(w)));
   state.midweeks = await db.listMidweeks();
   return {
     asignados: repMw.asignados,
     vacios: repMw.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
+    motivos: repMw.motivos,
+    flexiones: repMw.flexiones,
   };
 }
 

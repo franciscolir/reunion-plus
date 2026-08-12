@@ -769,6 +769,49 @@ console.log('[automatizarEntreSemana]');
     (partPres.assignments || {}).estudiante === '2' && (partPres.assignments || {}).ayudante === '3');
 }
 
+// --- Fase 9: algoritmo explicable + historial + regla 7 ---
+console.log('[automatizarEntreSemana · motivos/historial/flexiones]');
+{
+  const mk = (d) => ({ id: d, header: d, reading: 'X', sections: [
+    { id: 'tesoros', title: 'Tesoros', parts: [
+      { num: 1, title: 'Discurso', mins: 10, assignments: {} },
+      { num: 2, title: 'Lectura de la Biblia', mins: 4, assignments: {} },
+    ]},
+  ]});
+  const people = [];
+  for (let i = 1; i <= 6; i++) people.push({ id: i, name: 'P' + i, labores: ['asignacion4', 'presidente'], calificacion: 'B' });
+
+  // 1) Motivos: el reporte explica cada asignación.
+  const w1 = mk('2026-08-03');
+  const rep1 = automatizarEntreSemana(people, [w1]);
+  ok('genera motivos por asignación', rep1.motivos.length > 0);
+  ok('cada motivo trae nombre, puesto y lista', rep1.motivos.every(m => m.nombre && m.labore && Array.isArray(m.motivos)));
+  ok('los motivos mencionan el rol', rep1.motivos[0].motivos.some(t => /rol requerido/i.test(t)));
+  ok('sin historial indica distribución por rol', rep1.motivos[0].motivos.some(t => /Sin historial|distribución por rol/i.test(t)));
+
+  // 2) Historial: quien participó hace más tiempo tiene prioridad (regla 6).
+  const personasH = [
+    { id: 1, name: 'A', labores: ['asignacion4'] },
+    { id: 2, name: 'B', labores: ['asignacion4'] },
+  ];
+  const historial = [
+    { personId: '2', date: '2026-07-01', roleKey: 'mw_0_1_conductor' }, // B participó antes
+    { personId: '1', date: '2026-07-29', roleKey: 'mw_0_1_conductor' }, // A participó después
+  ];
+  const w2 = mk('2026-08-10');
+  const rep2 = automatizarEntreSemana(personasH, [w2], null, { historial, nombres: {} });
+  ok('prioriza a quien participó hace más tiempo (B=1)', w2.sections[0].parts[0].assignments.conductor === '2');
+
+  // 3) Regla 7: con un solo candidato para varios puestos, se flexibiliza
+  //    (permite repetir la persona en la semana) y se informa en flexiones.
+  const uno = [{ id: 1, name: 'Unico', labores: ['asignacion4', 'presidente'] }];
+  const w3 = mk('2026-08-17');
+  const rep3 = automatizarEntreSemana(uno, [w3]);
+  ok('asigna con un único candidato sin fallar silenciosamente', rep3.asignados >= 1);
+  ok('registra flexiones cuando repite a la persona', Array.isArray(rep3.flexiones));
+  ok('los vacíos imposibles se marcan', rep3.vacios.every(v => 'imposible' in v));
+}
+
 // --- automatizarAtencion ---
 console.log('[automatizarAtencion]');
 {

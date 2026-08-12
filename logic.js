@@ -1160,35 +1160,119 @@ export function camposFinSemana(w) {
 // misma semana (E2 intra-reunión). Solo rellena puestos vacíos.
 // `ocupadosSemana`: opcional, Map sábado -> Set de personas ocupadas esa semana
 // (p. ej. acomodación y salidas) que no deben recibir la parte (E1/E2).
-export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) {
-  const reporte = { asignados: 0, vacios: [] };
+export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, opts = {}) {
+  // `opts`: { historial, nombres } — historial: [{ personId, date, roleKey }] de
+  // asignaciones pasadas para priorizar a quien participó hace más tiempo.
+  const historial = opts.historial || [];
+  const nombres = opts.nombres || {};
+  const reporte = { asignados: 0, vacios: [], motivos: [], flexiones: [] };
   const rolPorPersona = {}; // personaId -> Set de partes ya usadas en el mes (E3)
   const enSemana = {};      // weekId -> Set de personas ya asignadas esa semana
+  const cargaMes = {};      // personaId -> nº de asignaciones en el mes (carga)
+  const ultima = {};        // personaId -> fecha ISO de la última asignación histórica
+
+  // ---- Carga del historial (regla 6) ----
+  historial.forEach(h => {
+    const pid = String(h.personId);
+    const d = String(h.date || '');
+    if (d > (ultima[pid] || '')) ultima[pid] = d;
+  });
+
+  const contarCarga = (pid) => (rolPorPersona[pid] ? rolPorPersona[pid].size : 0);
 
   const marcado = (pid, key, weekId) => {
     (rolPorPersona[pid] ||= new Set()).add(key);
     (enSemana[weekId] ||= new Set()).add(pid);
+    cargaMes[pid] = contarCarga(pid);
     reporte.asignados++;
   };
+
+  // Reglas de elegibilidad (estrictas).
   const elegible = (p, key, weekId) => {
-    if ((rolPorPersona[String(p.id)] || new Set()).has(key)) return false;
-    if ((enSemana[weekId] || new Set()).has(String(p.id))) return false;
+    if ((rolPorPersona[String(p.id)] || new Set()).has(key)) return false; // E3: mismo puesto en el mes
+    if ((enSemana[weekId] || new Set()).has(String(p.id))) return false;   // E2: repetido en la semana
     const setOcup = ocupadosSemana ? (ocupadosSemana.get(addDays(weekId, 5)) || new Set()) : new Set();
-    return !setOcup.has(String(p.id));
+    if (setOcup.has(String(p.id))) return false;                            // E1: ocupado por acomodación/salidas
+    return true;
   };
 
+  // Orden de preferencia de candidatos: (a) calificación para estudiantes,
+  // (b) menor carga mensual (regla 3), (c) última participación más antigua
+  // (regla 6), (d) nombre (estable).
+  const puntuar = (p, weekId) => {
+    const pid = String(p.id);
+    const cal = isStudentLabore(p.labore ?? '') ? ORDEN_CAL.indexOf(p.calificacion || '') : 0;
+    const carga = cargaMes[pid] || 0;
+    const ult = ultima[pid] || '';
+    return { cal, carga, ult };
+  };
+
+  // Elige persona para un puesto. Niveles de flexibilización (regla 7):
+  //   nivel 0: reglas estrictas
+  //   nivel 1: permitir repetir el MISMO puesto en el mes (E3)
+  //   nivel 2: permitir repetir persona en la semana (E2)
+  // Nunca asigna a ocupados por acomodación/salidas (E1 no se flexibiliza).
   const elegir = (weekId, labore, key) => {
-    // Para partes de estudiante (lectura, presentación, discurso estudiantil) se
-    // usa el pool de estudiantes (cualquier rol de estudiante o sin atencion); el
-    // resto de puestos filtra por su rol exacto.
     let cand = isStudentLabore(labore) ? people.filter(isStudentPerson) : peopleForLabore(people, labore);
-    // Prioridad de calificación solo para estudiantes.
-    if (isStudentLabore(labore)) {
-      cand = cand.slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
+    // Orden de preferencia: calificación (estudiantes) → menor carga mensual →
+    // última participación más antigua → nombre (estable).
+    cand = cand.slice().sort((a, b) => {
+      if (isStudentLabore(labore)) {
+        const ca = ORDEN_CAL.indexOf(a.calificacion || '');
+        const cb = ORDEN_CAL.indexOf(b.calificacion || '');
+        if (ca !== cb) return ca - cb;
+      }
+      const caA = cargaMes[String(a.id)] || 0, caB = cargaMes[String(b.id)] || 0;
+      if (caA !== caB) return caA - caB;
+      const uA = ultima[String(a.id)] || '', uB = ultima[String(b.id)] || '';
+      if (uA !== uB) return uA < uB ? -1 : 1; // antes = más antigua → primero
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+    const filtro = (nivel) => (p) => {
+      if ((enSemana[weekId] || new Set()).has(String(p.id))) return nivel >= 2;
+      if ((rolPorPersona[String(p.id)] || new Set()).has(key)) return nivel >= 1;
+      const setOcup = ocupadosSemana ? (ocupadosSemana.get(addDays(weekId, 5)) || new Set()) : new Set();
+      return !setOcup.has(String(p.id));
+    };
+
+    let p = cand.find(x => filtro(0)(x));
+    let nivelUsado = 0;
+    if (!p) { p = cand.find(x => filtro(1)(x)); nivelUsado = 1; }
+    if (!p) { p = cand.find(x => filtro(2)(x)); nivelUsado = 2; }
+
+    if (!p) {
+      reporte.vacios.push({ semana: weekId, labore, key, imposible: true });
+      return '';
     }
-    const p = cand.find(x => elegible(x, key, weekId));
-    if (!p) { reporte.vacios.push({ semana: weekId, labore, key }); return ''; }
-    marcado(String(p.id), key, weekId);
+
+    // Motivos (algoritmo explicable).
+    const pid = String(p.id);
+    const motivos = [`Tiene el rol requerido (${labore}).`];
+    if (!(rolPorPersona[pid] || new Set()).has(key)) {
+      // no se repite el puesto en el mes
+    } else {
+      motivos.push('Se repitió el puesto en el mes por falta de candidatos (regla E3 flexibilizada).');
+    }
+    if (!(enSemana[weekId] || new Set()).has(pid)) {
+      motivos.push('No participa en otra parte de esta semana.');
+    } else {
+      motivos.push('Se asignó pese a participar ya en la semana por falta de candidatos (regla E2 flexibilizada).');
+    }
+    if (nivelUsado > 0) {
+      reporte.flexiones.push({ semana: weekId, labore, key, nivel: nivelUsado, personaId: pid });
+      motivos.push(`Asignación imperfecta: se flexibilizó la regla de repetición (nivel ${nivelUsado}).`);
+    }
+    const resto = cand.filter(x => String(x.id) !== pid && filtro(0)(x));
+    const cargaP = cargaMes[pid] || 0;
+    if (resto.length && resto.every(x => (cargaMes[String(x.id)] || 0) >= cargaP)) {
+      motivos.push('Es quien menor carga mensual tiene entre los disponibles.');
+    }
+    if (ultima[pid]) motivos.push(`Su última asignación registrada fue el ${ultima[pid]}.`);
+    else if (!historial.length) motivos.push('Sin historial previo: se prioriza la distribución por rol.');
+
+    reporte.motivos.push({ semana: weekId, labore, key, personaId: pid, nombre: (nombres[pid] || p.name || ''), motivos });
+
+    marcado(pid, key, weekId);
     return String(p.id);
   };
 
@@ -1251,6 +1335,14 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null) 
           marcado(String(b.id), keyB, weekId);
           ap[slots[0].key] = String(a.id);
           ap[slots[1].key] = String(b.id);
+          reporte.motivos.push({
+            semana: weekId, labore: 'asignacion2', key: keyA, personaId: String(a.id),
+            nombre: (nombres[String(a.id)] || a.name || ''), motivos: ['Pareja de presentación compatible (calificación/género/enlace).', `Su última asignación registrada fue ${ultima[String(a.id)] || 'ninguna'}.`],
+          });
+          reporte.motivos.push({
+            semana: weekId, labore: 'asignacion2', key: keyB, personaId: String(b.id),
+            nombre: (nombres[String(b.id)] || b.name || ''), motivos: ['Pareja de presentación compatible (calificación/género/enlace).', `Su última asignación registrada fue ${ultima[String(b.id)] || 'ninguna'}.`],
+          });
           found = true;
           break;
         }
