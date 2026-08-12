@@ -34,27 +34,20 @@ PWA (navegador)
 
 **En Cloud Firestore las colecciones NO se crean a mano**: se crean automáticamente en el momento en que se escribe el primer documento en ellas.
 
-Por eso ahora solo ves la colección **`usuarios`** (con tu registro de admin): es la única que ya se ha escrito. Las demás **se crearán solas** cuando subas datos, de dos formas:
+**Firebase es la fuente primaria de datos**; IndexedDB actúa como caché local (para que la app funcione sin conexión y no haga consultas recurrentes). Cada vez que guardas algo en la app (una persona, un programa, una asignación…), `sync.js` lo sube a su colección automáticamente. Si no hay conexión, el cambio queda **pendiente** y se sube al recuperar la red.
 
-### Opción A — Botón "Migrar a Firebase" (recomendada, una sola vez)
-1. Abre la app e inicia sesión con tu cuenta **admin**.
-2. Ve a **Ajustes → Respaldo de datos → "Migrar a Firebase"**.
-3. Confirma. La app sube **todos** los datos locales (personas, grupos, programas, salidas, acomodación, historial, configuración) en lotes.
-4. En la consola verás aparecer las colecciones:
-   - `participantes/`  (una doc por persona)
-   - `grupos/`  (una doc por grupo)
-   - `reuniones/`  (una doc por semana de entre semana)
-   - `programas/`  (una doc por mes, con fin de semana + salidas + acomodación + aseo)
-   - `asignaciones/`  (historial de asignaciones)
-   - `configuracion/general`  (un solo documento)
-   - `usuarios/`  (ya existía)
+Al iniciar sesión en un dispositivo sin datos locales, la app **descarga automáticamente** todo desde Firebase.
 
-   Es **idempotente**: si vuelves a pulsarlo, sobrescribe sin duplicar (usa el mismo id de documento).
+Por eso ahora solo ves la colección **`usuarios`** (con tu registro de admin): es la única que ya se ha escrito. Las demás **se crearán solas** con el uso normal:
+- `participantes/`  (una doc por persona)
+- `grupos/`  (una doc por grupo)
+- `reuniones/`  (una doc por semana de entre semana)
+- `programas/`  (una doc por mes, con fin de semana + salidas + acomodación + aseo)
+- `asignaciones/`  (historial de asignaciones)
+- `configuracion/general`  (un solo documento)
+- `usuarios/`  (ya existía)
 
-### Opción B — Sincronización automática (en uso diario)
-Cada vez que guardas algo en la app (una persona, un programa, una asignación…), `sync.js` sube ese cambio a su colección automáticamente. Así, las colecciones se van creando/actualizando con el uso normal.
-
-> **Resumen**: no tienes que crear nada en la consola. Solo asegúrate de tener el usuario admin y pulsar "Migrar a Firebase" para el primer alta masiva.
+> **Resumen**: no tienes que crear nada en la consola ni pulsar ningún botón de migración. Con iniciar sesión como admin, los datos se sincronizan solos.
 
 ---
 
@@ -128,15 +121,17 @@ El `firebase.json` ya ignora los PDFs y `servidor.ps1` del hosting.
 
 1. Abre la app (servidor local `http://localhost:5556/` o la URL de hosting).
 2. **Entrar** (botón en la barra superior) con el usuario admin.
-3. En **Ajustes → "Migrar a Firebase"** sube los datos locales.
-4. En otro dispositivo con la misma cuenta y base vacía: al iniciar sesión descargará automáticamente los datos (o pulsa **"Descargar de Firebase"** en Ajustes).
+3. Los datos se sincronizan solos: guarda algo (p. ej. crea un programa) y verás la colección en Firestore.
+4. En otro dispositivo con la misma cuenta y base vacía: al iniciar sesión descargará automáticamente los datos.
+
+> **Mantenimiento**: en **Ajustes → Mantenimiento de datos** puedes **"Restaurar valores de fábrica"** (borra todos los registros en Firebase y en el dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin) o **"Borrar usuarios, reuniones y programas"** (conserva participantes, grupos y configuración). Ambas acciones requieren tu contraseña de admin.
 
 ---
 
 ## 8. Checklist de pruebas
 
 ### Datos (con admin)
-- [ ] Crear persona
+- [ ] Crear persona (se sincroniza a Firestore)
 - [ ] Editar persona / labores
 - [ ] Desactivar persona
 - [ ] Crear/editar grupo
@@ -154,10 +149,14 @@ El `firebase.json` ya ignora los PDFs y `servidor.ps1` del hosting.
 - [ ] Como reader: intento de escritura rechazado por las reglas
 
 ### Sincronización
-- [ ] "Migrar a Firebase" crea todas las colecciones
-- [ ] Guardar algo en un dispositivo → aparece en Firestore
+- [ ] Guardar algo en un dispositivo → aparece en Firestore (colecciones se crean solas)
+- [ ] Sin conexión: guardar algo → aparece "pendiente" en Ajustes
+- [ ] Recuperar conexión → los pendientes se sincronizan automáticamente
 - [ ] Segundo dispositivo con base vacía → descarga automática al loguearse
-- [ ] "Descargar de Firebase" sobrescribe local con lo de la nube
+
+### Mantenimiento (requiere contraseña de admin)
+- [ ] "Borrar usuarios, reuniones y programas" conserva participantes/grupos/config
+- [ ] "Restaurar valores de fábrica" deja colecciones vacías y conserva el admin
 
 ### Algoritmo de asignación (Fase 9)
 - [ ] Pocos participantes

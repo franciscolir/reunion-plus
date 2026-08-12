@@ -149,3 +149,47 @@ export const guardarConfiguracion = (data) => writeDoc('configuracion', 'general
 // ===== Usuarios (rol admin/reader; verifica en auth.js) =====
 export const obtenerUsuario = (uid) => readDoc('usuarios', uid);
 export const guardarUsuario = (uid, data) => writeDoc('usuarios', uid, data);
+
+// ===== Mantenimiento (borrado de datos) =====
+// Borra todos los documentos de una colección excepto los indicados por id.
+// Útil para "restaurar valores de fábrica" y borrar usuarios/reuniones/programas.
+export async function borrarColeccionExcepto(collection, exceptIds = []) {
+  const f = await initFirebase();
+  if (!f) return 0;
+  const { getDocs, collection: coll, writeBatch, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
+  const snap = await getDocs(coll(f.db, collection));
+  const aBorrar = snap.docs.filter((d) => !exceptIds.includes(String(d.id)));
+  let borrados = 0;
+  for (let i = 0; i < aBorrar.length; i += 400) {
+    const chunk = aBorrar.slice(i, i + 400);
+    const batch = writeBatch(f.db);
+    for (const d of chunk) batch.delete(doc(f.db, collection, String(d.id)));
+    await batch.commit();
+    borrados += chunk.length;
+  }
+  return borrados;
+}
+
+// Limpia TODAS las colecciones de datos de la app (deja intacta la de usuarios
+// excepto el uid indicado, para conservar la cuenta admin).
+export async function limpiarTodasLasColecciones(exceptUid = '') {
+  const f = await initFirebase();
+  if (!f) return 0;
+  const colecciones = ['participantes', 'grupos', 'reuniones', 'programas', 'asignaciones', 'configuracion'];
+  let total = 0;
+  for (const c of colecciones) total += await borrarColeccionExcepto(c);
+  // usuarios: conservar solo el admin actual
+  total += await borrarColeccionExcepto('usuarios', exceptUid ? [String(exceptUid)] : []);
+  return total;
+}
+
+// Borra solo usuarios (excepto el indicado), reuniones y programas.
+export async function borrarUsuariosReunionesProgramas(exceptUid = '') {
+  const f = await initFirebase();
+  if (!f) return 0;
+  let total = 0;
+  total += await borrarColeccionExcepto('usuarios', exceptUid ? [String(exceptUid)] : []);
+  total += await borrarColeccionExcepto('reuniones');
+  total += await borrarColeccionExcepto('programas');
+  return total;
+}

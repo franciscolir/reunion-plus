@@ -755,3 +755,33 @@ export async function setConfigSilent(cfg) {
 export async function setLaboresSilent(labores) {
   await setSettingSilent('labores', Array.isArray(labores) ? labores : []);
 }
+
+// ===== Mantenimiento local (borrado de datos) =====
+// Limpia TODOS los stores de IndexedDB (excepto settings de sesión) sin disparar
+// sync. Se usa tras limpiar Firestore para dejar la caché local vacía.
+export async function limpiarIndexedDBLocal() {
+  const db = await openDB();
+  const stores = [STORE_MONTHS, STORE_PEOPLE, STORE_DEPARTMENTS, STORE_TALKS, STORE_MIDWEEKS, STORE_ASEOS, STORE_SALIDAS, STORE_ATENCION, STORE_ASSIGNMENT_LOG];
+  for (const s of stores) {
+    if (db.objectStoreNames.contains(s)) {
+      await commitSilent(s, (store) => reqToPromise(store.clear()));
+    }
+  }
+  // resetear settings de datos (config por defecto), conservando la sesión si la hubiera
+  await setSettingSilent('congregation', '');
+  await setSettingSilent('lastMonthId', null);
+  await setConfigSilent(await defaultConfig());
+}
+
+// Borra de IndexedDB local las reuniones (entre semana), los programas mensuales
+// y sus datos asociados (salidas, atencion, aseo, historial), sin tocar personas,
+// grupos ni configuración. Sin disparar sync.
+export async function borrarReunionesProgramasLocal() {
+  const db = await openDB();
+  const stores = [STORE_MIDWEEKS, STORE_MONTHS, STORE_SALIDAS, STORE_ATENCION, STORE_ASEOS, STORE_ASSIGNMENT_LOG];
+  for (const s of stores) {
+    if (db.objectStoreNames.contains(s)) {
+      await commitSilent(s, (store) => reqToPromise(store.clear()));
+    }
+  }
+}

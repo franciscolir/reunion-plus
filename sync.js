@@ -162,9 +162,13 @@ async function mesADocumento(mes) {
 }
 
 // Sube los datos de un store local modificado a Firestore.
+// Si no hay red o falla, el store queda PENDIENTE para reintentarse cuando haya
+// conexión (cola de sincronización offline).
 async function pushStore(store) {
   if (!_enabled || _syncing) return;
-  if (!(await isFirebaseReady())) return;
+  if (!navigator.onLine) { encolarPendiente(store); return; }
+  const ready = await isFirebaseReady();
+  if (!ready) { encolarPendiente(store); return; }
   _syncing = true;
   try {
     if (store === 'people') {
@@ -235,10 +239,63 @@ async function pushStore(store) {
     }
   } catch (e) {
     console.warn('[Reunión+] Error al sincronizar store', store, e);
-    setStatus('error', store + ': ' + (e.message || e));
+    // Queda pendiente para reintentar cuando haya conexión.
+    encolarPendiente(store);
+    setStatus('error', store + ': ' + (e.message || e) + ' (pendiente)');
   } finally {
     _syncing = false;
   }
+}
+
+// ---- Cola de pendientes (offline) ----
+// Los stores modificados sin conexión (o con error) se guardan en IndexedDB
+// (settings) y se reintentan al volver la red.
+const SETTING_PENDIENTES = 'sync_pendientes';
+
+async function leerPendientes() {
+  const arr = await db.getSetting(SETTING_PENDIENTES, []);
+  return Array.isArray(arr) ? arr : [];
+}
+
+async function guardarPendientes(arr) {
+  await db.setSettingSilent(SETTING_PENDIENTES, Array.isArray(arr) ? arr : []);
+}
+
+function encolarPendiente(store) {
+  // No se encola en cadena: si ya está pendiente, no se repite.
+  leerPendientes().then(async (pend) => {
+    if (!pend.includes(store)) {
+      pend.push(store);
+      await guardarPendientes(pend);
+    }
+    setStatus('pending', `pendiente: ${pend.join(', ')}`);
+  });
+}
+
+// Devuelve los stores pendientes de sincronizar.
+export async function pendientesPendientes() {
+  return leerPendientes();
+}
+
+// Reintenta subir todos los stores pendientes (al recuperar conexión).
+export async function drenarPendientes() {
+  if (!_enabled) return;
+  if (!navigator.onLine) return;
+  if (!(await isFirebaseReady())) return;
+  const pend = await leerPendientes();
+  if (!pend.length) return;
+  setStatus('syncing', 'sincronizando pendientes…');
+  const restantes = [];
+  for (const store of pend) {
+    try {
+      await pushStore(store);
+    } catch (e) {
+      restantes.push(store);
+    }
+  }
+  await guardarPendientes(restantes);
+  if (restantes.length) setStatus('error', 'pendientes sin sincronizar: ' + restantes.join(', '));
+  else setStatus('ok', 'pendientes sincronizados');
 }
 
 // Descarga todos los datos de Firestore y los escribe en IndexedDB (pull).
@@ -350,7 +407,7 @@ async function desplegarPrograma(prog) {
 }
 
 // Activa la sincronización: registra el hook y arranca el pull inicial si el
-// store local está vacío (primer uso en el dispositivo).
+// store local está vacío (primer uso en el dispositivo). Reintenta pendientes.
 export async function iniciarSync() {
   if (_enabled) return;
   if (!isFirebaseConfigured()) { setStatus('inactivo', 'Firebase no configurado'); return; }
@@ -358,7 +415,10 @@ export async function iniciarSync() {
   if (!ready) { setStatus('inactivo', 'Firebase no disponible'); return; }
   _enabled = true;
   db.onSync(pushStore);
+  // Reintentar pendientes al volver a estar en línea.
+  window.addEventListener('online', () => drenarPendientes().catch(() => {}));
   setStatus('conectado', 'sincronización activa');
+  await drenarPendientes().catch(() => {});
   await pullSiVacio();
 }
 

@@ -56,6 +56,21 @@ export async function login(email, password) {
   }
 }
 
+// Reautentica al usuario actual con su contraseña (p. ej. antes de una acción
+// sensible como borrar datos). Requiere sesión activa. Lanza error si falla.
+export async function reauthenticate(password) {
+  const auth = await initAuth();
+  if (!auth || !auth.currentUser) throw new Error('No hay sesión activa.');
+  const { reauthenticateWithCredential, EmailAuthProvider } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-auth.js');
+  const cred = EmailAuthProvider.credential(auth.currentUser.email, password);
+  try {
+    await reauthenticateWithCredential(auth.currentUser, cred);
+    return true;
+  } catch (err) {
+    throw new Error(errorLogin(err.message || err.code || err));
+  }
+}
+
 // Cierra sesión.
 export async function logout() {
   const auth = await initAuth();

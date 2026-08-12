@@ -1,10 +1,9 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
-import { migrarDatos } from './migracion.js';
 import { isFirebaseConfigured } from './firebase-config.js';
-import { isFirebaseReady } from './firestore.js';
-import { iniciarSync, pullAll, pullSiVacio, syncStatus } from './sync.js';
-import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange } from './auth.js';
+import { isFirebaseReady, borrarUsuariosReunionesProgramas, limpiarTodasLasColecciones } from './firestore.js';
+import { iniciarSync, pullSiVacio, syncStatus } from './sync.js';
+import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
@@ -2990,20 +2989,14 @@ async function renderSettings() {
         <button id="setSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
 
         <div class="border-t border-outline-variant pt-6">
-          <h3 class="font-headline-md text-headline-md text-primary mb-2">Respaldo de datos</h3>
-          <p class="text-on-surface-variant text-sm mb-3">Exporta toda la información (programas, personas, grupos, ajustes) como archivo JSON.</p>
+          <h3 class="font-headline-md text-headline-md text-primary mb-2">Mantenimiento de datos</h3>
+          <p class="text-on-surface-variant text-sm mb-3">Los datos viven en Firebase y se sincronizan automáticamente. Aquí puedes restaurar los valores de fábrica o borrar solo reuniones y programas. Las acciones destructivas requieren tu contraseña de admin.</p>
           <div class="flex gap-3 flex-wrap">
-            <button id="setExport" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Descargar respaldo</button>
-            <label class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container cursor-pointer">
-              Restaurar <input id="setImport" type="file" accept="application/json" class="hidden">
-            </label>
-            <button id="setReloadLists" data-admin class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar catálogos</button>
-            <button id="setMigrarFirebase" data-admin class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Migrar a Firebase</button>
-            <button id="setPullFirebase" data-admin class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Descargar de Firebase</button>
-            <button id="setReset" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
+            <button id="setBorrarProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar usuarios, reuniones y programas</button>
+            <button id="setResetFabrica" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Restaurar valores de fábrica</button>
           </div>
           <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
-          <p class="text-on-surface-variant text-caption mt-1">"Recargar catálogos" recarga las listas desde la base local. "Migrar a Firebase" sube los datos actuales a Cloud Firestore; "Descargar de Firebase" sobrescribe los datos locales con los de la nube (requiere configurar <code>firebase-config.js</code>).</p>
+          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Firebase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar usuarios, reuniones y programas" elimina solo esas colecciones (conserva participantes, grupos y configuración).</p>
         </div>
       </div>
     </div>
@@ -3093,111 +3086,84 @@ async function renderSettings() {
     await db.setSetting('congregation', $('#setCong').value.trim());
     toast('Ajustes guardados', 'success');
   };
-  $('#setExport').onclick = async () => {
-    const data = await db.exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    downloadBlob(blob, `reunion-plus-respaldo-${new Date().toISOString().slice(0, 10)}.json`);
+  $('#setSave').onclick = async () => {
+    await db.setSetting('congregation', $('#setCong').value.trim());
+    toast('Ajustes guardados', 'success');
   };
-  $('#setImport').onchange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!await confirmDialog('Restaurar reemplazará los datos actuales. ¿Continuar?', 'Restaurar')) return;
-    try {
-      const data = JSON.parse(await file.text());
-      if (data.people) for (const p of data.people) { await db.addPerson({ name: p.name, labores: Array.isArray(p.labores) ? p.labores : (Array.isArray(p.roles) ? p.roles : []) }); }
-      if (data.departments) for (const d of data.departments) { if (d.id) await db.updateDepartment(d); else await db.addDepartment(d.name); }
-      if (data.months) for (const m of data.months) await db.putMonth(m);
-      if (data.talks) await db.replaceAllTalks(data.talks);
-      if (data.midweeks) await db.replaceAllMidweeks(data.midweeks);
-      if (data.aseos) for (const a of data.aseos) await db.putAseo(a);
-      if (data.salidas) for (const s of data.salidas) await db.putSalidas(s);
-      if (data.atencion) for (const l of data.atencion) await db.putAtencion(l);
-      else if (data.labores) for (const l of data.labores) await db.putAtencion(l);
-      if (data.settings) {
-        if (data.settings.congregation) await db.setSetting('congregation', data.settings.congregation);
-        if (data.settings.config) await db.setConfig(data.settings.config);
-      }
-      await refreshCatalogs();
-      toast('Datos restaurados', 'success');
-      renderSettings();
-    } catch (err) { toast('Archivo inválido', 'error'); }
-  };
-  // El botón "Recargar personas/listas" dejó de leer los JSON de producción
-  // (Fase 8). Ahora recarga los catálogos desde la base local/IndexedDB.
-  $('#setReloadLists').onclick = async () => {
-    await refreshCatalogs();
-    toast('Catálogos recargados', 'success');
-    renderSettings();
-  };
-  $('#setReset').onclick = async () => {
-    if (!await confirmDialog('Esto borrará TODOS los programas, personas, grupos y discursos, y recargará los datos iniciales. ¿Continuar?', 'Reiniciar')) return;
-    await indexedDB.deleteDatabase('reunion-plus');
-    toast('Base reiniciada. Recargando…', 'success');
-    setTimeout(() => location.reload(), 800);
-  };
-  $('#setMigrarFirebase').onclick = async () => {
-    if (!isFirebaseConfigured()) {
-      toast('Firebase no está configurado. Complete firebase-config.js primero.', 'error');
-      return;
-    }
-    if (!await isFirebaseReady()) {
-      toast('No se pudo conectar con Firebase (¿sin conexión o SDK no disponible?).', 'error');
-      return;
-    }
+
+  // Acción destructiva protegida: pide la contraseña de admin antes de continuar.
+  async function confirmarAdmin() {
     const u = currentUser();
-    if (!u || u.rol !== 'admin') {
-      toast('Inicia sesión como admin para migrar datos a Firebase.', 'error');
-      return;
-    }
-    if (!await confirmDialog('Se subirán TODOS los datos actuales a Cloud Firestore (idempotente: no duplica). ¿Continuar?', 'Migrar a Firebase')) return;
-    const btn = $('#setMigrarFirebase');
+    if (!u || u.rol !== 'admin') { toast('Debes iniciar sesión como admin.', 'error'); return false; }
+    return new Promise((resolve) => {
+      openModal(`
+        <div class="text-center">
+          <span class="material-symbols-outlined text-6xl text-error mb-2">admin_panel_settings</span>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Confirmar como admin</h3>
+          <p class="text-on-surface-variant text-sm mb-4">Escribe tu contraseña para autorizar esta acción.</p>
+          <form id="adminConfirmForm" class="space-y-4 text-left">
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Contraseña</label>
+              <input id="adminConfirmPass" type="password" required autocomplete="current-password" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+            <div class="flex gap-3 justify-end pt-2">
+              <button type="button" id="adminCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+              <button type="submit" class="px-5 py-2.5 rounded-lg bg-error text-on-error font-label-md text-label-md hover:opacity-90">Autorizar</button>
+            </div>
+          </form>
+        </div>`);
+      $('#adminCancel').onclick = () => { closeModal(); resolve(false); };
+      $('#adminConfirmForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const pass = $('#adminConfirmPass').value;
+        try {
+          await reauthenticate(pass);
+          closeModal();
+          resolve(true);
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      };
+    });
+  }
+
+  // Borrar usuarios, reuniones y programas (conserva participantes, grupos y config).
+  $('#setBorrarProgramas').onclick = async () => {
+    if (!await confirmarAdmin()) return;
+    if (!await confirmDialog('Se borrarán en Firebase y en el dispositivo: usuarios (excepto tu cuenta), reuniones y programas mensuales. Los participantes, grupos y configuración se conservan. ¿Continuar?', 'Borrar')) return;
+    const btn = $('#setBorrarProgramas');
     btn.disabled = true;
-    btn.textContent = 'Migrando…';
     try {
-      const reporte = await migrarDatos();
-      if (reporte && reporte.error === 'firebase-no-configurado') {
-        toast('Firebase no configurado', 'error');
-      } else {
-        const detalle = Object.entries(reporte.colecciones || {})
-          .map(([c, n]) => `${c}: ${n}`).join(', ');
-        toast(`Migración completada · ${reporte.total} documentos (${detalle})`, 'success');
-      }
+      const uid = currentUser() && currentUser().uid;
+      const borrados = await borrarUsuariosReunionesProgramas(uid);
+      await db.borrarReunionesProgramasLocal();
+      await refreshCatalogs();
+      toast(`Borrado completado · ${borrados} documentos en Firebase`, 'success');
     } catch (err) {
-      toast('Error al migrar: ' + (err.message || err), 'error');
+      toast('Error al borrar: ' + (err.message || err), 'error');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Migrar a Firebase';
     }
   };
-  $('#setPullFirebase').onclick = async () => {
-    if (!isFirebaseConfigured()) {
-      toast('Firebase no está configurado. Complete firebase-config.js primero.', 'error');
-      return;
-    }
-    if (!await isFirebaseReady()) {
-      toast('No se pudo conectar con Firebase.', 'error');
-      return;
-    }
-    const u = currentUser();
-    if (!u || u.rol !== 'admin') {
-      toast('Inicia sesión como admin para descargar datos de Firebase.', 'error');
-      return;
-    }
-    if (!await confirmDialog('Se sobrescribirán los datos LOCALES con los de Firebase. ¿Continuar?', 'Descargar de Firebase')) return;
-    const btn = $('#setPullFirebase');
+
+  // Restaurar valores de fábrica: borra todo menos la cuenta admin.
+  $('#setResetFabrica').onclick = async () => {
+    if (!await confirmarAdmin()) return;
+    if (!await confirmDialog('Se borrarán TODOS los registros (personas, grupos, reuniones, programas, asignaciones, configuración) en Firebase y en el dispositivo. Las colecciones quedarán vacías y se conservará tu cuenta de admin. Esta acción NO se puede deshacer. ¿Continuar?', 'Restaurar valores de fábrica')) return;
+    const btn = $('#setResetFabrica');
     btn.disabled = true;
-    btn.textContent = 'Descargando…';
+    btn.textContent = 'Restaurando…';
     try {
-      const res = await pullAll();
-      if (res && res.error) throw new Error(res.error);
-      toast(`Datos descargados · ${res.participantes} participantes, ${res.programas} programas`, 'success');
+      const uid = currentUser() && currentUser().uid;
+      const borrados = await limpiarTodasLasColecciones(uid);
+      await db.limpiarIndexedDBLocal();
       await refreshCatalogs();
-      renderSettings();
+      toast(`Valores de fábrica restaurados · ${borrados} documentos en Firebase`, 'success');
     } catch (err) {
-      toast('Error al descargar: ' + (err.message || err), 'error');
+      toast('Error al restaurar: ' + (err.message || err), 'error');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Descargar de Firebase';
+      btn.textContent = 'Restaurar valores de fábrica';
     }
   };
   // Estado de la sincronización
@@ -3211,6 +3177,7 @@ async function renderSettings() {
       'syncing': ['text-primary', 'Sincronizando…'],
       'ok': ['text-tertiary', 'Sincronizado · ' + st.detail],
       'error': ['text-error', 'Error de sincronización · ' + st.detail],
+      'pending': ['text-error', 'Cambios pendientes por falta de conexión · ' + st.detail],
     };
     const [cls, txt] = mapa[st.state] || ['text-on-surface-variant', '—'];
     el.className = `font-label-md text-label-md ${cls}`;
