@@ -960,9 +960,44 @@ console.log('[assignmentMetrics]');
     m1.canGiveButNot.includes('asignacion1') && !m1.canGiveButNot.includes('presidente'));
   ok('Ben con conductor1 asignado no tiene faltantes', m2.canGiveButNot.length === 0);
   ok('Carlos (audio) puede dar pero no le ha tocado', m3.canGiveButNot.includes('audio'));
-  ok('Diana sin asignaciones tiene total 0 y presidente pendiente', m4.total === 0 && m4.canGiveButNot.includes('presidente'));
+ok('Diana sin asignaciones tiene total 0 y presidente pendiente', m4.total === 0 && m4.canGiveButNot.includes('presidente'));
   ok('Diana sin fecha de última asignación', m4.lastDate === '');
 }
 
-console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===\n`);
+// --- convertPdfPeople: formato tabla con encabezado ---
+console.log('[convertPdfPeople: tabla]');
+{
+  const labores = ['presidente', 'conductor', 'lector', 'orador', 'asignacion1', 'asignacion2', 'asignacion3'];
+  const txt = [
+    'Nombre Género Calificación Grupo Labores',
+    'Ana Pérez Femenino A 1 presidente, conductor',
+    'Juan López Masculino B 2 lector, orador',
+    'María González Femenino C 3 asignacion1',
+  ].join('\n');
+  const { data, warnings } = convertPdfPeople(txt, { labores });
+  ok('detecta 3 personas en tabla', data?.personas?.length === 3, `got=${data?.personas?.length}`);
+  const p1 = data.personas[0];
+  ok('p1 nombre', p1.name === 'Ana Pérez');
+  ok('p1 genero', p1.genero === 'femenino');
+  ok('p1 calificacion', p1.calificacion === 'A');
+  ok('p1 grupoId', p1.grupoId === '1');
+  ok('p1 labores', p1.labores.join(',') === 'presidente,conductor');
+  const p2 = data.personas[1];
+  ok('p2 genero masculino', p2.genero === 'masculino');
+  ok('p2 calificacion B', p2.calificacion === 'B');
+  ok('p2 grupoId 2', p2.grupoId === '2');
+  const p3 = data.personas[2];
+  ok('p3 labores asignacion1', p3.labores.join(',') === 'asignacion1');
+  ok('warnings no vacío', (warnings || []).length > 0);
+}
+{
+  // Encabezado abreviado (típico de PDF exportado de Excel con encabezado recortado)
+  const labores = ['presidente', 'conductor'];
+  const txt = 'Nombre Género Calif Grupo Labores\nPedro Ruiz Masculino A 1 presidente\nLucía Díaz Femenino B 2 conductor';
+  const { data, warnings } = convertPdfPeople(txt, { labores });
+  ok('encabezado abreviado detecta 2 personas', data?.personas?.length === 2);
+  ok('nombres correctos', data.personas[0].name === 'Pedro Ruiz' && data.personas[1].name === 'Lucía Díaz');
+}
+
+console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);
 process.exit(fail > 0 ? 1 : 0);

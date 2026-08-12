@@ -470,10 +470,10 @@ export function capTitle(s) {
 // extraído a la estructura de datos de la app.
 
 // Convierte el texto extraído según el tipo. Devuelve { data, warnings }.
-export function convertPdfToData(type, text) {
+export function convertPdfToData(type, text, opts = {}) {
   if (type === 'talks') return convertPdfTalks(text);
   if (type === 'midweeks') return convertPdfMidweeks(text);
-  if (type === 'people') return convertPdfPeople(text);
+  if (type === 'people') return convertPdfPeople(text, opts);
   return { data: null, warnings: ['Tipo desconocido'] };
 }
 
@@ -489,8 +489,41 @@ export function convertPdfTalks(text) {
   return { data: { discursos: talks }, warnings: [] };
 }
 
-export function convertPdfPeople(text) {
+// Extrae personas desde el texto de un PDF. Soporta dos formatos:
+//   1) Tabla con encabezado (plantilla Excel/Word descargable de Reunión+):
+//        "Nombre | Género | Calificación | Grupo | Labores"
+//        cada fila: "Ana Pérez | Femenino | B | 2 | presidente, conductor"
+//      El encabezado puede variar (colunas en otro orden o con otros nombres);
+//      se detecta una fila que contenga "nombre" y al menos uno de
+//      "género|género|calificación|grupo|labores".
+//   2) Roles: líneas con nombre de puesto (presidente, lector, etc.) y debajo
+//      los nombres de quienes lo ejercen (formato clásico de participantes.json).
+// Devuelve { data, warnings } con data = { personas: [...] } en el caso tabla y
+// data = { roles: {...} } en el caso roles (compatible con db.replaceAllPeople).
+export function convertPdfPeople(text, opts = {}) {
+  const laboresConocidas = Array.isArray(opts.labores) ? opts.labores : [];
   const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+
+  // ---- Formato 1: tabla con encabezado ----
+  const headerIdx = lines.findIndex(l => /nombre/i.test(l) && /(género|genero|calificaci|grupo|labores)/i.test(l));
+  if (headerIdx !== -1) {
+    const personas = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const ln = lines[i];
+      if (!ln || /^[-–—|=_*·]+$/.test(ln)) continue;
+      const p = parsePersonRow(ln, { laboresConocidas });
+      if (p && p.name) personas.push(p);
+    }
+    if (personas.length) {
+      return {
+        data: { personas },
+        warnings: [`Se detectaron ${personas.length} personas en formato tabla. Verifique que los campos (género, calificación, grupo y labores) se hayan asignado correctamente.`],
+      };
+    }
+    return { data: null, warnings: ['Se detectó una tabla de personas pero no se reconocieron filas con datos. Revise que cada fila contenga al menos un nombre.'] };
+  }
+
+  // ---- Formato 2: roles + nombres ----
   const roles = {};
   let currentRole = null;
   const roleRe = /^(presidente|conductor|lector|orador|atencion|microf\w*|plataforma|audio|video|acomodador|limpieza|seguridad|cronometrador|auxiliar|semanero)s?\s*$/i;
@@ -502,8 +535,67 @@ export function convertPdfPeople(text) {
   }
   const total = Object.values(roles).reduce((a, r) => a + r.length, 0);
   if (!total) return { data: null, warnings: ['No se detectaron nombres de personas'] };
-  // Formato del archivo participantes.json: clave `roles`.
   return { data: { roles }, warnings: ['Roles detectados: ' + (Object.keys(roles).join(', ') || 'revisar')] };
+}
+
+// Parsea una fila de la tabla de personas. Devuelve
+// { name, genero, calificacion, grupoId, labores } o null.
+// Barrido izquierda-derecha: el nombre es todo hasta el primer campo conocido
+// (género, calificación A-D, grupo "N" o "Grupo N"). Lo que queda son labores.
+function parsePersonRow(line, { laboresConocidas = [] } = {}) {
+  const tokens = line.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return null;
+
+  let name = '';
+  let genero = '';
+  let calificacion = '';
+  let grupoId = '';
+  const labores = [];
+
+  const reG = /^(masculino|femenino|hombre|mujer|varón|varon)$/i;
+  const reC = /^[A-D]$/i;
+  const reGrupo = /^(?:grupo)?(\d{1,2})$/i;
+
+  // Encontrar el primer índice de campo conocido (género/calificación/grupo).
+  // Ese índice marca el fin del nombre.
+  let nameEndIdx = tokens.length; // por defecto: todo es nombre
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    const lower = t.toLowerCase();
+    if (reG.test(t) || reC.test(t) || reGrupo.test(t)) {
+      nameEndIdx = i;
+      break;
+    }
+  }
+
+  // Nombre = tokens [0 .. nameEndIdx-1]
+  name = tokens.slice(0, nameEndIdx).join(' ');
+
+  // Resto: procesar campos conocidos y labores.
+  for (let i = nameEndIdx; i < tokens.length; i++) {
+    const t = tokens[i];
+    const lower = t.toLowerCase();
+    if (reG.test(t) && !genero) { genero = lower === 'femenino' || lower === 'mujer' ? 'femenino' : 'masculino'; continue; }
+    if (reC.test(t) && !calificacion) { calificacion = t.toUpperCase(); continue; }
+    const gm = t.match(reGrupo);
+    if (gm && !grupoId) { grupoId = gm[1]; continue; }
+    // Labor: normalizar quitando puntuación final y comparar con laboresConocidas.
+    const norm = t.replace(/[,\.;:]+$/, '').toLowerCase();
+    if (laboresConocidas.map(l => l.toLowerCase()).includes(norm)) {
+      labores.push(t.replace(/[,\.;:]+$/, ''));
+      continue;
+    }
+    // Si no coincide con conocidas pero parece labor (letras/números, sin ser solo números).
+    if (/^[a-záéíóúüñ0-9]+$/i.test(t) && !/^\d+$/.test(t) && !reG.test(t) && !reC.test(t)) {
+      labores.push(t.replace(/[,\.;:]+$/, ''));
+    }
+  }
+
+  // Si el nombre quedó vacío (no hubo campos conocidos), usar toda la línea como nombre.
+  if (!name) name = tokens.join(' ');
+
+  const uniq = [...new Set(labores.filter(Boolean))];
+  return { name, genero, calificacion, grupoId, labores: uniq };
 }
 
 // Reconstruye el texto de una página PDF palabra por palabra a partir de los

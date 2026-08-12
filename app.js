@@ -2525,22 +2525,22 @@ const UPLOAD_TYPES = [
     key: 'talks',
     title: 'Conferencias',
     icon: 'campaign',
-    desc: 'Lista de discursos públicos.',
+    desc: 'Lista de discursos públicos. Se sube un PDF, se extraen los títulos y se reescribe la colección.',
     pdfHint: 'Se extraen los discursos numerados del PDF para revisar.',
   },
   {
     key: 'people',
     title: 'Personas',
     icon: 'group',
-    desc: 'Lista de participantes con sus labores.',
-    pdfHint: 'Se extraen nombres y labores del PDF para revisar.',
+    desc: 'Lista de participantes con sus atributos. Use la plantilla descargable, complétela y súbala convertida a PDF.',
+    pdfHint: 'Se extraen nombres, género, calificación, grupo y labores de la tabla para revisar.',
   },
   {
     key: 'midweeks',
     title: 'Guía de Actividades',
     icon: 'auto_stories',
-    desc: 'Programa de las reuniones de entre semana.',
-    pdfHint: 'Se extrae el programa de la guía para regenerar las semanas y sus asignaciones.',
+    desc: 'Programa de las reuniones de entre semana. Se acumulan las guías por fecha; las fechas ya cargadas se pueden reescribir.',
+    pdfHint: 'Se extrae el programa de la guía y se añade semana a semana por su fecha.',
   },
 ];
 
@@ -2557,6 +2557,13 @@ async function renderUploads() {
           <p class="font-body-md text-body-md text-on-surface-variant">${t.desc}</p>
         </div>
       </div>
+      ${t.key === 'people' ? `
+        <div class="flex gap-2 mb-4 flex-wrap">
+          <button data-dl-template class="flex items-center gap-2 border border-tertiary text-tertiary px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-tertiary-fixed/40 transition-colors">
+            <span class="material-symbols-outlined text-[18px]">download</span> Descargar plantilla
+          </button>
+          <span class="flex items-center gap-1 text-caption text-on-surface-variant"><span class="material-symbols-outlined text-[16px]">info</span> Llene la plantilla, conviértala a PDF y súbala aquí.</span>
+        </div>` : ''}
       <div data-slot="pdf">
         <label for="upl-pdf-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
           <span class="material-symbols-outlined text-4xl text-on-surface-variant block mx-auto mb-2">picture_as_pdf</span>
@@ -2577,6 +2584,8 @@ async function renderUploads() {
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">${cards}</div>
     <div id="uploadSummary" class="mt-8"></div>
   `;
+
+  app.querySelector('[data-dl-template]').onclick = downloadPeopleTemplate;
 
   // Carga de PDF → valida el tipo y pide confirmación antes de guardar.
   app.querySelectorAll('input[data-upload-pdf]').forEach(input => {
@@ -2602,34 +2611,23 @@ async function renderUploads() {
           const label = summary.months.length === 1
             ? `${summary.months[0]} ${summary.year}`
             : `${summary.months.slice(0, -1).join(', ')} y ${summary.months[summary.months.length - 1]} ${summary.year}`;
-          let msg = `Se detectó la Guía de Actividades de ${label} con ${summary.weeksCount} semanas.`;
-          if (summary.warnings && summary.warnings.length) {
-            msg += '\n\nAvisos:\n• ' + summary.warnings.join('\n• ');
-          }
-          msg += '\n\n¿Guardar y reemplazar la reunión de entre semana?';
-          const ok = await confirmDialog(msg, 'Guardar guía');
-          if (!ok) { showStatus(status, 'Carga cancelada', 'text-on-surface-variant'); return; }
-          await db.replaceAllMidweeks({ weeks: summary.weeks });
-          await refreshCatalogs();
-          showStatus(status, `✓ Guía de ${label} guardada (${summary.weeksCount} semanas).`, 'text-tertiary-fixed');
-          renderUploadSummary();
-          toast('Guía de actividades guardada', 'success');
+          await cargarGuiaMidweeks(summary, text, label, status);
           return;
         }
 
         // Conferencias / Personas: resumen + confirmación.
-        const { data, warnings } = convertPdfToData(type, text);
+        const { data, warnings } = convertPdfToData(type, text, { labores: state.labores.map(r => r.id) });
         if (!data) {
           showStatus(status, 'No se pudo interpretar este PDF con el formato esperado.', 'text-error');
           return;
         }
         let msg;
         if (type === 'talks') msg = `Se detectaron ${(data.discursos || []).length} discursos. ¿Guardar y reemplazar la lista de conferencias?`;
-        else msg = `Se detectaron personas. ¿Guardar y reemplazar la lista de participantes?`;
+        else msg = `Se detectaron ${(data.personas || []).length} personas. ¿Guardar y reemplazar la lista de participantes?`;
         const ok = await confirmDialog(msg, 'Guardar');
         if (!ok) { showStatus(status, 'Carga cancelada', 'text-on-surface-variant'); return; }
         if (type === 'talks') await db.replaceTalksFromFile(data);
-        else await db.replaceAllPeople(data);
+        else await db.replaceAllPeople(data.personas || data);
         await refreshCatalogs();
         showStatus(status, '✓ Datos guardados.', 'text-tertiary-fixed');
         renderUploadSummary();
@@ -2643,6 +2641,99 @@ async function renderUploads() {
   await renderUploadSummary();
 }
 
+// Carga una Guía de Actividades de forma ACUMULATIVA por fecha: añade las
+// semanas que no existen y, para las que ya están, pregunta si reescribirlas.
+async function cargarGuiaMidweeks(summary, text, label, status) {
+  const { data, warnings } = convertPdfMidweeks(text);
+  if (!data || !data.weeks || !data.weeks.length) {
+    showStatus(status, 'No se pudieron extraer las semanas de la guía.', 'text-error');
+    return;
+  }
+  const nuevas = data.weeks;
+  const existentes = new Map((await db.listMidweeks()).map(w => [String(w.id), w]));
+
+  // Semanas que ya existen en la base.
+  const duplicadas = nuevas.filter(w => existentes.has(String(w.id)));
+  const porAnadir = nuevas.filter(w => !existentes.has(String(w.id)));
+
+  let msg = `Se detectó la Guía de Actividades de ${label} con ${nuevas.length} semanas.`;
+  if (warnings && warnings.length) msg += '\n\nAvisos:\n• ' + warnings.join('\n• ');
+  if (duplicadas.length) {
+    const fechas = duplicadas.map(w => w.header || w.id).join(', ');
+    msg += `\n\n${duplicadas.length} de esas semanas ya están cargadas (${fechas}).`;
+  }
+  if (porAnadir.length) {
+    msg += `\n\nSe añadirán ${porAnadir.length} semana(s) nueva(s).`;
+  }
+  if (!porAnadir.length && duplicadas.length) {
+    msg += '\n\nNo hay semanas nuevas para añadir.';
+  }
+  msg += '\n\n¿Continuar?';
+  const ok = await confirmDialog(msg, 'Continuar');
+  if (!ok) { showStatus(status, 'Carga cancelada', 'text-on-surface-variant'); return; }
+
+  // Si hay duplicadas, preguntar una a una (o en bloque) si se reescriben.
+  let reescribir = new Set();
+  if (duplicadas.length) {
+    const reescribirTodo = await confirmDialog(
+      `Hay ${duplicadas.length} semana(s) cuya fecha ya está cargada.\n\n¿Quiere reescribir TODAS las existentes con los datos de esta guía?`,
+      'Reescribir todas'
+    );
+    if (reescribirTodo) {
+      duplicadas.forEach(w => reescribir.add(String(w.id)));
+    } else {
+      for (const w of duplicadas) {
+        const r = await confirmDialog(`La semana ${w.header || w.id} ya está cargada. ¿Reescribirla con los datos de esta guía?`, 'Reescribir');
+        if (r) reescribir.add(String(w.id));
+      }
+    }
+  }
+
+  const aGuardar = [
+    ...porAnadir,
+    ...duplicadas.filter(w => reescribir.has(String(w.id))),
+  ];
+  if (!aGuardar.length) {
+    showStatus(status, 'No se guardó ningún cambio (no había semanas nuevas ni se eligió reescribir).', 'text-on-surface-variant');
+    return;
+  }
+  await db.mergeMidweeks(aGuardar);
+  await refreshCatalogs();
+  showStatus(status, `✓ Guía de ${label} procesada · ${porAnadir.length} añadidas, ${duplicadas.filter(w => reescribir.has(String(w.id))).length} reescritas.`, 'text-tertiary-fixed');
+  renderUploadSummary();
+  toast('Guía de actividades actualizada', 'success');
+}
+
+// Descarga la plantilla de participantes (Excel .xls con tabla).
+function downloadPeopleTemplate() {
+  const groups = state.departments.map(d => d.name).join(', ') || '1, 2, 3';
+  const labores = state.labores.map(r => r.label).join(', ');
+  const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Plantilla de participantes</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 24px; }
+  h2 { color: #1a3a5c; }
+  p.small { font-size: 11px; color: #555; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  th, td { border: 1px solid #999; padding: 6px 8px; font-size: 12px; text-align: left; }
+  th { background: #e8f0f8; }
+</style></head><body>
+  <h2>Reunión+ · Plantilla de participantes</h2>
+  <p class="small">Complete una fila por participante. Género: Masculino/Femenino. Calificación: A, B, C o D (D = requiere enlace). Grupo: número o nombre del grupo (grupos: ${groups}). Labores: separe con comas (labores: ${labores}). Luego convierta la hoja a PDF y súbala en Personas.</p>
+  <table>
+    <thead><tr><th>Nombre</th><th>Género</th><th>Calificación</th><th>Grupo</th><th>Labores</th></tr></thead>
+    <tbody>
+      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+    </tbody>
+  </table>
+</body></html>`;
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+  downloadBlob(blob, 'plantilla-participantes.xls');
+  toast('Plantilla descargada', 'success');
+}
+
 async function renderUploadSummary() {
   const s = $('#uploadSummary');
   if (!s) return;
@@ -2650,17 +2741,31 @@ async function renderUploadSummary() {
     db.listPeople(), db.listTalks(), db.listMidweeks(), db.listDepartments(),
   ]);
   const rows = [
-    ['Personas', people.length, 'group'],
-    ['Departamentos', depts.length, 'apartment'],
-    ['Conferencias', talks.length, 'campaign'],
-    ['Semanas de entre semana', midweeks.length, 'auto_stories'],
-  ].map(([label, n, icon]) => `<div class="flex items-center gap-3 bg-surface-container-lowest rounded-lg p-4 border border-outline-variant">
+    ['Personas', people.length, 'group', 'listPeople'],
+    ['Departamentos', depts.length, 'apartment', 'listDepartments'],
+    ['Conferencias', talks.length, 'campaign', 'listTalks'],
+    ['Semanas de entre semana', midweeks.length, 'auto_stories', 'listMidweeks'],
+  ].map(([label, n, icon, action]) => `<div class="flex items-center gap-3 bg-surface-container-lowest rounded-lg p-4 border border-outline-variant hover:border-primary hover:shadow-md transition-all cursor-pointer" data-summary-action="${action}" title="Revisar lista de ${label.toLowerCase()}">
     <span class="material-symbols-outlined text-primary">${icon}</span>
     <div class="flex-1"><p class="font-label-md text-label-md text-on-surface-variant">${label}</p></div>
     <span class="font-headline-md text-headline-md text-primary">${n}</span>
+    <span class="material-symbols-outlined text-on-surface-variant text-[18px]">chevron_right</span>
   </div>`).join('');
   s.innerHTML = `<h2 class="font-headline-md text-headline-md text-primary mb-4">Base de datos actual</h2>
+    <p class="text-on-surface-variant text-caption mb-3">Toque una tarjeta para revisar y editar su lista.</p>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${rows}</div>`;
+  s.querySelectorAll('[data-summary-action]').forEach(el => {
+    el.onclick = () => openSummaryList(el.dataset.summaryAction);
+  });
+}
+
+// Abre la lista de un parámetro del resumen con opciones de CRUD.
+async function openSummaryList(what) {
+  await refreshCatalogs();
+  if (what === 'listPeople') return openPeopleListModal();
+  if (what === 'listDepartments') return openDepartmentsListModal();
+  if (what === 'listTalks') return openTalksListModal();
+  if (what === 'listMidweeks') return openMidweeksListModal();
 }
 
 function showStatus(node, msg, cls) {
@@ -2669,6 +2774,269 @@ function showStatus(node, msg, cls) {
   node.className = 'mt-3 font-label-md text-label-md ' + cls;
   node.textContent = msg;
 }
+
+/* ---------- Modales CRUD del resumen de base de datos ---------- */
+// Lista de personas con búsqueda, edición y eliminación.
+async function openPeopleListModal() {
+  const people = [...state.people].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const body = people.map(p => `
+    <li class="flex items-center justify-between gap-3 py-2.5 border-b border-outline-variant/40 group">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-8 h-8 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(p.name)}</div>
+        <div class="min-w-0">
+          <p class="font-body-md text-body-md font-medium truncate">${escapeHtml(p.name)}</p>
+          <p class="text-caption text-on-surface-variant truncate">${(p.labores || []).map(l => (state.labores.find(r => r.id === l) || {}).label || l).join(', ') || 'Sin labores'}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <button data-pedit="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Editar perfil"><span class="material-symbols-outlined text-[18px]">edit</span></button>
+        <button data-pdel2="${p.id}" class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+      </div>
+    </li>`).join('') || '<li class="py-4 text-center text-on-surface-variant text-sm">Sin personas.</li>';
+  openModal(`
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-headline-md text-headline-md text-primary">Personas (${people.length})</h3>
+        <button data-close-modal class="material-symbols-outlined p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant">close</button>
+      </div>
+      <div class="relative mb-3">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span>
+        <input data-search class="w-full bg-surface-bright border border-outline-variant rounded-lg py-2 pl-9 pr-3 text-body-md font-body-md focus:border-primary" placeholder="Buscar persona...">
+      </div>
+      <ul data-list class="max-h-[55vh] overflow-y-auto divide-y-0"></ul>
+      <div class="flex gap-3 mt-4">
+        <button data-add class="flex-1 flex items-center justify-center gap-2 bg-primary text-on-primary px-4 py-2.5 rounded-lg font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined text-[18px]">person_add</span> Añadir persona</button>
+        <button data-depts class="flex-1 flex items-center justify-center gap-2 border border-outline text-on-surface-variant px-4 py-2.5 rounded-lg font-label-md text-label-md hover:bg-surface-container"><span class="material-symbols-outlined text-[18px]">apartment</span> Departamentos</button>
+      </div>
+    </div>`);
+  const list = modalEl('[data-list]');
+  list.innerHTML = body;
+
+  modalEl('[data-search]').addEventListener('input', (e) => {
+    const q = normalizeStr(e.target.value);
+    list.querySelectorAll('li').forEach(li => { li.style.display = li.dataset.norm.includes(q) ? '' : 'none'; });
+    list.querySelectorAll('li').forEach(li => { li.dataset.norm = normalizeStr((li.textContent || '').slice(0, 120)); });
+  });
+  list.querySelectorAll('li').forEach(li => { li.dataset.norm = normalizeStr((li.textContent || '').slice(0, 120)); });
+
+  list.querySelectorAll('[data-pedit]').forEach(b => b.onclick = () => {
+    const person = state.people.find(x => String(x.id) === String(b.dataset.pedit));
+    if (person) openPersonProfile(person);
+  });
+  list.querySelectorAll('[data-pdel2]').forEach(b => b.onclick = async () => {
+    const person = state.people.find(x => String(x.id) === String(b.dataset.pdel2));
+    if (!person) return;
+    if (!await confirmDialog(`¿Eliminar a ${person.name}?`, 'Eliminar')) return;
+    await db.deletePerson(person.id);
+    await refreshCatalogs();
+    closeModal();
+    openPeopleListModal();
+    renderUploadSummary();
+    toast('Persona eliminada', 'success');
+  });
+  modalEl('[data-add]').onclick = () => { closeModal(); openAddMemberModal(); };
+  modalEl('[data-depts]').onclick = () => { closeModal(); openDepartmentsListModal(); };
+  modalEl('[data-close-modal]').onclick = closeModal;
+}
+
+// Lista de departamentos con añadir/renombrar/eliminar.
+async function openDepartmentsListModal() {
+  const depts = [...state.departments].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const body = depts.map(d => `
+    <li class="flex items-center justify-between gap-3 py-2.5 border-b border-outline-variant/40 group">
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="material-symbols-outlined text-on-surface-variant">apartment</span>
+        <p class="font-body-md text-body-md font-medium truncate">${escapeHtml(d.name)}</p>
+      </div>
+      <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <button data-dedit="${d.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Renombrar"><span class="material-symbols-outlined text-[18px]">edit</span></button>
+        <button data-ddel="${d.id}" class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+      </div>
+    </li>`).join('') || '<li class="py-4 text-center text-on-surface-variant text-sm">Sin departamentos.</li>';
+  openModal(`
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-headline-md text-headline-md text-primary">Departamentos (${depts.length})</h3>
+        <button data-close-modal class="material-symbols-outlined p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant">close</button>
+      </div>
+      <form data-form class="flex gap-2 mb-3">
+        <input data-name type="text" placeholder="Nuevo departamento (p. ej. Grupo 4)" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 text-body-md font-body-md focus:border-primary" autocomplete="off">
+        <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Agregar</button>
+      </form>
+      <ul data-list class="max-h-[55vh] overflow-y-auto divide-y-0">${body}</ul>
+      <div class="flex gap-3 mt-4">
+        <button data-people class="flex-1 flex items-center justify-center gap-2 border border-outline text-on-surface-variant px-4 py-2.5 rounded-lg font-label-md text-label-md hover:bg-surface-container"><span class="material-symbols-outlined text-[18px]">group</span> Personas</button>
+      </div>
+    </div>`);
+
+  modalEl('[data-form]').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = modalEl('[data-name]').value.trim();
+    if (!name) { toast('Escribe un nombre', 'error'); return; }
+    await db.addDepartment(name);
+    await refreshCatalogs();
+    closeModal();
+    openDepartmentsListModal();
+    renderUploadSummary();
+    toast('Departamento agregado', 'success');
+  };
+  modalEl('[data-list]').querySelectorAll('[data-dedit]').forEach(b => b.onclick = () => {
+    const d = state.departments.find(x => String(x.id) === String(b.dataset.dedit));
+    if (!d) return;
+    const nuevo = promptText('Renombrar departamento', d.name);
+    if (nuevo == null) return;
+    if (!nuevo.trim()) { toast('Nombre vacío', 'error'); return; }
+    (async () => { await db.updateDepartment({ ...d, name: nuevo.trim() }); await refreshCatalogs(); closeModal(); openDepartmentsListModal(); renderUploadSummary(); toast('Departamento actualizado', 'success'); })();
+  });
+  modalEl('[data-list]').querySelectorAll('[data-ddel]').forEach(b => b.onclick = async () => {
+    const d = state.departments.find(x => String(x.id) === String(b.dataset.ddel));
+    if (!d) return;
+    if (!await confirmDialog(`¿Eliminar el departamento "${d.name}"?`, 'Eliminar')) return;
+    await db.deleteDepartment(d.id);
+    await refreshCatalogs();
+    closeModal();
+    openDepartmentsListModal();
+    renderUploadSummary();
+    toast('Departamento eliminado', 'success');
+  });
+  modalEl('[data-people]').onclick = () => { closeModal(); openPeopleListModal(); };
+  modalEl('[data-close-modal]').onclick = closeModal;
+}
+
+// Lista de discursos con añadir/editar/eliminar.
+async function openTalksListModal() {
+  const talks = [...state.talks].sort((a, b) => Number(a.num) - Number(b.num));
+  const body = talks.map(t => `
+    <li class="flex items-center justify-between gap-3 py-2.5 border-b border-outline-variant/40 group">
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="w-8 h-8 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${t.num}</span>
+        <p class="font-body-md text-body-md truncate">${escapeHtml(t.title)}</p>
+      </div>
+      <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <button data-tedit="${t.num}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Editar"><span class="material-symbols-outlined text-[18px]">edit</span></button>
+        <button data-tdel="${t.num}" class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+      </div>
+    </li>`).join('') || '<li class="py-4 text-center text-on-surface-variant text-sm">Sin discursos.</li>';
+  openModal(`
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-headline-md text-headline-md text-primary">Conferencias (${talks.length})</h3>
+        <button data-close-modal class="material-symbols-outlined p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant">close</button>
+      </div>
+      <form data-form class="flex gap-2 mb-3">
+        <input data-num type="number" min="1" placeholder="Nº" class="w-20 bg-surface-bright border border-outline-variant rounded-lg p-2.5 text-body-md font-body-md focus:border-primary" autocomplete="off">
+        <input data-title type="text" placeholder="Título del discurso" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 text-body-md font-body-md focus:border-primary" autocomplete="off">
+        <button class="px-4 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Añadir</button>
+      </form>
+      <ul data-list class="max-h-[55vh] overflow-y-auto divide-y-0">${body}</ul>
+    </div>`);
+
+  modalEl('[data-form]').onsubmit = async (e) => {
+    e.preventDefault();
+    const num = Number(modalEl('[data-num]').value);
+    const title = modalEl('[data-title]').value.trim();
+    if (!num || !title) { toast('Número y título son obligatorios', 'error'); return; }
+    try {
+      await db.addTalk(num, title);
+      await refreshCatalogs();
+      closeModal();
+      openTalksListModal();
+      renderUploadSummary();
+      toast('Discurso agregado', 'success');
+    } catch (err) { toast(err.message, 'error'); }
+  };
+  modalEl('[data-list]').querySelectorAll('[data-tedit]').forEach(b => b.onclick = () => {
+    const t = state.talks.find(x => String(x.num) === String(b.dataset.tedit));
+    if (!t) return;
+    const nuevo = promptText('Editar título del discurso', t.title);
+    if (nuevo == null) return;
+    if (!nuevo.trim()) { toast('Título vacío', 'error'); return; }
+    (async () => { await db.updateTalk({ ...t, title: nuevo.trim() }); await refreshCatalogs(); closeModal(); openTalksListModal(); renderUploadSummary(); toast('Discurso actualizado', 'success'); })();
+  });
+  modalEl('[data-list]').querySelectorAll('[data-tdel]').forEach(b => b.onclick = async () => {
+    const t = state.talks.find(x => String(x.num) === String(b.dataset.tdel));
+    if (!t) return;
+    if (!await confirmDialog(`¿Eliminar el discurso ${t.num}: "${t.title}"?`, 'Eliminar')) return;
+    await db.deleteTalk(t.num);
+    await refreshCatalogs();
+    closeModal();
+    openTalksListModal();
+    renderUploadSummary();
+    toast('Discurso eliminado', 'success');
+  });
+  modalEl('[data-close-modal]').onclick = closeModal;
+}
+
+// Lista de semanas de entre semana cargadas, con búsqueda y eliminación.
+async function openMidweeksListModal() {
+  const weeks = [...state.midweeks].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const body = weeks.map(w => `
+    <li class="flex items-center justify-between gap-3 py-2.5 border-b border-outline-variant/40 group">
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="material-symbols-outlined text-on-surface-variant">auto_stories</span>
+        <div class="min-w-0">
+          <p class="font-body-md text-body-md font-medium truncate">${escapeHtml(w.header || w.id)}</p>
+          <p class="text-caption text-on-surface-variant">${escapeHtml(w.reading || 'Sin lectura')}</p>
+        </div>
+      </div>
+      <button data-wdel="${w.id}" class="p-1.5 rounded-lg text-error hover:bg-error-container opacity-0 group-hover:opacity-100 transition-opacity shrink-0" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+    </li>`).join('') || '<li class="py-4 text-center text-on-surface-variant text-sm">Sin semanas cargadas.</li>';
+  openModal(`
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-headline-md text-headline-md text-primary">Semanas de entre semana (${weeks.length})</h3>
+        <button data-close-modal class="material-symbols-outlined p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant">close</button>
+      </div>
+      <div class="relative mb-3">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span>
+        <input data-search class="w-full bg-surface-bright border border-outline-variant rounded-lg py-2 pl-9 pr-3 text-body-md font-body-md focus:border-primary" placeholder="Buscar semana...">
+      </div>
+      <ul data-list class="max-h-[55vh] overflow-y-auto divide-y-0">${body}</ul>
+    </div>`);
+  const list = modalEl('[data-list]');
+  modalEl('[data-search]').addEventListener('input', (e) => {
+    const q = normalizeStr(e.target.value);
+    list.querySelectorAll('li').forEach(li => { li.style.display = li.dataset.norm.includes(q) ? '' : 'none'; });
+  });
+  list.querySelectorAll('li').forEach(li => { li.dataset.norm = normalizeStr(li.textContent || ''); });
+  list.querySelectorAll('[data-wdel]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.wdel;
+    const w = state.midweeks.find(x => String(x.id) === String(id));
+    if (!await confirmDialog(`¿Eliminar la semana ${(w && w.header) || id}?`, 'Eliminar')) return;
+    await db.deleteMidweek(id);
+    await refreshCatalogs();
+    closeModal();
+    openMidweeksListModal();
+    renderUploadSummary();
+    toast('Semana eliminada', 'success');
+  });
+  modalEl('[data-close-modal]').onclick = closeModal;
+}
+
+// Lee un elemento dentro del modal actual.
+function modalEl(sel) {
+  return $('#modalCard').querySelector(sel);
+}
+
+// Prompt simple (texto) reutilizado por los CRUD.
+function promptText(label, value = '') {
+  return new Promise((resolve) => {
+    openModal(`
+      <div>
+        <h3 class="font-headline-md text-headline-md text-primary mb-4">${escapeHtml(label)}</h3>
+        <input id="ptInput" type="text" value="${escapeAttr(value)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 text-body-md font-body-md focus:border-primary" autocomplete="off">
+        <div class="flex gap-3 justify-end mt-5">
+          <button id="ptCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+          <button id="ptOk" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Aceptar</button>
+        </div>
+      </div>`);
+    $('#ptOk').onclick = () => { const v = $('#ptInput').value; closeModal(); resolve(v); };
+    $('#ptCancel').onclick = () => { closeModal(); resolve(null); };
+    $('#ptInput').onkeydown = (e) => { if (e.key === 'Enter') { const v = $('#ptInput').value; closeModal(); resolve(v); } };
+    $('#ptInput').focus();
+  });
+}
+
 
 // ---- PDF: extracción de texto con pdf.js (vendored, funciona sin conexión) ----
 let _pdfReady = false;

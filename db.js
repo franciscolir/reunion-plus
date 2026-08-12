@@ -198,22 +198,36 @@ export async function clearPeople() {
   return commit(STORE_PEOPLE, (store) => reqToPromise(store.clear()));
 }
 
-// Reemplaza toda la lista de personas desde un archivo con formato de
-// participantes.json: { roles: { <labor>: [nombres...], ... } }.
-// Inserta personas únicas (por nombre) con sus labores (puestos del equipo).
+// Reemplaza toda la lista de personas desde un archivo. Acepta dos formatos:
+//   1) { roles: { <labor>: [nombres...], ... } } o { participantes: {...} }
+//   2) [{ name, genero, calificacion, grupoId, labores, enlace, ... }]
+// Inserta personas únicas (por nombre) con sus atributos.
 export async function replaceAllPeople(data) {
-  const rolesMap = (data && (data.roles || data.participantes)) || {};
-  const merged = {};
-  for (const [role, names] of Object.entries(rolesMap)) {
-    for (const name of (Array.isArray(names) ? names : [])) {
-      const key = String(name).trim().toLowerCase();
-      if (!key) continue;
-      if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
-      if (!merged[key].labores.includes(role)) merged[key].labores.push(role);
-    }
-  }
-  const list = Object.values(merged);
   const now = Date.now();
+  let list;
+  if (Array.isArray(data)) {
+    list = data.map(p => ({
+      name: String(p.name || '').trim(),
+      labores: Array.isArray(p.labores) ? p.labores : (Array.isArray(p.roles) ? p.roles : []),
+      cargos: Array.isArray(p.cargos) ? p.cargos : [],
+      genero: p.genero || '',
+      calificacion: p.calificacion || '',
+      enlace: p.enlace || '',
+      grupoId: p.grupoId || '',
+    })).filter(p => p.name);
+  } else {
+    const rolesMap = (data && (data.roles || data.participantes)) || {};
+    const merged = {};
+    for (const [role, names] of Object.entries(rolesMap)) {
+      for (const name of (Array.isArray(names) ? names : [])) {
+        const key = String(name).trim().toLowerCase();
+        if (!key) continue;
+        if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
+        if (!merged[key].labores.includes(role)) merged[key].labores.push(role);
+      }
+    }
+    list = Object.values(merged);
+  }
   // Reemplazo atómico en una sola transacción (sin disparar sync por persona).
   return commit(STORE_PEOPLE, (store) => new Promise((resolve, reject) => {
     let pending = 1 + list.length;
@@ -373,6 +387,31 @@ export async function replaceTalksFromFile(data) {
   return normalized.length;
 }
 
+// CRUD individual de discursos (la vista de resumen los edita uno a uno).
+export async function addTalk(num, title) {
+  num = Number(num);
+  if (!num) throw new Error('Número de discurso inválido');
+  title = String(title || '').trim();
+  if (!title) throw new Error('Título vacío');
+  const exists = await listTalks().then(l => l.some(t => Number(t.num) === num));
+  if (exists) throw new Error('Ese número de discurso ya existe');
+  return commit(STORE_TALKS, (store) => reqToPromise(store.put({ num, title, createdAt: Date.now() })));
+}
+
+export async function updateTalk(talk) {
+  const num = Number(talk?.num);
+  if (!num) throw new Error('Número de discurso inválido');
+  const title = String(talk.title || '').trim();
+  if (!title) throw new Error('Título vacío');
+  const record = { num, title, updatedAt: Date.now() };
+  if (talk.createdAt) record.createdAt = talk.createdAt;
+  return commit(STORE_TALKS, (store) => reqToPromise(store.put(record)));
+}
+
+export async function deleteTalk(num) {
+  return commit(STORE_TALKS, (store) => reqToPromise(store.delete(Number(num))));
+}
+
 // ===== MIDWEEKS (reuniones de entre semana) =====
 export async function listMidweeks() {
   const db = await openDB();
@@ -430,6 +469,22 @@ function midweekFallbackId(w, i) {
     }
   }
   return `mw_${Date.now().toString(36)}_${i}`;
+}
+
+// Añade semanas de entre semana SIN borrar las existentes (carga acumulativa de
+// guías por fecha). Si una semana con el mismo id ya existe, se sobrescribe.
+export async function mergeMidweeks(weeks) {
+  const list = (Array.isArray(weeks) ? weeks : [])
+    .map((w, i) => (w && w.id) ? w : ({ ...w, id: midweekFallbackId(w, i) }));
+  if (!list.length) return 0;
+  return commit(STORE_MIDWEEKS, (store) => new Promise((resolve, reject) => {
+    let pending = list.length;
+    const done = () => { pending--; if (pending === 0) resolve(list.length); };
+    for (const w of list) {
+      const r = store.put(w);
+      r.onsuccess = done; r.onerror = () => reject(r.error);
+    }
+  }));
 }
 
 // ===== ASEOS (programa de aseo por mes) =====
