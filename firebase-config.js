@@ -1,37 +1,25 @@
-// firebase-config.js - Configuración de Firebase (placeholders)
-// =============================================================
-// FASE 2 — Integración de Firebase (migración JSON → Cloud Firestore).
-//
+// firebase-config.js - Configuración de Firebase
+// ==============================================
 // Esta aplicación usa IndexedDB como almacenamiento local (db.js). Firebase se
-// añade como capa de sincronización/seguridad en la nube. Mientras no se
-// completen las credenciales, la app funciona 100% offline con IndexedDB.
+// añade como capa de sincronización/seguridad en la nube. La app sigue
+// funcionando 100% offline con IndexedDB aunque Firebase esté configurado.
 //
-// PARA ACTIVAR FIREBASE:
-//   1. Crea un proyecto en https://console.firebase.google.com
-//   2. Añade una app "Web" y copia aquí la configuración (apiKey, authDomain,
-//      projectId, storageBucket, messagingSenderId, appId).
-//   3. Activa Authentication (email/password) y Firestore (modo de prueba
-//      inicialmente).
-//   4. Aplica las reglas de seguridad de Firestore (Fase 7). Puedes desplegarlas
-//      desde la consola (Firestore → Reglas → pegar firestore.rules) o con la
-//      CLI:  firebase deploy --only firestore:rules
-//   5. Promueve a 'admin' el documento de tu usuario en la colección 'usuarios'
-//      (los nuevos usuarios se crean con rol 'reader').
-//
-// Los valores de abajo son PLACEHOLDERS. La app detecta que Firebase NO está
-// configurado y continúa usando solo IndexedDB hasta que los completes.
+// PROYECTO ACTIVO: reunion-b6f14
+// Credenciales de la app Web (Fase 2 completada).
+// Ver también: firestore.rules (seguridad) y firebase.json (deploy).
 
 export const FIREBASE_CONFIG = {
-  apiKey: 'TU_API_KEY_AQUI',
-  authDomain: 'TU_PROYECTO.firebaseapp.com',
-  projectId: 'TU_PROYECTO',
-  storageBucket: 'TU_PROYECTO.appspot.com',
-  messagingSenderId: 'TU_MESSAGING_SENDER_ID',
-  appId: 'TU_APP_ID',
+  apiKey: 'AIzaSyAQXhgPx_EyI-pjwba-jLaIZ0lA04YxNDc',
+  authDomain: 'reunion-b6f14.firebaseapp.com',
+  projectId: 'reunion-b6f14',
+  storageBucket: 'reunion-b6f14.firebasestorage.app',
+  messagingSenderId: '772112574179',
+  appId: '1:772112574179:web:3f937bde562369a937c7d6',
 };
 
-// URL base del SDK de Firebase (módulos ES, v10.x).
-export const FIREBASE_SDK_BASE = 'https://www.gstatic.com/firebasejs/10.12.2/';
+// URL base del SDK de Firebase (módulos ES). Se usa el mismo que el script de
+// la consola (v12.17.1).
+export const FIREBASE_SDK_BASE = 'https://www.gstatic.com/firebasejs/12.17.1/';
 
 // true si el usuario completó las credenciales reales (no placeholders).
 export function isFirebaseConfigured() {
