@@ -1,7 +1,7 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
 import { isFirebaseConfigured } from './firebase-config.js';
-import { isFirebaseReady, borrarParticipantesReunionesProgramas, limpiarTodasLasColecciones } from './firestore.js';
+import { isFirebaseReady, borrarParticipantesReunionesProgramas, limpiarTodasLasColecciones, reemplazarDiscursos } from './firestore.js';
 import { iniciarSync, pullSiVacio, syncStatus } from './sync.js';
 import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
@@ -2992,11 +2992,12 @@ async function renderSettings() {
           <h3 class="font-headline-md text-headline-md text-primary mb-2">Mantenimiento de datos</h3>
           <p class="text-on-surface-variant text-sm mb-3">Los datos viven en Firebase y se sincronizan automáticamente. Aquí puedes restaurar los valores de fábrica o borrar solo reuniones y programas. Las acciones destructivas requieren tu contraseña de admin.</p>
           <div class="flex gap-3 flex-wrap">
+            <button id="setImportarDiscursos" data-admin class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Importar discursos</button>
             <button id="setBorrarProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar participantes, reuniones y programas</button>
             <button id="setResetFabrica" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Restaurar valores de fábrica</button>
           </div>
           <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
-          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Firebase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar participantes, reuniones y programas" elimina solo esas colecciones (conserva usuarios, grupos y configuración).</p>
+          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Firebase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar participantes, reuniones y programas" elimina solo esas colecciones (conserva usuarios, grupos y configuración). "Importar discursos" reemplaza la lista de discursos públicos en Firestore.</p>
         </div>
       </div>
     </div>
@@ -3163,6 +3164,29 @@ async function renderSettings() {
     } finally {
       btn.disabled = false;
       btn.textContent = 'Restaurar valores de fábrica';
+    }
+  };
+  // Importar discursos: lee discursos.json del servidor y reemplaza la lista en Firestore.
+  $('#setImportarDiscursos').onclick = async () => {
+    if (!await confirmarAdmin()) return;
+    if (!await confirmDialog('Se reemplazará la lista de discursos públicos en Firestore por la de discursos.json (194 discursos). Los dispositivos sincronizados actualizarán su copia. ¿Continuar?', 'Importar discursos')) return;
+    const btn = $('#setImportarDiscursos');
+    btn.disabled = true;
+    btn.textContent = 'Importando…';
+    try {
+      const res = await fetch('./discursos.json', { cache: 'no-store' });
+      if (!res.ok) throw new Error('No se pudo leer discursos.json (' + res.status + ')');
+      const data = await res.json();
+      const talks = Array.isArray(data) ? data : Object.values(data).map(d => ({ num: Number(d.num), title: String(d.title || '') }));
+      const n = await reemplazarDiscursos(talks);
+      await db.replaceAllTalksSilent(talks.map(t => ({ num: t.num, title: t.title || '' })));
+      await refreshCatalogs();
+      toast(`Discursos importados · ${n} en Firestore y actualizada la copia local`, 'success');
+    } catch (err) {
+      toast('Error al importar discursos: ' + (err.message || err), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Importar discursos';
     }
   };
   // Estado de la sincronización

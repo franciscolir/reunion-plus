@@ -151,6 +151,31 @@ export const obtenerDiscursos = () => readAll('discursos');
 export const obtenerDiscurso = (num) => readDoc('discursos', String(num));
 export const guardarDiscurso = (num, data) => writeDoc('discursos', String(num), data);
 
+// Reemplaza todos los discursos (importación desde archivo local temporal).
+export async function reemplazarDiscursos(talks) {
+  const f = await initFirebase();
+  if (!f) return 0;
+  const { getDocs, collection: coll, writeBatch, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
+  const snap = await getDocs(coll(f.db, 'discursos'));
+  // Borrar todos los existentes
+  const aBorrar = snap.docs;
+  for (let i = 0; i < aBorrar.length; i += 400) {
+    const chunk = aBorrar.slice(i, i + 400);
+    const batch = writeBatch(f.db);
+    for (const d of chunk) batch.delete(doc(f.db, 'discursos', String(d.id)));
+    await batch.commit();
+  }
+  // Insertar los nuevos
+  const ahora = Date.now();
+  for (let i = 0; i < talks.length; i += 400) {
+    const chunk = talks.slice(i, i + 400);
+    const batch = writeBatch(f.db);
+    for (const t of chunk) batch.set(doc(f.db, 'discursos', String(t.num)), { num: t.num, title: t.title || '', createdAt: ahora });
+    await batch.commit();
+  }
+  return talks.length;
+}
+
 // ===== Usuarios (rol admin/reader; verifica en auth.js) =====
 export const obtenerUsuario = (uid) => readDoc('usuarios', uid);
 export const guardarUsuario = (uid, data) => writeDoc('usuarios', uid, data);
