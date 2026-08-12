@@ -773,12 +773,12 @@ export async function limpiarIndexedDBLocal() {
   await setConfigSilent(await defaultConfig());
 }
 
-// Borra de IndexedDB local las reuniones (entre semana), los programas mensuales
-// y sus datos asociados (salidas, atencion, aseo, historial), sin tocar personas,
-// grupos ni configuración. Sin disparar sync.
-export async function borrarReunionesProgramasLocal() {
+// Borra de IndexedDB local las personas, reuniones (entre semana), programas
+// mensuales y su historial, sin tocar grupos, discursos ni configuración.
+// Sin disparar sync.
+export async function borrarParticipantesReunionesProgramasLocal() {
   const db = await openDB();
-  const stores = [STORE_MIDWEEKS, STORE_MONTHS, STORE_SALIDAS, STORE_ATENCION, STORE_ASEOS, STORE_ASSIGNMENT_LOG];
+  const stores = [STORE_PEOPLE, STORE_MIDWEEKS, STORE_MONTHS, STORE_SALIDAS, STORE_ATENCION, STORE_ASEOS, STORE_ASSIGNMENT_LOG];
   for (const s of stores) {
     if (db.objectStoreNames.contains(s)) {
       await commitSilent(s, (store) => reqToPromise(store.clear()));

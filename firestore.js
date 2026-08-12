@@ -183,13 +183,15 @@ export async function limpiarTodasLasColecciones(exceptUid = '') {
   return total;
 }
 
-// Borra solo usuarios (excepto el indicado), reuniones y programas.
-export async function borrarUsuariosReunionesProgramas(exceptUid = '') {
+// Borra participantes, reuniones y programas (con su historial de asignaciones).
+// NO toca la colección `usuarios`. Conserva grupos y configuración.
+export async function borrarParticipantesReunionesProgramas() {
   const f = await initFirebase();
   if (!f) return 0;
   let total = 0;
-  total += await borrarColeccionExcepto('usuarios', exceptUid ? [String(exceptUid)] : []);
+  total += await borrarColeccionExcepto('participantes');
   total += await borrarColeccionExcepto('reuniones');
   total += await borrarColeccionExcepto('programas');
+  total += await borrarColeccionExcepto('asignaciones'); // historial ligado a participantes/programas
   return total;
 }

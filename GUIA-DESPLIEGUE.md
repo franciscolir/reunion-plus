@@ -124,7 +124,7 @@ El `firebase.json` ya ignora los PDFs y `servidor.ps1` del hosting.
 3. Los datos se sincronizan solos: guarda algo (p. ej. crea un programa) y verás la colección en Firestore.
 4. En otro dispositivo con la misma cuenta y base vacía: al iniciar sesión descargará automáticamente los datos.
 
-> **Mantenimiento**: en **Ajustes → Mantenimiento de datos** puedes **"Restaurar valores de fábrica"** (borra todos los registros en Firebase y en el dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin) o **"Borrar usuarios, reuniones y programas"** (conserva participantes, grupos y configuración). Ambas acciones requieren tu contraseña de admin.
+> **Mantenimiento**: en **Ajustes → Mantenimiento de datos** puedes **"Restaurar valores de fábrica"** (borra todos los registros en Firebase y en el dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin) o **"Borrar participantes, reuniones y programas"** (conserva usuarios, grupos y configuración). Ambas acciones requieren tu contraseña de admin.
 
 ---
 
@@ -155,7 +155,7 @@ El `firebase.json` ya ignora los PDFs y `servidor.ps1` del hosting.
 - [ ] Segundo dispositivo con base vacía → descarga automática al loguearse
 
 ### Mantenimiento (requiere contraseña de admin)
-- [ ] "Borrar usuarios, reuniones y programas" conserva participantes/grupos/config
+- [ ] "Borrar participantes, reuniones y programas" conserva usuarios/grupos/config
 - [ ] "Restaurar valores de fábrica" deja colecciones vacías y conserva el admin
 
 ### Algoritmo de asignación (Fase 9)
