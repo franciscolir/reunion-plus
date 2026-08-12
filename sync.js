@@ -359,7 +359,14 @@ export async function iniciarSync() {
   _enabled = true;
   db.onSync(pushStore);
   setStatus('conectado', 'sincronización activa');
-  // Pull inicial solo si la base local está vacía (para no machacar datos locales).
+  await pullSiVacio();
+}
+
+// Si la base local está vacía, descarga los datos desde Firebase. Se usa al
+// iniciar y después de iniciar sesión (en un segundo dispositivo con la cuenta
+// ya creada, los datos llegan automáticamente).
+export async function pullSiVacio() {
+  if (!_enabled) return;
   const [people, programas] = await Promise.all([db.listPeople(), db.listMonths()]);
   if (people.length === 0 && programas.length === 0) {
     setStatus('syncing', 'descargando datos de Firebase…');

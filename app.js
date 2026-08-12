@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { migrarDatos } from './migracion.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady } from './firestore.js';
-import { iniciarSync, pullAll, syncStatus } from './sync.js';
+import { iniciarSync, pullAll, pullSiVacio, syncStatus } from './sync.js';
 import { login, logout, restoreSession, currentUser, isAuthenticated, isAdmin, onAuthChange } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
@@ -50,7 +50,11 @@ async function init() {
   // Sincronización con Firebase (si está configurado). No bloquea el arranque.
   iniciarSync().catch(() => {});
   // Autenticación: restaurar sesión persistente y actualizar la UI.
-  onAuthChange(() => renderAuthUI());
+  onAuthChange((user) => {
+    renderAuthUI();
+    // Al iniciar sesión en un dispositivo sin datos locales, traer de Firebase.
+    if (user && isAuthenticated()) pullSiVacio().catch(() => {});
+  });
   restoreSession().catch(() => {}).finally(renderAuthUI);
   window.addEventListener('hashchange', router);
   router();
