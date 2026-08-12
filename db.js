@@ -756,3 +756,99 @@ export async function exportAll() {
     exportedAt: new Date().toISOString(),
   };
 }
+
+// ===== Helpers de sincronización (sync.js) =====
+// Escriben en IndexedDB SIN disparar el hook de sync (commitSilent), para evitar
+// bucles al descargar datos desde Firestore. Son de uso interno de sync.js.
+
+// Reemplaza todas las personas desde la nube (participantes).
+export async function replaceAllPeopleSilent(people) {
+  await commitSilent(STORE_PEOPLE, (store) => new Promise((resolve, reject) => {
+    let pending = 1 + people.length;
+    const done = () => { pending--; if (pending === 0) resolve(); };
+    const cl = store.clear();
+    cl.onsuccess = done; cl.onerror = () => reject(cl.error);
+    for (const p of people) {
+      const r = store.add(p);
+      r.onsuccess = done; r.onerror = () => reject(r.error);
+    }
+  }));
+}
+
+// Inserta un grupo con id concreto (sin disparar sync).
+export async function addDepartmentWithIdPublic(name, id) {
+  name = (name || '').trim();
+  if (!name) return;
+  await commitSilent(STORE_DEPARTMENTS, (store) => reqToPromise(store.put({ id, name, createdAt: Date.now() })));
+}
+
+// Reemplaza todos los grupos (sin disparar sync).
+export async function replaceAllDepartmentsSilent(grupos) {
+  await commitSilent(STORE_DEPARTMENTS, (store) => new Promise((resolve, reject) => {
+    let pending = 1 + grupos.length;
+    const done = () => { pending--; if (pending === 0) resolve(); };
+    const cl = store.clear();
+    cl.onsuccess = done; cl.onerror = () => reject(cl.error);
+    for (const g of grupos) {
+      const r = store.put(g);
+      r.onsuccess = done; r.onerror = () => reject(r.error);
+    }
+  }));
+}
+
+// Escribe una semana de entre semana (sin disparar sync).
+export async function putMidweekSilent(week) {
+  week.updatedAt = Date.now();
+  if (!week.createdAt) week.createdAt = week.updatedAt;
+  await commitSilent(STORE_MIDWEEKS, (store) => reqToPromise(store.put(week)));
+}
+
+// Escribe un programa de fin de semana (sin disparar sync).
+export async function putMonthSilent(month) {
+  month.updatedAt = Date.now();
+  if (!month.createdAt) month.createdAt = month.updatedAt;
+  await commitSilent(STORE_MONTHS, (store) => reqToPromise(store.put(month)));
+}
+
+// Escribe un programa de salidas (sin disparar sync).
+export async function putSalidasSilent(program) {
+  program.updatedAt = Date.now();
+  if (!program.createdAt) program.createdAt = program.updatedAt;
+  await commitSilent(STORE_SALIDAS, (store) => reqToPromise(store.put(program)));
+}
+
+// Escribe un programa de atencion/acomodación (sin disparar sync).
+export async function putAtencionSilent(program) {
+  program.updatedAt = Date.now();
+  if (!program.createdAt) program.createdAt = program.updatedAt;
+  await commitSilent(STORE_ATENCION, (store) => reqToPromise(store.put(program)));
+}
+
+// Escribe un programa de aseo (sin disparar sync).
+export async function putAseoSilent(aseo) {
+  aseo.updatedAt = Date.now();
+  if (!aseo.createdAt) aseo.createdAt = aseo.updatedAt;
+  await commitSilent(STORE_ASEOS, (store) => reqToPromise(store.put(aseo)));
+}
+
+// Escribe una entrada del historial (sin disparar sync).
+export async function putAssignmentLogSilent(entry) {
+  entry.updatedAt = Date.now();
+  if (!entry.createdAt) entry.createdAt = entry.updatedAt;
+  await commitSilent(STORE_ASSIGNMENT_LOG, (store) => reqToPromise(store.put(entry)));
+}
+
+// Guarda un setting (sin disparar sync).
+export async function setSettingSilent(key, value) {
+  await commitSilent(STORE_SETTINGS, (store) => reqToPromise(store.put(value, key)));
+}
+
+// Guarda la configuración (sin disparar sync).
+export async function setConfigSilent(cfg) {
+  await setSettingSilent('config', cfg);
+}
+
+// Guarda las labores del equipo (sin disparar sync).
+export async function setLaboresSilent(labores) {
+  await setSettingSilent('labores', Array.isArray(labores) ? labores : []);
+}

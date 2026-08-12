@@ -3,6 +3,7 @@ import * as db from './db.js';
 import { migrarDatos } from './migracion.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady } from './firestore.js';
+import { iniciarSync, pullAll, syncStatus } from './sync.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
@@ -45,6 +46,8 @@ async function init() {
   await refreshCatalogs();
   registerSW();
   bindGlobal();
+  // Sincronización con Firebase (si está configurado). No bloquea el arranque.
+  iniciarSync().catch(() => {});
   window.addEventListener('hashchange', router);
   router();
 }
@@ -2851,9 +2854,11 @@ async function renderSettings() {
             </label>
             <button id="setReloadLists" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
             <button id="setMigrarFirebase" class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Migrar a Firebase</button>
+            <button id="setPullFirebase" class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Descargar de Firebase</button>
             <button id="setReset" class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
           </div>
-          <p class="text-on-surface-variant text-caption mt-3">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas. "Migrar a Firebase" sube todos los datos actuales a Cloud Firestore (requiere configurar <code>firebase-config.js</code>).</p>
+          <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
+          <p class="text-on-surface-variant text-caption mt-1">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas. "Migrar a Firebase" sube todos los datos actuales a Cloud Firestore; "Descargar de Firebase" sobrescribe los datos locales con los de la nube (requiere configurar <code>firebase-config.js</code>).</p>
         </div>
       </div>
     </div>
@@ -3041,6 +3046,50 @@ async function renderSettings() {
       btn.textContent = 'Migrar a Firebase';
     }
   };
+  $('#setPullFirebase').onclick = async () => {
+    if (!isFirebaseConfigured()) {
+      toast('Firebase no está configurado. Complete firebase-config.js primero.', 'error');
+      return;
+    }
+    if (!await isFirebaseReady()) {
+      toast('No se pudo conectar con Firebase.', 'error');
+      return;
+    }
+    if (!await confirmDialog('Se sobrescribirán los datos LOCALES con los de Firebase. ¿Continuar?', 'Descargar de Firebase')) return;
+    const btn = $('#setPullFirebase');
+    btn.disabled = true;
+    btn.textContent = 'Descargando…';
+    try {
+      const res = await pullAll();
+      if (res && res.error) throw new Error(res.error);
+      toast(`Datos descargados · ${res.participantes} participantes, ${res.programas} programas`, 'success');
+      await refreshCatalogs();
+      renderSettings();
+    } catch (err) {
+      toast('Error al descargar: ' + (err.message || err), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Descargar de Firebase';
+    }
+  };
+  // Estado de la sincronización
+  const pintarSync = () => {
+    const st = syncStatus();
+    const el = $('#setSyncStatus');
+    if (!el) return;
+    const mapa = {
+      'inactivo': ['text-on-surface-variant', 'Sincronización inactiva (Firebase no configurado)'],
+      'conectado': ['text-tertiary', 'Sincronización con Firebase activa'],
+      'syncing': ['text-primary', 'Sincronizando…'],
+      'ok': ['text-tertiary', 'Sincronizado · ' + st.detail],
+      'error': ['text-error', 'Error de sincronización · ' + st.detail],
+    };
+    const [cls, txt] = mapa[st.state] || ['text-on-surface-variant', '—'];
+    el.className = `font-label-md text-label-md ${cls}`;
+    el.textContent = txt;
+  };
+  pintarSync();
+  window.addEventListener('reunion-sync', pintarSync);
 }
 
 /* ---------- MIDWEEKS: vista general ---------- */
