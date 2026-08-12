@@ -2942,13 +2942,13 @@ async function renderSettings() {
             <label class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container cursor-pointer">
               Restaurar <input id="setImport" type="file" accept="application/json" class="hidden">
             </label>
-            <button id="setReloadLists" data-admin class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar personas/listas</button>
+            <button id="setReloadLists" data-admin class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Recargar catálogos</button>
             <button id="setMigrarFirebase" data-admin class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Migrar a Firebase</button>
             <button id="setPullFirebase" data-admin class="px-4 py-2 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Descargar de Firebase</button>
             <button id="setReset" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Reiniciar datos</button>
           </div>
           <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
-          <p class="text-on-surface-variant text-caption mt-1">"Recargar" vuelve a leer <code>participantes.json</code> y <code>grupos.json</code> sin borrar los programas. "Migrar a Firebase" sube todos los datos actuales a Cloud Firestore; "Descargar de Firebase" sobrescribe los datos locales con los de la nube (requiere configurar <code>firebase-config.js</code>).</p>
+          <p class="text-on-surface-variant text-caption mt-1">"Recargar catálogos" recarga las listas desde la base local. "Migrar a Firebase" sube los datos actuales a Cloud Firestore; "Descargar de Firebase" sobrescribe los datos locales con los de la nube (requiere configurar <code>firebase-config.js</code>).</p>
         </div>
       </div>
     </div>
@@ -3067,38 +3067,11 @@ async function renderSettings() {
       renderSettings();
     } catch (err) { toast('Archivo inválido', 'error'); }
   };
+  // El botón "Recargar personas/listas" dejó de leer los JSON de producción
+  // (Fase 8). Ahora recarga los catálogos desde la base local/IndexedDB.
   $('#setReloadLists').onclick = async () => {
-    if (!await confirmDialog('Se recargarán las personas (participantes.json) y los grupos (grupos.json), sin borrar los programas.', 'Recargar')) return;
-    // Reemplazar personas por las del archivo participantes.json
-    try {
-      const res = await fetch('./participantes.json', { cache: 'no-cache' });
-      if (res.ok) {
-        const data = await res.json();
-        const rolesMap = data.labores || data.roles || {};
-        const merged = {};
-        for (const [labore, names] of Object.entries(rolesMap)) {
-          for (const name of names) {
-            const key = String(name).trim().toLowerCase();
-            if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
-            if (!merged[key].labores.includes(labore)) merged[key].labores.push(labore);
-          }
-        }
-        for (const p of await db.listPeople()) await db.deletePerson(p.id);
-        for (const p of Object.values(merged)) await db.addPerson(p);
-      } else { toast('No se pudo leer participantes.json', 'error'); }
-    } catch (err) { toast('Error: ' + err.message, 'error'); }
-    // Reemplazar grupos por los del archivo grupos.json
-    try {
-      const res = await fetch('./grupos.json', { cache: 'no-cache' });
-      if (res.ok) {
-        const data = await res.json();
-        const grupos = Array.isArray(data.grupos) ? data.grupos
-          : (Array.isArray(data.departamentos) ? data.departamentos : []);
-        for (const d of await db.listDepartments()) await db.deleteDepartment(d.id);
-        for (const n of grupos) await db.addDepartment(String(n));
-      } else { toast('No se pudo leer grupos.json', 'error'); }
-    } catch (err) { toast('Error: ' + err.message, 'error'); }
-    toast('Listas recargadas', 'success');
+    await refreshCatalogs();
+    toast('Catálogos recargados', 'success');
     renderSettings();
   };
   $('#setReset').onclick = async () => {

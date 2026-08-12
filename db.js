@@ -561,36 +561,33 @@ export async function clearAssignmentLog() {
 }
 
 // ===== SEED inicial =====
+// Datos iniciales de prueba/carga inicial. Los archivos JSON son SOLO seed y
+// respaldo: la app no depende de ellos para funcionar (fuente real: IndexedDB
+// local + Firestore en la nube). Si no existen, la app arranca igual con la
+// base vacía.
 export async function seedIfEmpty() {
-  // Cargar el archivo de participantes una sola vez al inicio (para comparar y migrar)
-  let participantes = null;
-  try {
-    const res = await fetch('./participantes.json', { cache: 'no-cache' });
-    if (res.ok) participantes = await res.json();
-  } catch (e) { /* sin conexión primero: ignorar */ }
-
+  // Personas: solo si la base está vacía (primer uso). No se enriquece en cada
+  // arranque (evita sobrescribir labores editadas).
   const people = await listPeople();
   if (people.length === 0) {
     await loadParticipantes();
-  } else if (participantes) {
-    // Migración: borrar las personas de muestra antiguas (las que vinieron del
-    // seed inicial de versiones previas) que no figuren en participantes.json.
-    await removeLegacyPeople(people, participantes);
-    // Luego enriquecer las restantes con sus labores.
-    const refreshed = await listPeople();
-    await enrichLaboresFromParticipantes(refreshed, participantes);
   }
 
+  // Grupos: solo si la base de grupos está vacía (evita re-sincronizar/borrar
+  // grupos editados por el usuario en cada arranque).
   const depts = await listDepartments();
-  try {
-    const res = await fetch('./grupos.json', { cache: 'no-cache' });
-    if (res.ok) {
-      const data = await res.json();
-      const nombres = Array.isArray(data.grupos) ? data.grupos
-        : (Array.isArray(data.departamentos) ? data.departamentos : []);
-      await syncGroupsFromJson(depts, nombres.map(String));
-    }
-  } catch (e) { /* sin conexión: ignorar */ }
+  if (depts.length === 0) {
+    try {
+      const res = await fetch('./grupos.json', { cache: 'no-cache' });
+      if (res.ok) {
+        const data = await res.json();
+        const nombres = Array.isArray(data.grupos) ? data.grupos
+          : (Array.isArray(data.departamentos) ? data.departamentos : []);
+        for (const n of nombres.map(String)) await addDepartment(n);
+      }
+    } catch (e) { /* sin conexión: ignorar */ }
+  }
+
   // Discursos: cargar desde discursos.json si la lista está vacía
   const talks = await listTalks();
   if (talks.length === 0) {
@@ -611,70 +608,6 @@ export async function seedIfEmpty() {
   await seedMidweeks();
 }
 
-// Sincroniza los grupos (departamentos) de la DB con grupos.json:
-//  · Si la DB está vacía, crea los grupos del archivo.
-//  · Si los grupos actuales coinciden (por nombre) con los del archivo, no hace nada.
-//  · En cualquier otro caso ( grupos de muestra antiguos como "Logística",
-//    "Relaciones", etc., o listas modificadas), elimina los actuales y crea los
-//    del archivo. Mantiene el ID de los grupos cuyo nombre se conserva para no
-//    perder las asignaciones ya guardadas en los programas.
-async function syncGroupsFromJson(existing, namesFromFile) {
-  const fromFile = (namesFromFile || []).map(n => String(n).trim());
-  const current = existing.map(d => String(d.name).trim());
-  const sameSet =
-    current.length === fromFile.length &&
-    current.every(n => fromFile.includes(n)) &&
-    fromFile.every(n => current.includes(n));
-
-  if (sameSet) return; // nada que hacer
-
-  if (existing.length === 0) {
-    for (const n of fromFile) await addDepartment(n);
-    return;
-  }
-
-  // Reemplazo preservando IDs por nombre coincidente.
-  const keepByIdName = new Map(); // name(lower) -> id existente
-  for (const d of existing) keepByIdName.set(String(d.name).trim().toLowerCase(), d.id);
-
-  for (const d of existing) await deleteDepartment(d.id);
-  for (const n of fromFile) {
-    const oldId = keepByIdName.get(n.toLowerCase());
-    if (oldId) await addDepartmentWithId(n, oldId);
-    else await addDepartment(n);
-  }
-  console.log('[Reunión+] Grupos sincronizados desde grupos.json:', fromFile);
-}
-
-// Inserta un departamento con un id concreto (para preservar referencias).
-async function addDepartmentWithId(name, id) {
-  name = (name || '').trim();
-  if (!name) throw new Error('Nombre vacío');
-  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.put({ id, name, createdAt: Date.now() })));
-}
-
-// Personas de muestra de versiones previas del seed (no vienen de participantes.json).
-const LEGACY_SAMPLE_NAMES = [
-  'carlos mendoza', 'elena rivas', 'miguel á. torres', 'miguel a. torres',
-  'lucía fernández', 'lucia fernández', 'marcos ruiz', 'sofía gaviria', 'sofia gaviria',
-];
-
-// Elimina las personas de muestra antiguas que no estén en participantes.json.
-// Conserva cualquier persona añadida manualmente por el usuario.
-async function removeLegacyPeople(existing, participantes) {
-  const validNames = new Set(
-    Object.values(participantes.roles || {})
-      .flat()
-      .map(n => String(n).trim().toLowerCase())
-  );
-  for (const p of existing) {
-    const key = (p.name || '').trim().toLowerCase();
-    if (LEGACY_SAMPLE_NAMES.includes(key) && !validNames.has(key)) {
-      await deletePerson(p.id);
-      console.log('[Reunión+] Eliminada persona de muestra antigua:', p.name);
-    }
-  }
-}
 
 // Carga inicial de personas con roles y departamentos desde participantes.json
 async function loadParticipantes() {
@@ -705,36 +638,6 @@ async function loadParticipantes() {
   }
 }
 
-// Para personas ya creadas, sincroniza sus labores con las del archivo
-// participantes.json (sin sobrescribir programas existentes). Conserva las
-// personas añadidas a mano (simplemente no tendrán labores asignadas a menos
-// que coincidan por nombre).
-async function enrichLaboresFromParticipantes(existing, participantes) {
-  if (!participantes) {
-    try {
-      const res = await fetch('./participantes.json', { cache: 'no-cache' });
-      if (!res.ok) return;
-      participantes = await res.json();
-    } catch (e) { return; }
-  }
-  const rolesMap = participantes.roles || {};
-  const laboresByName = {};
-  for (const [role, names] of Object.entries(rolesMap)) {
-    for (const name of names) {
-      const key = String(name).trim().toLowerCase();
-      if (!laboresByName[key]) laboresByName[key] = [];
-      if (!laboresByName[key].includes(role)) laboresByName[key].push(role);
-    }
-  }
-  for (const p of existing) {
-    const labores = laboresByName[(p.name || '').trim().toLowerCase()];
-    if (!labores) continue; // no está en el archivo: dejar intacta
-    const current = Array.isArray(p.labores) ? p.labores : [];
-    const merged = Array.from(new Set([...current, ...labores]));
-    const sameOrder = merged.length === current.length && merged.every((r, i) => r === current[i]);
-    if (!sameOrder) { p.labores = merged; await updatePerson(p); }
-  }
-}
 
 // Exportar todo (backup)
 export async function exportAll() {
