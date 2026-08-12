@@ -4,7 +4,7 @@ import { migrarDatos } from './migracion.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady } from './firestore.js';
 import { iniciarSync, pullAll, pullSiVacio, syncStatus } from './sync.js';
-import { login, logout, restoreSession, currentUser, isAuthenticated, isAdmin, onAuthChange } from './auth.js';
+import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
@@ -3144,6 +3144,11 @@ async function renderSettings() {
       toast('No se pudo conectar con Firebase (¿sin conexión o SDK no disponible?).', 'error');
       return;
     }
+    const u = currentUser();
+    if (!u || u.rol !== 'admin') {
+      toast('Inicia sesión como admin para migrar datos a Firebase.', 'error');
+      return;
+    }
     if (!await confirmDialog('Se subirán TODOS los datos actuales a Cloud Firestore (idempotente: no duplica). ¿Continuar?', 'Migrar a Firebase')) return;
     const btn = $('#setMigrarFirebase');
     btn.disabled = true;
@@ -3171,6 +3176,11 @@ async function renderSettings() {
     }
     if (!await isFirebaseReady()) {
       toast('No se pudo conectar con Firebase.', 'error');
+      return;
+    }
+    const u = currentUser();
+    if (!u || u.rol !== 'admin') {
+      toast('Inicia sesión como admin para descargar datos de Firebase.', 'error');
       return;
     }
     if (!await confirmDialog('Se sobrescribirán los datos LOCALES con los de Firebase. ¿Continuar?', 'Descargar de Firebase')) return;
