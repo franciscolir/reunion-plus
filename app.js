@@ -78,21 +78,28 @@ async function refreshCatalogs() {
     : DEFAULT_LABORES.map(r => ({ ...r }));
 }
 
-// Indicador global de conexión con la base de datos. Luz simple: verde cuando la
-// app está conectada (en línea) y roja cuando está fuera de línea. Sin textos de
-// sincronización: los datos se refrescan en segundo plano sin molestar al usuario.
+// Indicador global de conexión con la base de datos. Luz simple en la barra de
+// navegación: verde cuando la app está conectada (en línea) y roja cuando está
+// fuera de línea. Sin textos de sincronización: los datos se refrescan en
+// segundo plano sin molestar al usuario.
 function initSyncIndicator() {
-  const root = el(`<div id="syncIndicator" class="hidden fixed items-center gap-2 rounded-full bg-surface-container-high pl-3 pr-4 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.18)] text-sm font-medium text-on-surface" style="left:50%;top:56px;transform:translateX(-50%);z-index:70;">
-    <span id="syncIndicatorDot" class="w-3 h-3 rounded-full inline-block" style="background:#e5484d"></span>
+  const root = el(`<span id="syncIndicator" class="hidden items-center gap-1.5 px-2 py-1.5 rounded-full font-label-md text-label-md" title="Estado de conexión">
+    <span id="syncIndicatorDot" class="w-2.5 h-2.5 rounded-full inline-block" style="background:#e5484d"></span>
     <span id="syncIndicatorTxt">Sin conexión</span>
-  </div>`);
-  document.body.appendChild(root);
+  </span>`);
+  const container = document.getElementById('onlineBtn');
+  if (container && container.parentNode) {
+    container.parentNode.insertBefore(root, container.nextSibling);
+  } else {
+    document.body.appendChild(root);
+  }
   const dot = $('#syncIndicatorDot');
   const txt = $('#syncIndicatorTxt');
 
   const pintar = () => {
     const on = navigator.onLine;
     root.classList.remove('hidden');
+    root.classList.add('flex');
     dot.style.background = on ? '#2e7d32' : '#e5484d';
     txt.textContent = on ? 'conectado a db' : 'sin conexión';
   };
