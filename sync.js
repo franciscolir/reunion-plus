@@ -19,7 +19,7 @@
 import * as db from './db.js';
 import { batchWrite, isFirebaseReady } from './firestore.js';
 import { isFirebaseConfigured } from './firebase-config.js';
-import { isAdmin } from './auth.js';
+import { isAdmin, isAuthenticated } from './auth.js';
 
 let _enabled = false;
 let _syncing = false;
@@ -450,13 +450,14 @@ export async function iniciarSync() {
 export async function reconciliar() {
   if (!_enabled || _syncing) return { error: 'inactivo' };
   if (!navigator.onLine) return { error: 'offline' };
+  if (!isAuthenticated()) return { error: 'sin-sesion' };
   if (!(await isFirebaseReady())) return { error: 'firebase-no-disponible' };
   _syncing = true;
   const f = await import('./firestore.js');
   const puedeEscribir = isAdmin();
   let subidos = 0, bajados = 0;
   try {
-    setStatus('syncing', 'conciliando IndexedDB ↔ Firestore…');
+    setStatus('syncing', 'sincronizando datos…');
 
     // ---- personas: people ↔ participantes ----
     const personas = await db.listPeople();
@@ -603,11 +604,11 @@ export async function reconciliar() {
       bajados++;
     }
 
-    setStatus('ok', `conciliación: ${subidos} subidos, ${bajados} bajados`);
+    setStatus('ok', `datos sincronizados`);
     return { ok: true, subidos, bajados };
   } catch (e) {
-    console.warn('[Reunión+] Error en conciliación', e);
-    setStatus('error', 'conciliación: ' + (e.message || e));
+    console.warn('[Reunión+] Error en sync', e);
+    setStatus('error', 'sync: ' + (e.message || e));
     return { error: e.message || String(e) };
   } finally {
     _syncing = false;

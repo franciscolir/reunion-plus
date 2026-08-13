@@ -337,6 +337,9 @@ ok('mantiene al que ya ocupa el puesto', eligiblePeople(weekLuis, peopleE, 'pres
 ok('permite elegir en otra semana al asignado en esta (dedupe es intra-semana)', eligiblePeople({ type: 'normal', presidente: 2, outings: [], labores: {} }, peopleE, 'presidente', '').some(p => p.id === 1));
 ok('sin rol aplica solo el dedupe de asignados', eligiblePeople(weekLuis, peopleE, '', '').length === 3);
 ok('soporta predicado (labores) y excluye al asignado', eligiblePeople({ type: 'normal', labores: { acomodacion: ['1', ''] } }, peopleE, isAtencionPerson, '').map(p => p.name).join(',') === 'Ana');
+ok('excluye mujeres de labores bloqueadas (lector)', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 5, name: 'María', genero: 'femenino', labores: [] }], 'lector', '').length === 0);
+ok('incluye mujer en presentacion (asignacion2)', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 5, name: 'María', genero: 'femenino', labores: ['asignacion2'] }], 'asignacion2', '').some(p => p.id === 5));
+ok('incluye hombre con la labor', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 6, name: 'José', genero: 'masculino', labores: ['lector'] }], 'lector', '').some(p => p.id === 6));
 
 // --- Convertidores de PDF (carga de archivos) ---
 console.log('[convertPdfMidweeks]');
@@ -910,6 +913,66 @@ console.log('[automatizarAtencion]');
     es1.every(id => !fs11.includes(String(id))) && es2.every(id => !fs18.includes(String(id))));
   ok('labores ES no asignan a quien participa en la reunión ES esa semana',
     !es1.includes('1') && !es1.includes('2') && !es2.includes('4') && !es2.includes('5'));
+}
+
+// --- Alineación de género en la automatización ---
+console.log('[automatización respeta género]');
+{
+  const wk = (id, sections) => ({
+    id, header: id, presidente: '', reading: 'X',
+    sections: sections || [{ id: 'tesoros', title: 'Tesoros', parts: [
+      { num: 1, title: 'Discurso', mins: 10, assignments: {} },
+      { num: 2, title: 'Lectura', mins: 4, assignments: {} },
+    ]}],
+  });
+
+  // Una mujer con labores de varón no debe ser asignada por la automatización.
+  const soloMujer = [{ id: 1, name: 'María', labores: ['presidente', 'asignacion1', 'orador'], genero: 'femenino' }];
+  const wPres = wk('2026-09-07');
+  automatizarEntreSemana(soloMujer, [wPres]);
+  ok('no asigna mujer a presidente en la automatización', !wPres.presidente);
+  ok('no asigna mujer a partes de varón en la automatización',
+    Object.values(wPres.sections[0].parts[0].assignments || {}).every(v => !v));
+
+  // Las mujeres sí pueden tomar presentación (asignacion2) automáticamente.
+  const parejaMujeres = [
+    { id: 1, name: 'Ana',   labores: ['asignacion2'], genero: 'femenino', calificacion: 'A' },
+    { id: 2, name: 'Beti',  labores: ['asignacion2'], genero: 'femenino', calificacion: 'B' },
+  ];
+  const wPar = wk('2026-09-14', [{ id: 'maestros', title: 'Maestros', parts: [
+    { num: 1, title: 'Presentación', mins: 15, assignments: {} },
+  ]}]);
+  automatizarEntreSemana(parejaMujeres, [wPar]);
+  const aps = wPar.sections[0].parts[0].assignments || {};
+  const parejaAsig = [String(aps.estudiante), String(aps.ayudante)].sort();
+  ok('mujeres pueden tomar presentación (asignacion2) en la automatización',
+    parejaAsig.join(',') === '1,2', JSON.stringify(aps));
+
+  // Acomodación: con serviceRolesOnlyMale (default) no asigna mujeres.
+  const gente = [
+    { id: 1, name: 'Hugo',   labores: ['audio'], genero: 'masculino' },
+    { id: 2, name: 'Marta',  labores: ['audio'], genero: 'femenino' },
+  ];
+  const lab1 = [{ id: '2026-09', weeks: [{ saturday: '2026-09-12', labores: {} }] }];
+  automatizarAtencion(gente, lab1, [], { serviceRolesOnlyMale: true });
+  const ids1 = Object.values(lab1[0].weeks[0].labores).flatMap(v => Array.isArray(v) ? v : [v]).filter(Boolean);
+  ok('acomodación solo varones con serviceRolesOnlyMale', ids1.every(id => String(id) === '1'));
+
+  // Con serviceRolesOnlyMale=false sí asigna mujeres a acomodación.
+  const lab2 = [{ id: '2026-09', weeks: [{ saturday: '2026-09-19', labores: {} }] }];
+  automatizarAtencion(gente, lab2, [], { serviceRolesOnlyMale: false });
+  const ids2 = Object.values(lab2[0].weeks[0].labores).flatMap(v => Array.isArray(v) ? v : [v]).filter(Boolean);
+  ok('acomodación admite mujeres si serviceRolesOnlyMale está desactivado', ids2.map(String).includes('2'));
+
+  // Fin de semana: mujer no asumida como presidente/lector.
+  const soloMujerFin = [{ id: 1, name: 'Eva', labores: ['presidente', 'conductor1', 'lector1'], genero: 'femenino' }];
+  const mesesFin = [{ id: '2026-09', year: 2026, month: 9, weeks: [
+    { type: 'normal', date: '2026-09-05', presidente: '', conductor: '', lector: '', orador: '' },
+  ]}];
+  automatizarFinSemana(soloMujerFin, mesesFin, [], []);
+  const wFin = mesesFin[0].weeks[0];
+  ok('fin de semana no asigna mujer a presidente/lector',
+    !wFin.presidente && !wFin.lector);
 }
 
 // --- automatizarFinSemana ---

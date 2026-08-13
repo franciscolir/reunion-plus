@@ -270,7 +270,10 @@ export function eligiblePeople(week, people, labore, currentId, collector) {
   const assigned = assignedIds(week, collector);
   const match = typeof labore === 'function'
     ? labore
-    : (labore ? (p) => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore) : () => true);
+    : (labore ? (p) =>
+        (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore)) &&
+        laboreAllowedForPerson(p, labore)
+      : () => true);
   return people.filter(p => match(p) && (!assigned.has(String(p.id)) || String(p.id) === String(currentId)));
 }
 
@@ -1325,9 +1328,12 @@ const ROL_NO_ESTUDIANTE = new Set(['asignacion4', 'conductor2', 'lector2']);
 /* ---------- Automatización de asignaciones ---------- */
 const ORDEN_CAL = ['A', 'B', 'C', 'D'];
 
-// Personas con una labor (o sin labores definidas).
+// Personas con una labor (o sin labores definidas) y que pueden ejercerla en la
+// UI según la regla de género (laboreAllowedForPerson).
 function peopleForLabore(people, labore) {
-  return people.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore));
+  return people.filter(p =>
+    (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore)) &&
+    laboreAllowedForPerson(p, labore));
 }
 
 // Mapa de los campos editables de la reunión de fin de semana según su tipo.
@@ -1407,6 +1413,7 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
   // Nunca asigna a ocupados por acomodación/salidas (E1 no se flexibiliza).
   const elegir = (weekId, labore, key) => {
     let cand = isStudentLabore(labore) ? people.filter(isStudentPerson) : peopleForLabore(people, labore);
+    cand = cand.filter(p => laboreAllowedForPerson(p, labore));
     // Orden de preferencia: calificación (estudiantes) → menor carga mensual →
     // última participación más antigua → nombre (estable).
     cand = cand.slice().sort((a, b) => {
@@ -1561,8 +1568,12 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
 // entre semana (`midweeks`, en cada week.labores). Solo rellena puestos vacíos,
 // no repite el mismo labore a la misma persona en el mes y evita asignar a quien
 // ya participa en la reunión de entre semana de esa semana (E1). Devuelve reporte.
-export function automatizarAtencion(people, atencion, midweeks) {
+export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
   const reporte = { asignados: 0, vacios: [] };
+  // Si serviceRolesOnlyMale está activo (default), las labores de acomodación
+  // solo admiten varones; alineado con el scoring y la vista de acomodación.
+  const serviceRolesOnlyMale = opts.serviceRolesOnlyMale !== false;
+  const esAtencion = (p) => isAtencionPerson(p) && (!serviceRolesOnlyMale || p.genero !== 'femenino');
   const ocupMw = new Map(); // saturday -> Set de personas de entre semana esa semana
   midweeks.forEach(mw => {
     const sat = addDays(mw.id, 5); // sábado de la semana del lunes
@@ -1597,7 +1608,7 @@ export function automatizarAtencion(people, atencion, midweeks) {
       for (let si = 0; si < d.count; si++) {
         const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
         if (cur) continue;
-        const cand = people.filter(isAtencionPerson)
+        const cand = people.filter(esAtencion)
           .find(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${prefijo}${d.key}_${si}`)));
         if (!cand) { reporte.vacios.push({ semana: sat, labore: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
@@ -1845,7 +1856,7 @@ export function generateOneProposal(input, config = {}, seed = 1) {
   const reportes = {};
 
   reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres });
-  reportes.atencion = automatizarAtencion(people, atencion, midweeks);
+  reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale });
   reportes.fin = automatizarFinSemana(people, months, salidas, atencion);
 
   const assignments = extractAssignments(midweeks, months, salidas, atencion, input.people);

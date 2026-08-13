@@ -78,38 +78,35 @@ async function refreshCatalogs() {
     : DEFAULT_LABORES.map(r => ({ ...r }));
 }
 
-// Indicador global de descarga/sincronización con Firebase. Simple e intuitivo:
-// un punto animado con el mensaje actual, que desaparece al terminar.
-// Escucha el evento `reunion-sync` que emite sync.js y refresca la vista al
-// finalizar una descarga para mostrar los datos recién bajados.
+// Indicador global de conexión con la base de datos. Luz simple: verde cuando la
+// app está conectada (en línea) y roja cuando está fuera de línea. Sin textos de
+// sincronización: los datos se refrescan en segundo plano sin molestar al usuario.
 function initSyncIndicator() {
-  const root = el(`<div id="syncIndicator" class="hidden fixed items-center gap-2.5 rounded-full bg-surface-container-high px-4 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.18)] text-sm font-medium text-on-surface" style="left:50%;top:56px;transform:translateX(-50%);z-index:70;">
-    <span class="spinner" style="width:14px;height:14px;border:2px solid #2e5e2e;border-top-color:transparent;border-radius:50%;display:inline-block"></span>
-    <span id="syncIndicatorTxt">Descargando datos…</span>
+  const root = el(`<div id="syncIndicator" class="hidden fixed items-center gap-2 rounded-full bg-surface-container-high pl-3 pr-4 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.18)] text-sm font-medium text-on-surface" style="left:50%;top:56px;transform:translateX(-50%);z-index:70;">
+    <span id="syncIndicatorDot" class="w-3 h-3 rounded-full inline-block" style="background:#e5484d"></span>
+    <span id="syncIndicatorTxt">Sin conexión</span>
   </div>`);
   document.body.appendChild(root);
-  const style = document.createElement('style');
-  style.textContent = '#syncIndicator{display:flex}.spinner{animation:rp-spin .8s linear infinite}@keyframes rp-spin{to{transform:rotate(360deg)}}';
-  document.head.appendChild(style);
+  const dot = $('#syncIndicatorDot');
+  const txt = $('#syncIndicatorTxt');
 
-  let descargando = false;
-  const pintar = (st) => {
-    const txt = $('#syncIndicatorTxt');
-    if (!txt) return;
-    if (st.state === 'syncing') {
-      root.classList.remove('hidden');
-      txt.textContent = st.detail || 'Sincronizando…';
-      descargando = descargando || /descargando|descarga|conciliando/i.test(String(st.detail || ''));
-    } else {
-      root.classList.add('hidden');
-      if (descargando) {
-        descargando = false;
-        // La descarga terminó: refrescar catálogos y repintar la vista actual.
-        refreshCatalogs().then(() => router()).catch((err) => console.warn('[Reunión+] Refresco tras descarga falló', err));
-      }
-    }
+  const pintar = () => {
+    const on = navigator.onLine;
+    root.classList.remove('hidden');
+    dot.style.background = on ? '#2e7d32' : '#e5484d';
+    txt.textContent = on ? 'conectado a db' : 'sin conexión';
   };
-  window.addEventListener('reunion-sync', (e) => pintar(e.detail || {}));
+  window.addEventListener('online', pintar);
+  window.addEventListener('offline', pintar);
+  // Al terminar una descarga, refrescar catálogos y repintar la vista actual.
+  window.addEventListener('reunion-sync', (e) => {
+    const st = e.detail || {};
+    if (st.state !== 'syncing' && /descargando|descarga|pull/i.test(String(st.detail || ''))) {
+      refreshCatalogs().then(() => router()).catch((err) => console.warn('[Reunión+] Refresco tras descarga falló', err));
+    }
+    pintar();
+  });
+  pintar();
 }
 
 // Reconstruye el historial de asignaciones desde el estado actual de todos los
@@ -1231,7 +1228,7 @@ async function etapaAtencion(month) {
   const [midweeks, labores] = await Promise.all([db.listMidweeks(), db.listAtencion()]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const labMes = labores.filter(p => p.id === month);
-  const repLab = automatizarAtencion(state.people, labMes, mwMes);
+  const repLab = automatizarAtencion(state.people, labMes, mwMes, { serviceRolesOnlyMale: (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false });
   // Las labores de entre semana se guardan en cada week.labores del midweek.
   await Promise.all(labMes.map(p => db.putAtencion(p)));
   await Promise.all(mwMes.map(w => db.putMidweek(w)));
@@ -1266,7 +1263,7 @@ async function etapaSalidas(month) {
     (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => marcar(sat, id))));
   });
   // labor de salida: por defecto "orador"; sin labores → todas las personas.
-  const peopleForSalida = state.people.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('orador'));
+  const peopleForSalida = state.people.filter(p => (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('orador')) && laboreAllowedForPerson(p, 'orador'));
   let asignados = 0;
   const vacios = [];
   salMes.forEach(p => (p.weeks || []).forEach(w => {
@@ -4489,8 +4486,12 @@ async function renderAtencion(monthId, opts = {}) {
     return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
   };
   const fmtShort = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+  // Regla de género de acomodación: si serviceRolesOnlyMale está activo (default),
+  // solo varones aparecen en los selectores manuales, alineado con la generación.
+  const algoCfg = { ...defaultAlgorithmConfig(), ...((state.config && state.config.algorithm) || {}) };
+  const atencionPred = (p) => isAtencionPerson(p) && (algoCfg.serviceRolesOnlyMale === false || p.genero !== 'femenino');
   const atencionOpts = (week, curVal, collector) => `<option value="">— Sin asignar —</option>` +
-    eligiblePeople(week, state.people, isAtencionPerson, curVal, collector).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+    eligiblePeople(week, state.people, atencionPred, curVal, collector).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 
   const render = () => {
     const finBySunday = new Map();
