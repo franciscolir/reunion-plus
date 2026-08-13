@@ -1,6 +1,8 @@
 // db.js - Capa de acceso a IndexedDB
 // Stores: months (programas mensuales), people, departments, settings, talks, midweeks, aseos
 
+import { defaultAlgorithmConfig } from './logic.js';
+
 const DB_NAME = 'reunion-plus';
 const DB_VERSION = 7;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
@@ -320,20 +322,24 @@ export function defaultConfig() {
     midweek: { day: 2, time: '19:00' }, // reunión de entre semana: día y hora
     events: { commemorations: [], visits: [], assemblies: [] },
     groups: { cantidad: 3, start: 1, labores: '' }, // nº de grupos, grupo inicial (1-based), labores comunes
+    algorithm: defaultAlgorithmConfig(),
   };
 }
+
 export async function getConfig() {
   const v = await getSetting(SETTING_CONFIG, null);
   if (!v || typeof v !== 'object') return defaultConfig();
+  const def = defaultConfig();
   return {
-    schedule: { ...defaultConfig().schedule, ...(v.schedule || {}) },
-    midweek: { ...defaultConfig().midweek, ...(v.midweek || {}) },
+    schedule: { ...def.schedule, ...(v.schedule || {}) },
+    midweek: { ...def.midweek, ...(v.midweek || {}) },
     events: {
       commemorations: Array.isArray(v.events?.commemorations) ? v.events.commemorations : [],
       visits: Array.isArray(v.events?.visits) ? v.events.visits : [],
       assemblies: Array.isArray(v.events?.assemblies) ? v.events.assemblies : [],
     },
-    groups: { ...defaultConfig().groups, ...(v.groups || {}) },
+    groups: { ...def.groups, ...(v.groups || {}) },
+    algorithm: { ...defaultAlgorithmConfig(), ...(v.algorithm || {}) },
   };
 }
 export async function setConfig(cfg) {

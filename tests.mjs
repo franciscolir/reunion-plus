@@ -15,6 +15,9 @@ import {
   midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   isStudentPerson, isStudentLabore,
   extractAssignments, assignmentMetrics,
+  defaultAlgorithmConfig, defaultScoringConfig,
+  mulberry32, rotateSeed, generateOneProposal, generateProposals, scoreSolution,
+  workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats, scarcityIndex,
 } from './logic.js';
 
 let pass = 0, fail = 0;
@@ -997,6 +1000,176 @@ console.log('[convertPdfPeople: tabla]');
   const { data, warnings } = convertPdfPeople(txt, { labores });
   ok('encabezado abreviado detecta 2 personas', data?.personas?.length === 2);
   ok('nombres correctos', data.personas[0].name === 'Pedro Ruiz' && data.personas[1].name === 'Lucía Díaz');
+}
+
+// --- motor configurable: defaults ---
+console.log('[defaultAlgorithmConfig / defaultScoringConfig]');
+{
+  const a = defaultAlgorithmConfig();
+  ok('algoritmo incluye numberOfProposals', typeof a.numberOfProposals === 'number' && a.numberOfProposals >= 1);
+  ok('algoritmo incluye sameAssignmentMonthlyMode', ['PREFERRED','LIMIT','STRICT'].includes(a.sameAssignmentMonthlyMode));
+  ok('algoritmo incluye mixedGenderPairing', ['NOT_ALLOWED','ALLOWED_LOW','ALLOWED_MEDIUM','ALLOWED_HIGH'].includes(a.mixedGenderPairing));
+  ok('algoritmo incluye serviceRolesOnlyMale booleano', typeof a.serviceRolesOnlyMale === 'boolean');
+  const s = defaultScoringConfig();
+  const suma = s.workloadBalance + s.roleRotation + s.weeklyBalance + s.monthlyRepetition + s.scarceRoleProtection + s.pairRoleBalance + s.studentOpportunityBalance;
+  ok('pesos suman 100', suma === 100, `got=${suma}`);
+}
+
+// --- mulberry32 / rotateSeed ---
+console.log('[mulberry32 / rotateSeed]');
+{
+  const r1 = mulberry32(42); const r2 = mulberry32(42);
+  ok('PRNG determinístico: misma seed → misma secuencia', r1() === r2() && mulberry32(42)() === mulberry32(42)());
+  const base = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
+  const rA = rotateSeed(base, 5);
+  const rB = rotateSeed(base, 5);
+  ok('rota sin perder elementos', rA.length === base.length && rA.every(p => base.includes(p)));
+  eq('rotación determinística por seed', rA, rB);
+}
+
+// --- scarcityIndex ---
+console.log('[scarcityIndex]');
+{
+  const people = [
+    { id: 1, labores: ['presidente'] },
+    { id: 2, labores: ['presidente'] },
+    { id: 3, labores: ['presidente'] },
+    { id: 4, labores: ['presidente'] },
+    { id: 5, labores: [] },
+  ];
+  ok('labor abundante → índice 0', scarcityIndex(people, 'presidente') === 0);
+  ok('labor con 1 candidato → índice 1', scarcityIndex(people, 'orador') === 1);
+}
+
+// --- generación de propuestas ---
+console.log('[generateProposals / generateOneProposal]');
+{
+  const people = [
+    { id: 1, name: 'Ana',   labores: ['presidente','asignacion1','asignacion2','orador'], genero: 'femenino', calificacion: 'A' },
+    { id: 2, name: 'Ben',   labores: ['presidente','asignacion1','asignacion2','orador'], genero: 'masculino', calificacion: 'A' },
+    { id: 3, name: 'Carlos',labores: ['lector1','lector2','conductor1','conductor2','presidente','orador'], genero: 'masculino', calificacion: 'B' },
+    { id: 4, name: 'Diana', labores: ['asignacion1','asignacion2','lector1','lector2'], genero: 'femenino', calificacion: 'C' },
+    { id: 5, name: 'Elena', labores: ['asignacion1','asignacion2','presidente','conductor1','orador'], genero: 'femenino', calificacion: 'A' },
+    { id: 6, name: 'Félix', labores: ['presidente','conductor2','lector1','asignacion1'], genero: 'masculino', calificacion: 'D', enlaceId: 7 },
+    { id: 7, name: 'Gina',  labores: ['asignacion2','asignacion1','conductor1','lector2'], genero: 'femenino', calificacion: 'D', enlaceId: 6 },
+  ];
+  const midweeks = [
+    { id: '2026-07-06', presidente: '', sections: [
+      { title: 'Tesoros', parts: [
+        { num: 1, assignments: {} },
+        { num: 2, assignments: {} },
+      ]},
+      { title: 'Maestros', parts: [
+        { num: 3, assignments: {} },
+      ]},
+      { title: 'Vida', parts: [
+        { num: 4, assignments: {} },
+        { num: 5, assignments: {} },
+      ]},
+    ]},
+    { id: '2026-07-13', presidente: '', sections: [
+      { title: 'Tesoros', parts: [{ num: 1, assignments: {} }] },
+      { title: 'Maestros', parts: [{ num: 2, assignments: {} }] },
+      { title: 'Vida', parts: [{ num: 3, assignments: {} }, { num: 4, assignments: {} }] },
+    ]},
+  ];
+  const mes = '2026-07';
+  const input = {
+    people,
+    midweeks,
+    months: [
+      { id: mes, weeks: [
+        { date: '2026-07-04', presidente: '', conductor: '', lector: '', estudioSinLectura: '' },
+        { date: '2026-07-11', presidente: '', conductor: '', lector: '', estudioSinLectura: '' },
+        { date: '2026-07-18', presidente: '', conductor: '', lector: '', estudioSinLectura: '' },
+        { date: '2026-07-25', presidente: '', conductor: '', lector: '', estudioSinLectura: '' },
+      ]},
+    ],
+    salidas: [{ id: mes, weeks: [
+      { saturday: '2026-07-04', outings: [{ oradorSalida: '' }] },
+      { saturday: '2026-07-11', outings: [{ oradorSalida: '' }] },
+    ]}],
+    atencion: [{ id: mes, weeks: [
+      { saturday: '2026-07-04', labores: {} },
+      { saturday: '2026-07-11', labores: {} },
+      { saturday: '2026-07-18', labores: {} },
+      { saturday: '2026-07-25', labores: {} },
+    ]}],
+    historial: [],
+    nombres: Object.fromEntries(people.map(p => [String(p.id), p.name])),
+  };
+
+  const una = generateOneProposal(input, {}, 1);
+  ok('una propuesta genera asignaciones', (una.assignments || []).length > 0, `got=${(una.assignments||[]).length}`);
+  ok('la propuesta rellena las reuniones de entre semana', una.midweeks.every(w => w.presidente));
+  ok('la propuesta respeta 0 personas repetidas en la misma semana (entre semana)',
+    una.midweeks.every(w => {
+      const ids = [w.presidente];
+      (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(v => ids.push(String(v)))));
+      return new Set(ids.filter(Boolean)).size === ids.filter(Boolean).length;
+    }));
+
+  const props = generateProposals(input, {}, null, 3);
+  ok('genera hasta 3 propuestas', props.length >= 1 && props.length <= 3, `got=${props.length}`);
+  ok('propuestas ordenadas de mayor a menor score', props.slice(0, -1).every((p, i) => p.score >= props[i + 1].score));
+  ok('toda propuesta trae score numérico', props.every(p => typeof p.score === 'number' && p.score >= 0 && p.score <= 100));
+  ok('toda propuesta trae breakdown', props.every(p => p.breakdown && 'workloadBalance' in p.breakdown));
+  ok('propuestas distintas (huellas distintas)', new Set(props.map(p => JSON.stringify(p.assignments))).size === props.length);
+}
+
+// --- scoreSolution ---
+console.log('[scoreSolution]');
+{
+  const entries = [
+    { personId: '1', date: '2026-07-06', roleKey: 'presidente', roleLabel: 'Presidente' },
+    { personId: '2', date: '2026-07-06', roleKey: 'asignacion2', roleLabel: 'Estudiante' },
+    { personId: '2', date: '2026-07-06', roleKey: 'asignacion2', roleLabel: 'Ayudante' },
+    { personId: '3', date: '2026-07-13', roleKey: 'conductor1', roleLabel: 'Conductor' },
+    { personId: '4', date: '2026-07-13', roleKey: 'lector1', roleLabel: 'Lector' },
+  ];
+  const people = [{ id: 1, name: 'Ana' }, { id: 2, name: 'Ben' }, { id: 3, name: 'Carlos' }, { id: 4, name: 'Diana' }, { id: 5, name: 'Elena' }];
+  const s = scoreSolution(entries, { people, config: { maxSameAssignmentPerMonth: 2 } });
+  ok('score devuelto 0-100', s.score >= 0 && s.score <= 100);
+  ok('valida en solución sin violaciones', s.valida === true);
+  ok('warnings avisan de personas sin participación', s.warnings.some(w => /sin participación/.test(w)));
+
+  // Violación: misma persona repite la misma labor 2+ veces en el mes con STRICT.
+  const repetido = [
+    { personId: '1', date: '2026-07-06', roleKey: 'presidente', roleLabel: 'Presidente' },
+    { personId: '1', date: '2026-07-13', roleKey: 'presidente', roleLabel: 'Presidente' },
+  ];
+  const s2 = scoreSolution(repetido, { people, config: { maxSameAssignmentPerMonth: 1 } });
+  ok('detecta repetición mensual sobre el máximo', !s2.valida && s2.restricciones.superaMaximo.length > 0);
+
+  // Violación: mujer en labor de servicio (atención) con serviceRolesOnlyMale.
+  const mujer = [
+    { personId: '1', date: '2026-07-06', roleKey: 'atencion_audio_0', roleLabel: 'Audio' },
+  ];
+  const s3 = scoreSolution(mujer, { people: [{ ...people[0], genero: 'femenino' }], config: { serviceRolesOnlyMale: true } });
+  ok('marca mujer en labor de servicio', !s3.valida && s3.restricciones.mujeresEnServicio.length > 0);
+}
+
+// --- helpers de gráficos ---
+console.log('[workloadByPerson / historyTimeline / distributionByLabore / pairRoleStats]');
+{
+  const entries = [
+    { personId: '1', name: 'Ana', date: '2026-06-01', roleKey: 'presidente', roleLabel: 'Presidente' },
+    { personId: '2', name: 'Ben', date: '2026-06-08', roleKey: 'asignacion2', roleLabel: 'Estudiante' },
+    { personId: '2', name: 'Ben', date: '2026-07-06', roleKey: 'asignacion2', roleLabel: 'Ayudante' },
+  ];
+  const people = [{ id: 1, name: 'Ana' }, { id: 2, name: 'Ben' }, { id: 3, name: 'Carlos' }];
+  const w = workloadByPerson(entries, people);
+  ok('workload cuenta asignaciones por persona', w.find(x => x.name === 'Ana').count === 1 && w.find(x => x.name === 'Ben').count === 2);
+  ok('workload incluye a quienes tienen 0', w.find(x => x.name === 'Carlos').count === 0);
+
+  const tl = historyTimeline(entries);
+  eq('timeline agrupa por mes', tl.map(t => t.total), [2, 1]);
+
+  const dist = distributionByLabore(entries);
+  ok('distribution agrupa por rol', dist.some(d => d.labore === 'presidente' && d.total === 1) && dist.some(d => d.labore === 'asignacion2' && d.total === 2), `got=${JSON.stringify(dist)}`);
+
+  const pr = pairRoleStats(entries);
+  ok('pairRoleStats distingue encargado/ayudante', pr.find(x => x.personId === '2')?.encargado === 1 && pr.find(x => x.personId === '2')?.ayudante === 1);
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);

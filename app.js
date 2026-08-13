@@ -17,6 +17,9 @@ import {
   isStudentPerson, isStudentLabore,
   automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   camposFinSemana, extractAssignments, assignmentMetrics,
+  defaultAlgorithmConfig, defaultScoringConfig,
+  generateProposals, scoreSolution,
+  workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
@@ -253,6 +256,7 @@ function router() {
     case 'atencionGrupo': renderAtencionGrupo(segs[1]); break;
     case 'salidas':  renderSalidas(segs[1]); break;
     case 'general':  renderGeneralMonth(segs[1]); break;
+    case 'algoritmo': renderAlgoritmo(); break;
     case 'settings': renderSettings(); break;
     case 'about':    renderAbout(); break;
     default:         renderHome();
@@ -312,6 +316,7 @@ function renderTop() {
   const items = [
     { id: 'home', label: 'Inicio' },
     { id: 'lists', label: 'Listas' },
+    { id: 'algoritmo', label: 'Algoritmo' },
     { id: 'uploads', label: 'Carga' },
     { id: 'eventos', label: 'Eventos' },
     { id: 'settings', label: 'Ajustes' },
@@ -337,6 +342,7 @@ function renderSide() {
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
     { id: 'lists', icon: 'group', label: 'Personas y Deptos.', view: 'lists' },
+    { id: 'algoritmo', icon: 'smart_toy', label: 'Algoritmo', view: 'algoritmo' },
     { id: 'uploads', icon: 'upload_file', label: 'Carga de Archivos', view: 'uploads' },
     { id: 'eventos', icon: 'event', label: 'Eventos', view: 'eventos' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
@@ -920,6 +926,9 @@ async function renderAutoAsignacion() {
           Mes a trabajar
           <input id="autoMonth" type="month" value="${month}" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md font-semibold focus:border-primary">
         </label>
+        <button id="autoMotor" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-container transition-colors whitespace-nowrap">
+          <span class="material-symbols-outlined text-[18px]">smart_toy</span> Probar motor configurable
+        </button>
         <div class="flex items-stretch gap-2 bg-surface-container-low rounded-xl border border-outline-variant p-3 w-full md:w-auto">${barra}</div>
       </div>
 
@@ -935,6 +944,7 @@ async function renderAutoAsignacion() {
     `;
 
     $('[data-back]').onclick = () => go('new');
+    if ($('#autoMotor')) $('#autoMotor').onclick = () => { state.progMonth = month; go('algoritmo'); };
     $('#autoMonth').onchange = async (e) => {
       month = e.target.value;
       sesion.rewrite = false;
@@ -1163,6 +1173,342 @@ async function etapaFinSemana(month) {
     vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
              ...repFin.vacios.map(v => ({ semana: v.semana, rol: v.labore }))],
   };
+}
+
+/* ---------- ALGORITMO (motor configurable) ---------- */
+
+// SVG nativo: gráfico de barras horizontales. `rows`: [{ label, value, sub }].
+function svgBarras(rows, { maxLabel = 60 } = {}) {
+  const w = 320, rowH = 26, pad = 8;
+  const h = rows.length * rowH + pad;
+  const max = Math.max(1, ...rows.map(r => r.value));
+  const bars = rows.map((r, i) => {
+    const y = pad + i * rowH;
+    const bw = Math.max(2, (r.value / max) * (w - 90));
+    return `
+      <g>
+        <text x="0" y="${y + 13}" class="algo-txt" style="font-size:10px">${escapeAttr(String(r.label).slice(0, maxLabel))}</text>
+        <rect x="0" y="${y + 18}" width="${bw}" height="8" rx="4" fill="var(--primary, #4f378b)"><title>${escapeAttr((r.sub || '') + (r.sub ? ' · ' : '') + r.value)}</title></rect>
+        <text x="${bw + 6}" y="${y + 26}" class="algo-txt" style="font-size:9px;fill:var(--on-surface-variant, #49454f)">${r.value}</text>
+      </g>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" class="w-full h-auto" role="img">${bars}</svg>`;
+}
+
+// SVG nativo: gráfico de líneas (serie temporal). `rows`: [{ label, value }].
+function svgLinea(rows, { w = 320, h = 120 } = {}) {
+  if (!rows.length) return '<p class="text-sm text-on-surface-variant">Sin datos.</p>';
+  const max = Math.max(1, ...rows.map(r => r.value));
+  const px = 34, py = 8, pw = w - px - 10, ph = h - py - 18;
+  const x = (i) => px + (rows.length === 1 ? pw / 2 : (i / (rows.length - 1)) * pw);
+  const y = (v) => py + ph - (v / max) * ph;
+  const pts = rows.map((r, i) => `${x(i).toFixed(1)},${y(r.value).toFixed(1)}`).join(' ');
+  const labels = rows.length > 8 ? rows.filter((_, i) => i % 2 === 0) : rows;
+  const lbl = labels.map((r, i) => {
+    const idx = rows.indexOf(r);
+    const xi = x(idx);
+    return `<text x="${xi}" y="${h - 4}" text-anchor="middle" style="font-size:8px;fill:var(--on-surface-variant, #49454f)">${escapeAttr(r.label)}</text>`;
+  }).join('');
+  const dots = rows.map((r, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(r.value).toFixed(1)}" r="3" fill="var(--primary, #4f378b)"><title>${escapeAttr(r.label)}: ${r.value}</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" class="w-full h-auto" role="img">
+    <polyline points="${pts}" fill="none" stroke="var(--primary, #4f378b)" stroke-width="2"></polyline>
+    <line x1="${px}" y1="${py + ph}" x2="${px + pw}" y2="${py + ph}" stroke="var(--outline-variant, #cac4d0)"></line>
+    ${lbl}${dots}
+  </svg>`;
+}
+
+// SVG nativo: gráfico de dona. `rows`: [{ label, value }].
+function svgDona(rows, { size = 180 } = {}) {
+  if (!rows.length) return '<p class="text-sm text-on-surface-variant">Sin datos.</p>';
+  const total = rows.reduce((a, r) => a + r.value, 0) || 1;
+  const c = size / 2, r = size / 2 - 22, thick = 26;
+  let ang = -90;
+  const colores = ['#4f378b', '#00a96b', '#d02e3f', '#7d4c9e', '#1e88e5', '#f9a825', '#00b8d4', '#6d4c41'];
+  const segs = rows.map((row, i) => {
+    const frac = row.value / total;
+    const a2 = ang + frac * 360;
+    const start = ang * Math.PI / 180, end = a2 * Math.PI / 180;
+    const x1 = c + r * Math.cos(start), y1 = c + r * Math.sin(start);
+    const x2 = c + r * Math.cos(end), y2 = c + r * Math.sin(end);
+    const large = frac > 0.5 ? 1 : 0;
+    ang = a2;
+    return `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L ${c} ${c} Z" fill="${colores[i % colores.length]}"><title>${escapeAttr(row.label)}: ${row.value}</title></path>`;
+  }).join('');
+  const leyenda = rows.map((r, i) =>
+    `<div class="flex items-center gap-2 text-xs">
+      <span class="w-3 h-3 rounded-full" style="background:${colores[i % colores.length]}"></span>
+      <span class="text-on-surface-variant truncate">${escapeAttr(r.label)}</span>
+      <span class="ml-auto font-semibold">${r.value}</span>
+    </div>`).join('');
+  return `<div class="flex items-center gap-6 flex-wrap">
+    <svg viewBox="0 0 ${size} ${size}" class="w-40 h-40 mx-auto" role="img">
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--surface-container-high, #e7e0ec)" stroke-width="${thick}"></circle>
+      ${segs}
+      <text x="${c}" y="${c - 2}" text-anchor="middle" style="font-size:26px;font-weight:700;fill:var(--on-surface, #1d1b20)">${total}</text>
+      <text x="${c}" y="${c + 14}" text-anchor="middle" style="font-size:9px;fill:var(--on-surface-variant, #49454f)">asignaciones</text>
+    </svg>
+    <div class="flex-1 min-w-[160px] space-y-2">${leyenda}</div>
+  </div>`;
+}
+
+// Render de la vista Algoritmo: panel de configuración del motor + generador de
+// propuestas (con ranking 0-100) + gráficos de historial/carga.
+async function renderAlgoritmo() {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
+  const config = await db.getConfig();
+  const algo = { ...defaultAlgorithmConfig(), ...(config.algorithm || {}) };
+  const scoring = { ...defaultScoringConfig(), ...(config.algorithm?.scoring || {}) };
+  const personasOptions = (sel, cur) => `<option value="">—</option>${state.people.map(p => `<option value="${escapeAttr(String(p.id))}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeAttr(p.name)}</option>`).join('')}`;
+  const selMode = (cur) => ['PREFERRED', 'LIMIT', 'STRICT'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'PREFERRED' ? 'Preferida (permite 1 repetición) ' : m === 'LIMIT' ? 'Límite estricto' : 'Prohibida'}</option>`).join('');
+  const selPair = (cur) => ['NOT_ALLOWED', 'ALLOWED_LOW', 'ALLOWED_MEDIUM', 'ALLOWED_HIGH'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'NOT_ALLOWED' ? 'Prohibido' : m === 'ALLOWED_LOW' ? 'Solo con motivo' : m === 'ALLOWED_MEDIUM' ? 'Permitido' : 'Permitido (prioridad)'}</option>`).join('');
+  const selLevel = (cur) => ['A', 'B', 'C'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>Nivel ${m}</option>`).join('');
+
+  const campoNum = (id, label, val, min = 0, max = 100) => `
+    <div>
+      <label for="${id}" class="block font-label-md text-label-md text-on-surface-variant mb-1">${label}</label>
+      <input id="${id}" type="number" value="${escapeAttr(val)}" min="${min}" max="${max}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+    </div>`;
+  const campoSel = (id, label, opts) => `
+    <div>
+      <label for="${id}" class="block font-label-md text-label-md text-on-surface-variant mb-1">${label}</label>
+      <select id="${id}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${opts}</select>
+    </div>`;
+
+  app.innerHTML = `
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-2">
+      <div>
+        <h1 class="font-headline-lg text-headline-lg text-primary">Motor de asignación</h1>
+        <p class="text-on-surface-variant font-label-md">Configura las reglas del algoritmo y genera propuestas equilibradas con ranking.</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="lg:col-span-1 space-y-6">
+        <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
+          <h3 class="font-headline-md text-headline-md text-primary mb-4 flex items-center gap-2"><span class="material-symbols-outlined">tune</span> Reglas</h3>
+          <div class="space-y-4">
+            ${campoNum('algoPropuestas', 'Propuestas a generar', algo.numberOfProposals, 1, 10)}
+            ${campoNum('algoMaxRep', 'Máx. misma asignación / mes', algo.maxSameAssignmentPerMonth, 0, 4)}
+            ${campoSel('algoModeRep', 'Repetición mensual', selMode(algo.sameAssignmentMonthlyMode))}
+            ${campoSel('algoPairMode', 'Pareja de género mixto', selPair(algo.mixedGenderPairing))}
+            ${campoSel('algoLectorNivel', 'Nivel del lector estudiantil', selLevel(algo.studentReaderLevel))}
+            <div>
+              <label for="algoConductor" class="block font-label-md text-label-md text-on-surface-variant mb-1">Conductor permanente</label>
+              <select id="algoConductor" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
+            </div>
+            <div>
+              <label for="algoConductorBackup" class="block font-label-md text-label-md text-on-surface-variant mb-1">Conductor suplente</label>
+              <select id="algoConductorBackup" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorBackupId)}</select>
+            </div>
+            <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant cursor-pointer">
+              <input id="algoServiceMale" type="checkbox" ${algo.serviceRolesOnlyMale ? 'checked' : ''} class="accent-primary"> Labores de servicio solo hombres
+            </label>
+          </div>
+        </div>
+
+        <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
+          <h3 class="font-headline-md text-headline-md text-primary mb-1 flex items-center gap-2"><span class="material-symbols-outlined">scale</span> Ponderación del ranking</h3>
+          <p class="text-sm text-on-surface-variant mb-4">Peso de cada dimensión en la puntuación 0-100 de las propuestas.</p>
+          <div class="space-y-3">
+            ${campoNum('scWorkload', 'Equilibrio de carga', scoring.workloadBalance)}
+            ${campoNum('scRotacion', 'Rotación de roles', scoring.roleRotation)}
+            ${campoNum('scSemanal', 'Reparto semanal', scoring.weeklyBalance)}
+            ${campoNum('scRepeticion', 'Menos repetición mensual', scoring.monthlyRepetition)}
+            ${campoNum('scEscasez', 'Protección de escasez', scoring.scarceRoleProtection)}
+            ${campoNum('scParejas', 'Alternancia encargado/ayudante', scoring.pairRoleBalance)}
+            ${campoNum('scOportunidad', 'Oportunidad a estudiantes', scoring.studentOpportunityBalance)}
+          </div>
+          <div class="flex gap-3 pt-4">
+            <button id="algoSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+            <button id="algoReset" class="px-4 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Restaurar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="lg:col-span-2 space-y-6">
+        <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
+            <div>
+              <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2"><span class="material-symbols-outlined">auto_awesome</span> Generar propuestas</h3>
+              <p class="text-sm text-on-surface-variant">Prueba el motor sobre el mes en curso. Elige la mejor y aplícala a los programas.</p>
+            </div>
+            <button id="algoGenerate" data-admin class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined text-[20px]">play_arrow</span> Generar</button>
+          </div>
+          <div class="mt-4" id="algoMes"></div>
+          <div id="algoResults" class="space-y-4"></div>
+        </div>
+
+        <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
+          <h3 class="font-headline-md text-headline-md text-primary mb-1 flex items-center gap-2"><span class="material-symbols-outlined">monitoring</span> Historial y carga</h3>
+          <p class="text-sm text-on-surface-variant mb-4">Distribución real de asignaciones para apoyar tus decisiones.</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/60">
+              <p class="font-label-md text-label-md text-on-surface-variant mb-2">Asignaciones por persona</p>
+              <div id="algoBarWorkload"></div>
+            </div>
+            <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/60">
+              <p class="font-label-md text-label-md text-on-surface-variant mb-2">Asignaciones por mes</p>
+              <div id="algoLineTimeline"></div>
+            </div>
+            <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/60">
+              <p class="font-label-md text-label-md text-on-surface-variant mb-2">Distribución por rol</p>
+              <div id="algoDonaRoles"></div>
+            </div>
+            <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/60">
+              <p class="font-label-md text-label-md text-on-surface-variant mb-2">Encargado vs ayudante (presentaciones)</p>
+              <div id="algoBarPairs"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const readForm = () => {
+    const a = {
+      numberOfProposals: Math.min(10, Math.max(1, parseInt($('#algoPropuestas').value, 10) || 3)),
+      maxSameAssignmentPerMonth: Math.min(4, Math.max(0, parseInt($('#algoMaxRep').value, 10) || 1)),
+      sameAssignmentMonthlyMode: $('#algoModeRep').value,
+      mixedGenderPairing: $('#algoPairMode').value,
+      studentReaderLevel: $('#algoLectorNivel').value,
+      permanentConductorId: $('#algoConductor').value,
+      permanentConductorBackupId: $('#algoConductorBackup').value,
+      serviceRolesOnlyMale: $('#algoServiceMale').checked,
+    };
+    const s = {
+      workloadBalance: parseInt($('#scWorkload').value, 10) || 0,
+      roleRotation: parseInt($('#scRotacion').value, 10) || 0,
+      weeklyBalance: parseInt($('#scSemanal').value, 10) || 0,
+      monthlyRepetition: parseInt($('#scRepeticion').value, 10) || 0,
+      scarceRoleProtection: parseInt($('#scEscasez').value, 10) || 0,
+      pairRoleBalance: parseInt($('#scParejas').value, 10) || 0,
+      studentOpportunityBalance: parseInt($('#scOportunidad').value, 10) || 0,
+    };
+    return { a, s };
+  };
+
+  $('#algoMes').innerHTML = `
+    <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant">
+      Mes a evaluar
+      <input id="algoMonth" type="month" value="${escapeAttr(state.progMonth || isoDate(new Date()).slice(0, 7))}" class="bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+    </label>`;
+
+  $('#algoSave').onclick = async () => {
+    const { a, s } = readForm();
+    const prev = await db.getConfig();
+    const next = { ...prev, algorithm: { ...a, scoring: s } };
+    await db.setConfig(next);
+    state.config = next;
+    toast('Configuración del motor guardada', 'success');
+  };
+  $('#algoReset').onclick = async () => {
+    const prev = await db.getConfig();
+    const next = { ...prev, algorithm: { ...defaultAlgorithmConfig(), scoring: { ...defaultScoringConfig() } } };
+    await db.setConfig(next);
+    state.config = next;
+    toast('Configuración del motor restaurada', 'success');
+    go('algoritmo');
+  };
+
+  // Gráficos con el historial real.
+  const log = await db.listAssignmentLog();
+  const people = state.people;
+  const byPerson = workloadByPerson(log, people).filter(r => r.count > 0).slice(0, 12);
+  $('#algoBarWorkload').innerHTML = svgBarras(byPerson.map(r => ({ label: r.name, value: r.count })));
+  $('#algoLineTimeline').innerHTML = svgLinea(historyTimeline(log).map(r => ({ label: r.month.slice(2), value: r.total })));
+  $('#algoDonaRoles').innerHTML = svgDona(distributionByLabore(log).slice(0, 8).map(r => ({ label: r.label, value: r.total })));
+  const pairStats = pairRoleStats(log);
+  $('#algoBarPairs').innerHTML = pairStats.length
+    ? svgBarras(pairStats.map(r => ({ label: r.name, value: r.encargado + r.ayudante, sub: `${r.encargado}E / ${r.ayudante}A` })))
+    : '<p class="text-sm text-on-surface-variant">Sin presentaciones registradas.</p>';
+
+  // Generación de propuestas (botón).
+  const generar = async () => {
+    const { a, s } = readForm();
+    const month = $('#algoMonth').value;
+    const btn = $('#algoGenerate');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Generando…';
+    try {
+      const [midweeks, months, salidas, atencion, logMes] = await Promise.all([
+        db.listMidweeks(), db.listMonths(), db.listSalidas(), db.listAtencion(), db.listAssignmentLog(),
+      ]);
+      const input = {
+        people,
+        midweeks: midweeks.filter(m => String(m.id).slice(0, 7) === month),
+        months: months.filter(m => m.id === month),
+        salidas: salidas.filter(p => p.id === month),
+        atencion: atencion.filter(p => p.id === month),
+        historial: logMes.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') })),
+        nombres: Object.fromEntries(people.map(p => [String(p.id), p.name])),
+      };
+      const props = generateProposals(input, a, s);
+      const caja = $('#algoResults');
+      if (!props.length) { caja.innerHTML = '<p class="text-sm text-error">No se pudieron generar propuestas para este mes.</p>'; return; }
+      const lista = props.map((p, i) => {
+        const bd = p.breakdown || {};
+        const dims = [
+          ['Equilibrio de carga', bd.workloadBalance], ['Rotación de roles', bd.roleRotation],
+          ['Reparto semanal', bd.weeklyBalance], ['Sin repetición', bd.monthlyRepetition],
+          ['Escasez', bd.scarceRoleProtection], ['Parejas', bd.pairRoleBalance], ['Oportunidad', bd.studentOpportunityBalance],
+        ].filter(([, v]) => v !== undefined).map(([l, v]) => `
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-on-surface-variant w-32 truncate">${l}</span>
+            <div class="flex-1 h-2 bg-surface-variant rounded-full overflow-hidden"><div class="h-full ${v >= 70 ? 'bg-tertiary' : v >= 40 ? 'bg-secondary' : 'bg-error'}" style="width:${Math.max(2, v)}%"></div></div>
+            <span class="text-xs font-semibold w-8 text-right">${v}</span>
+          </div>`).join('');
+        const warn = (p.warnings || []).length ? `<div class="mt-3 bg-error-container/30 rounded-lg border border-error/40 p-3 text-xs text-on-error-container space-y-1">${p.warnings.map(w => `<p class="flex items-start gap-1.5"><span class="material-symbols-outlined text-[14px] mt-0.5">warning</span>${escapeHtml(w)}</p>`).join('')}</div>` : '';
+        const medalla = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
+        return `
+        <div class="bg-surface-container-low rounded-xl border ${i === 0 ? 'border-tertiary' : 'border-outline-variant/60'} p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl">${medalla}</span>
+              <div>
+                <p class="font-label-lg text-label-lg text-primary">Propuesta ${i + 1}${p.valida === false ? ' · incompleta' : ''}</p>
+                <p class="text-xs text-on-surface-variant">${(p.assignments || []).length} asignaciones · semilla ${p.seed}</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-4xl font-bold ${p.score >= 80 ? 'text-tertiary' : p.score >= 60 ? 'text-secondary' : 'text-error'}" style="font-family:'Playfair Display',serif">${p.score}</span>
+              <span class="text-xs text-on-surface-variant">/ 100</span>
+              <button data-aplicar="${i}" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Aplicar</button>
+            </div>
+          </div>
+          <div class="space-y-1.5">${dims}</div>
+          ${warn}
+        </div>`;
+      }).join('');
+      caja.innerHTML = `<h4 class="font-label-lg text-label-lg text-on-surface-variant mb-2">Mejores ${props.length} de ${Math.max(props.length, 1)} propuesta(s)</h4>${lista}`;
+      caja.querySelectorAll('[data-aplicar]').forEach(b => b.onclick = async () => {
+        const p = props[Number(b.dataset.aplicar)];
+        const ok = await confirmDialog(`¿Aplicar la propuesta ${Number(b.dataset.aplicar) + 1}? Se reescribirán las asignaciones de los programas del mes seleccionado.`, 'Aplicar');
+        if (!ok) return;
+        await aplicarPropuesta(p, month);
+        toast('Propuesta aplicada a los programas', 'success');
+      });
+    } catch (e) {
+      console.error(e);
+      $('#algoResults').innerHTML = `<p class="text-sm text-error">Error al generar: ${escapeHtml(e.message || e)}</p>`;
+    }
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">play_arrow</span> Generar';
+  };
+  $('#algoGenerate').onclick = generar;
+}
+
+// Persiste una propuesta en los stores (reescribe midweeks/month/salidas/atencion).
+async function aplicarPropuesta(p, month) {
+  const writes = [];
+  (p.midweeks || []).forEach(w => writes.push(db.putMidweek(w)));
+  (p.months || []).forEach(m => writes.push(db.putMonth(m)));
+  (p.salidas || []).forEach(x => writes.push(db.putSalidas(x)));
+  (p.atencion || []).forEach(x => writes.push(db.putAtencion(x)));
+  await Promise.all(writes);
+  state.midweeks = await db.listMidweeks();
+  await syncAssignmentLog();
 }
 
 async function renderNewBody() {

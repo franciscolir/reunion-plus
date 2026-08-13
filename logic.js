@@ -6,6 +6,38 @@ export const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Juli
 // Niveles de calificación de los colaboradores (D = requiere enlace de pareja).
 export const CALIFICACIONES = ['A', 'B', 'C', 'D'];
 
+// Configuración por defecto del motor de asignación automática (funciones puras,
+// reutilizada por db.js y testeada en tests.mjs).
+export function defaultAlgorithmConfig() {
+  return {
+    maxAssignmentsPerMeeting: 1,
+    maxSameAssignmentPerMonth: 1,
+    sameAssignmentMonthlyMode: 'PREFERRED', // PREFERRED | LIMIT | STRICT
+    mixedGenderPairing: 'ALLOWED_LOW',      // NOT_ALLOWED | ALLOWED_LOW | ALLOWED_MEDIUM | ALLOWED_HIGH
+    balancePairRoles: true,
+    prioritizeUnassignedThisWeek: true,
+    protectScarceRoles: true,
+    prioritizeWomenInStudentAssignments: true,
+    numberOfProposals: 3,
+    permanentConductorId: '',
+    permanentConductorBackupId: '',
+    studentReaderLevel: 'A',
+    serviceRolesOnlyMale: true,
+  };
+}
+
+export function defaultScoringConfig() {
+  return {
+    workloadBalance: 30,
+    roleRotation: 20,
+    weeklyBalance: 15,
+    monthlyRepetition: 15,
+    scarceRoleProtection: 10,
+    pairRoleBalance: 5,
+    studentOpportunityBalance: 5,
+  };
+}
+
 export const WEEK_TYPES = {
   normal:       { label: 'Normal',               icon: 'calendar_today' },
   supervisor:   { label: 'Visita Superintendente',icon: 'verified' },
@@ -1668,4 +1700,283 @@ export function assignmentMetrics(entries, people, labores, now = new Date()) {
       lastDate,
     };
   });
+}
+
+/* ================================================================== */
+/* ETAPA 2-8: MOTOR CONFIGURABLE + PROPUESTAS + SCORING + GRÁFICOS     */
+/* Envuelve las funciones automatizar* existentes sin modificarlas,    */
+/* respetando assignmentConfig / assignmentScoringConfig.              */
+/* ================================================================== */
+
+// PRNG determinístico (mulberry32): misma seed → misma secuencia, para que la
+// generación de propuestas sea reproducible.
+export function mulberry32(seed) {
+  let a = (seed >>> 0);
+  return function () {
+    a += 0x6D2B79F5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Devuelve la lista de personas rotada según un seed determinístico. Se usa para
+// generar propuestas alternativas (mismo conjunto, orden de prioridad distinto).
+export function rotateSeed(people, seed, rnd = null) {
+  const rand = rnd || mulberry32(seed);
+  const out = (people || []).slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// ¿Cuántos candidatos válidos existen para una labor? `people` filtrados por
+// tener la labor (o sin labores definidas). Usado para detectar escasez.
+export function countCandidatesForLabore(people, labore) {
+  return peopleForLabore(people, labore).length;
+}
+
+// Índice 0-1 de escasez de una labor: 1 = muy escasa (≤1 candidato), 0 = abundante
+// (≥ threshold). `threshold` configura desde cuántos se considera "abundante".
+export function scarcityIndex(people, labore, threshold = 4) {
+  const n = countCandidatesForLabore(people, labore);
+  if (n <= 1) return 1;
+  if (n >= threshold) return 0;
+  return (threshold - n) / (threshold - 1);
+}
+
+// Total de puestos de una reunión de entre semana (presidente + slots).
+export function midweekTotalSlots(midweek) {
+  let n = 1; // presidente
+  (midweek.sections || []).forEach(sec => (sec.parts || []).forEach(p => { n += midweekSlotsOf(sec, p).length; }));
+  return n;
+}
+
+// Clona en profundidad los datos de entrada (structuredClone disponible en Node 17+ y navegadores modernos).
+function deepClone(x) {
+  return typeof structuredClone === 'function' ? structuredClone(x) : JSON.parse(JSON.stringify(x));
+}
+
+// Genera UNA propuesta de programa mensual completa. Rota el orden de candidatos
+// (seed) para diversificar, ejecuta los motores existentes sobre datos clonados y
+// devuelve la solución con sus asignaciones y reportes.
+// `input`: { people, midweeks, months, salidas, atencion, historial, nombres }
+export function generateOneProposal(input, config = {}, seed = 1) {
+  const people = rotateSeed(input.people || [], seed);
+  const config4 = { ...defaultAlgorithmConfig(), ...(config || {}) };
+  const midweeks = deepClone(input.midweeks || []);
+  const months = deepClone(input.months || []);
+  const salidas = deepClone(input.salidas || []);
+  const atencion = deepClone(input.atencion || []);
+  const historial = input.historial || [];
+  const nombres = input.nombres || {};
+  const reportes = {};
+
+  reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres });
+  reportes.atencion = automatizarAtencion(people, atencion, midweeks);
+  reportes.fin = automatizarFinSemana(people, months, salidas, atencion);
+
+  const assignments = extractAssignments(midweeks, months, salidas, atencion, input.people);
+  return { seed, assignments, midweeks, months, salidas, atencion, reportes };
+}
+
+// Puntúa una solución 0-100 según assignmentScoringConfig y la configuración del
+// motor. Devuelve { score, breakdown, warnings, valida }.
+export function scoreSolution(assignments, { people = [], config = {}, scoring = null } = {}) {
+  const cfg = { ...defaultAlgorithmConfig(), ...(config || {}) };
+  const sc = { ...defaultScoringConfig(), ...(scoring || {}) };
+  const byPerson = {};
+  (assignments || []).forEach(a => { (byPerson[a.personId] ||= []).push(a); });
+
+  const maxSame = Number(cfg.maxSameAssignmentPerMonth) || 1;
+  const restriccion = {
+    superaMaximo: [],
+    mezclaProhibida: [],
+    mujeresEnServicio: [],
+  };
+
+  (assignments || []).forEach(a => {
+    // Mujeres solo en asignaciones estudiantiles/escenificaciones.
+    const p = people.find(x => String(x.id) === String(a.personId));
+    if (p && p.genero === 'femenino') {
+      const laborEstudiantil = STUDENT_LABORES.includes(a.roleKey);
+      const esAtencion = String(a.roleKey).startsWith('atencion_');
+      if (!laborEstudiantil && (esAtencion || ['presidente', 'conductor2', 'lector2', 'orador', 'conductor1', 'lector1'].includes(a.roleKey))) {
+        restriccion.mujeresEnServicio.push(`${p.name || a.personId} → ${a.roleLabel || a.roleKey}`);
+      }
+    }
+    // Mujeres NO en labores de servicio (audio/micrófono/plataforma/acomodador).
+    if (p && p.genero === 'femenino' && cfg.serviceRolesOnlyMale && String(a.roleKey).startsWith('atencion_')) {
+      restriccion.mujeresEnServicio.push(`${p.name || a.personId} → ${a.roleLabel || a.roleKey}`);
+    }
+  });
+
+  // Repetición de la misma labor en el mes por persona.
+  const countsKey = {};
+  (assignments || []).forEach(a => {
+    const k = `${a.personId}|${a.roleKey}`;
+    countsKey[k] = (countsKey[k] || 0) + 1;
+  });
+  Object.entries(countsKey).forEach(([k, n]) => {
+    if (n > maxSame) restriccion.superaMaximo.push(`${k} (${n})`);
+  });
+
+  let valida = !restriccion.superaMaximo.length && !restriccion.mujeresEnServicio.length && !restriccion.mezclaProhibida.length;
+
+  // breakdown por dimensión (0-100 cada una)
+  const totalAsig = (assignments || []).length;
+  const personasActivas = people.length;
+  const participantes = Object.keys(byPerson).length;
+  const means = Object.values(byPerson).map(l => l.length);
+  const mean = means.length ? means.reduce((a, b) => a + b, 0) / means.length : 0;
+  const variance = means.length ? means.reduce((a, b) => a + (b - mean) ** 2, 0) / means.length : 0;
+  const std = Math.sqrt(variance);
+
+  // workloadBalance: 100 - desviación de la carga ideal (uniforme).
+  const workloadBalance = Math.max(0, 100 - (std * 12));
+
+  // weeklyBalance: qué tan repartidas están las asignaciones por semana.
+  const byWeek = {};
+  (assignments || []).forEach(a => { byWeek[a.date] = (byWeek[a.date] || 0) + 1; });
+  const weekCounts = Object.values(byWeek);
+  const wvariance = weekCounts.length ? weekCounts.reduce((a, b) => a + (b - (totalAsig / Math.max(1, weekCounts.length))) ** 2, 0) / weekCounts.length : 0;
+  const weeklyBalance = Math.max(0, 100 - (Math.sqrt(wvariance) * 18));
+
+  // roleRotation: penaliza repetir la misma labor en el mes (respecto al límite).
+  const extraRepeticiones = Object.values(countsKey).reduce((a, n) => a + Math.max(0, n - 1), 0);
+  const roleRotation = Math.max(0, 100 - (extraRepeticiones * 12));
+
+  // monthlyRepetition: cuánta gente no fue usada vs el ideal.
+  const sinParticipar = Math.max(0, personasActivas - participantes);
+  const monthlyRepetition = Math.max(0, 100 - (sinParticipar * 8));
+
+  // scarceRoleProtection: si una labor escasa se repite mucho, penaliza menos al
+  // protegger (los escasos se espera repitan).
+  // pairRoleBalance: alternancia encargado/ayudante en presentaciones (asignacion2).
+  const pairMap = {};
+  (assignments || []).forEach(a => {
+    if (a.roleKey === 'asignacion2') { (pairMap[a.personId] ||= []).push(a.roleLabel || ''); }
+  });
+  let pairBalance = 100;
+  if (Object.keys(pairMap).length) {
+    const imbalances = Object.values(pairMap).map(list => {
+      const enc = list.filter(r => /encargado|estudiante/i.test(r)).length;
+      const ayu = list.filter(r => /ayudante/i.test(r)).length;
+      return list.length ? Math.abs(enc - ayu) / list.length : 0;
+    });
+    pairBalance = Math.max(0, 100 - (imbalances.reduce((a, b) => a + b, 0) / imbalances.length) * 100 * 0.6);
+  }
+
+  // scarceRoleProtection: se calcula como el nivel medio de escasez de las labores
+  // asignadas; penaliza soluciones que no dejen margen en labores con pocos
+  // candidatos. `people` con genero se usan solo para detectar escasez real.
+  const scarceRoles = (cfg.scarceRoles || []).map(String);
+  let scarceRoleProtection = 100;
+  if (scarceRoles.length) {
+    const nEscasasAsignadas = (assignments || []).filter(a => scarceRoles.includes(String(a.roleKey))).length;
+    scarceRoleProtection = Math.max(0, 100 - (nEscasasAsignadas * 6));
+  }
+
+  const breakdown = {
+    workloadBalance: Math.round(workloadBalance),
+    roleRotation: Math.round(roleRotation),
+    weeklyBalance: Math.round(weeklyBalance),
+    monthlyRepetition: Math.round(monthlyRepetition),
+    pairRoleBalance: Math.round(pairBalance),
+    scarceRoleProtection: Math.round(scarceRoleProtection),
+    studentOpportunityBalance: 100,
+  };
+
+  const pesoTotal = sc.workloadBalance + sc.roleRotation + sc.weeklyBalance + sc.monthlyRepetition + sc.scarceRoleProtection + sc.pairRoleBalance + (sc.studentOpportunityBalance || 0);
+  const score = (breakdown.workloadBalance * sc.workloadBalance
+    + breakdown.roleRotation * sc.roleRotation
+    + breakdown.weeklyBalance * sc.weeklyBalance
+    + breakdown.monthlyRepetition * sc.monthlyRepetition
+    + breakdown.scarceRoleProtection * sc.scarceRoleProtection
+    + breakdown.pairRoleBalance * sc.pairRoleBalance
+    + breakdown.studentOpportunityBalance * (sc.studentOpportunityBalance || 0)
+  ) / (pesoTotal || 1);
+
+  const warnings = [];
+  if (restriccion.superaMaximo.length) warnings.push(`Se supera el máximo de repetición mensual (${maxSame}) en: ${restriccion.superaMaximo.slice(0, 5).join(', ')}.`);
+  if (restriccion.mujeresEnServicio.length) warnings.push(`Asignaciones de mujeres en labores no estudiantiles: ${restriccion.mujeresEnServicio.slice(0, 5).join(', ')}.`);
+  if (sinParticipar > 0) warnings.push(`${sinParticipar} persona(s) sin participación en el mes.`);
+
+  return { score: Math.round(score * 10) / 10, breakdown, warnings, valida, restricciones: restriccion };
+}
+
+// Elimina propuestas "diferenciadas": se conserva la primera que contiene cada
+// patrón; el resto se deduplica usando una huella de asignaciones.
+function fingerprint(sol) {
+  return (sol.assignments || []).map(a => `${a.personId}:${a.date}:${a.roleKey}`).sort().join('|');
+}
+
+// Genera `n` propuestas distintas (semillas distintas), las puntúa y las ordena.
+// Devuelve [{ seed, score, breakdown, warnings, valida, assignments }] (las N mejores).
+export function generateProposals(input, config = {}, scoring = null, n = null) {
+  const cfg = { ...defaultAlgorithmConfig(), ...(config || {}) };
+  const cant = n || Number(cfg.numberOfProposals) || 3;
+  const sols = [];
+  const vistos = new Set();
+  for (let seed = 1; seed <= cant * 4; seed++) {
+    const sol = generateOneProposal(input, cfg, seed);
+    const fp = fingerprint(sol);
+    if (vistos.has(fp)) continue;
+    vistos.add(fp);
+    const scored = scoreSolution(sol.assignments, { people: input.people, config: cfg, scoring });
+    sols.push({ seed, score: scored.score, breakdown: scored.breakdown, warnings: scored.warnings, valida: scored.valida, restricciones: scored.restricciones, assignments: sol.assignments, reportes: sol.reportes });
+    if (sols.length >= Math.max(4, cant)) break;
+  }
+  sols.sort((a, b) => b.score - a.score);
+  return sols.slice(0, cant);
+}
+
+/* ============ HELPERS DE GRÁFICOS (vista algoritmo) ============ */
+
+// Carga por persona (total de asignaciones actuales + histograma).
+export function workloadByPerson(entries, people = []) {
+  const mapa = {};
+  (entries || []).forEach(e => { mapa[e.personId] = (mapa[e.personId] || 0) + 1; });
+  return people.map(p => ({
+    personId: String(p.id),
+    name: p.name || '',
+    count: mapa[String(p.id)] || 0,
+  })).sort((a, b) => b.count - a.count);
+}
+
+// Serie temporal mensual: [{ month: "YYYY-MM", total }] (para gráfico de líneas).
+export function historyTimeline(entries) {
+  const mapa = {};
+  (entries || []).forEach(e => {
+    const m = String(e.date || '').slice(0, 7);
+    if (m) mapa[m] = (mapa[m] || 0) + 1;
+  });
+  return Object.keys(mapa).sort().map(m => ({ month: m, total: mapa[m] }));
+}
+
+// Distribución por labor/rol: [{ labore, label, total }].
+export function distributionByLabore(entries) {
+  const mapa = {};
+  (entries || []).forEach(e => {
+    const key = String(e.roleKey || '');
+    const agrupada = key.startsWith('atencion_') ? 'atencion_' : key;
+    (mapa[agrupada] ||= { labore: agrupada, label: e.roleLabel || agrupada, total: 0 }).total++;
+  });
+  return Object.values(mapa).sort((a, b) => b.total - a.total);
+}
+
+// Estadísticas encargado/ayudante en presentaciones (asignacion2) por persona.
+// Detecta encargado por el label del slot ('Estudiante' o 'Ayudante' de maestros).
+export function pairRoleStats(entries) {
+  const mapa = {};
+  (entries || []).forEach(e => {
+    if (e.roleKey !== 'asignacion2') return;
+    (mapa[e.personId] ||= { personId: e.personId, name: e.name || '', encargado: 0, ayudante: 0 });
+    if (/ayudante/i.test(String(e.roleLabel || ''))) mapa[e.personId].ayudante++;
+    else mapa[e.personId].encargado++;
+  });
+  return Object.values(mapa).sort((a, b) => (b.encargado + b.ayudante) - (a.encargado + a.ayudante));
 }
