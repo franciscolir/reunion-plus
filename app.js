@@ -673,6 +673,7 @@ async function renderAutoAsignacion() {
   // continúa (reescribiendo todo) si lo confirma.
   const sesion = {
     rewrite: false,            // el usuario confirmó reescribir un mes ya asignado
+    revisado: false,           // el usuario confirmó revisar el mes y sus conflictos
     creados: [],               // programas creados en esta sesión
     hechos: { entre: false, atencion: false, salidas: false, fin: false },
     reportes: { entre: null, atencion: null, salidas: null, fin: null },
@@ -806,9 +807,11 @@ async function renderAutoAsignacion() {
     const d = await load();
     const creadosTxt = sesion.creados.length ? ` · se creó: ${sesion.creados.join(', ')}` : '';
     const yaAsignado = !sesion.rewrite && mesAsignado(d);
-    // Mientras el mes ya esté asignado (sin confirmar reescritura), los botones
-    // "Asignar" quedan deshabilitados para forzar el aviso previo.
-    const botonAsignar = (tipo, label) => `<button data-asignar="${tipo}" data-admin ${yaAsignado ? 'disabled' : ''} class="px-4 py-2 rounded-lg font-label-md text-label-md ${yaAsignado ? 'bg-surface-container-high text-on-surface-variant cursor-not-allowed' : 'bg-primary text-on-primary hover:opacity-90'}">${label}</button>`;
+    // Mientras el mes ya esté asignado (sin confirmar reescritura) o el usuario
+    // no haya confirmado la revisión del general y sus conflictos, los botones
+    // "Asignar" quedan deshabilitados.
+    const bloqueado = yaAsignado || !sesion.revisado;
+    const botonAsignar = (tipo, label) => `<button data-asignar="${tipo}" data-admin ${bloqueado ? 'disabled' : ''} class="px-4 py-2 rounded-lg font-label-md text-label-md ${bloqueado ? 'bg-surface-container-high text-on-surface-variant cursor-not-allowed' : 'bg-primary text-on-primary hover:opacity-90'}">${label}</button>`;
 
     const mwMissing = d.mws.flatMap(midweekMissing);
     const labMissing = laboresMissing(d.lab);
@@ -933,6 +936,20 @@ async function renderAutoAsignacion() {
 
       ${panelMotivos(sesion.reportes)}
 
+      <div class="mt-8 rounded-xl border border-outline-variant bg-surface-container-lowest p-5 md:p-6">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="material-symbols-outlined text-[22px] text-primary">calendar_month</span>
+          <h2 class="font-headline-md text-headline-md text-primary">Revise el mes antes de asignar</h2>
+        </div>
+        <p class="text-sm text-on-surface-variant mb-4">Revise la vista mensual general y los conflictos de asignación. Debe marcar la confirmación para habilitar la asignación automática.</p>
+        <div id="autoReviewCross" class="mb-4"></div>
+        <div id="autoReviewGeneral"></div>
+        <label class="flex items-center gap-2 mt-5 font-label-md text-label-md cursor-pointer select-none ${yaAsignado ? 'opacity-60' : ''}">
+          <input type="checkbox" id="autoReviewAck" class="text-primary accent-primary w-5 h-5" ${sesion.revisado ? 'checked' : ''} ${yaAsignado ? 'disabled' : ''}>
+          He revisado el mes y sus conflictos de asignación
+        </label>
+      </div>
+
       <div class="sticky bottom-0 bg-surface py-4 mt-8 flex gap-3 justify-end items-center flex-wrap">
         <button id="autoSaveAll" class="px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">Guardar y ver programas</button>
       </div>
@@ -942,6 +959,7 @@ async function renderAutoAsignacion() {
     $('#autoMonth').onchange = async (e) => {
       month = e.target.value;
       sesion.rewrite = false;
+      sesion.revisado = false;
       sesion.creados = [];
       sesion.hechos = { entre: false, atencion: false, salidas: false, fin: false };
       sesion.reportes = { entre: null, atencion: null, salidas: null, fin: null };
@@ -979,6 +997,26 @@ async function renderAutoAsignacion() {
       await syncAssignmentLog();
       toast('Programas guardados', 'success');
       verPrograma('general');
+    };
+    // Bloque de revisión del mes: general embebido, conflictos y confirmación.
+    const autoReviewGeneral = $('#autoReviewGeneral');
+    if (autoReviewGeneral) {
+      renderGeneralMonth(month, { embed: autoReviewGeneral });
+      renderCrossAlerts($('#autoReviewCross'), month);
+    }
+    const revision = $('#autoReviewAck');
+    if (revision) revision.onchange = async () => {
+      sesion.revisado = revision.checked;
+      const on = sesion.revisado && !yaAsignado;
+      document.querySelectorAll('[data-asignar]').forEach(b => {
+        b.disabled = !on;
+        b.classList.toggle('bg-surface-container-high', !on);
+        b.classList.toggle('text-on-surface-variant', !on);
+        b.classList.toggle('cursor-not-allowed', !on);
+        b.classList.toggle('bg-primary', on);
+        b.classList.toggle('text-on-primary', on);
+        b.classList.toggle('hover:opacity-90', on);
+      });
     };
   };
 
