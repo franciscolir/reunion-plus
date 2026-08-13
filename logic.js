@@ -537,19 +537,34 @@ export function convertPdfPeople(text, opts = {}) {
   const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
 
   // ---- Formato 1: tabla con encabezado ----
-  const headerIdx = lines.findIndex(l => /nombre/i.test(l) && /(género|genero|calificaci|grupo|labores)/i.test(l));
-  if (headerIdx !== -1) {
+  // El encabezado puede venir en una sola línea ("Nombre Género Calificación") o
+  // partido en varias (cada celda en su propia línea). Buscamos la línea con
+  // "nombre" y una línea cercana con "género/calificación/grupo/labores"; todo
+  // hasta esa línea es el encabezado y el resto son filas de datos.
+  const encabezadoRe = /(género|genero|calificaci|grupo|labores|sexo)/i;
+  const nombreIdx = lines.findIndex(l => /nombre/i.test(l));
+  let headerEndIdx = -1;
+  if (nombreIdx !== -1) {
+    for (let j = nombreIdx; j < lines.length && j < nombreIdx + 6; j++) {
+      if (encabezadoRe.test(lines[j])) { headerEndIdx = j; break; }
+    }
+  }
+  if (headerEndIdx !== -1) {
     const personas = [];
-    for (let i = headerIdx + 1; i < lines.length; i++) {
-      const ln = lines[i];
+    // Líneas que son solo palabras de encabezado (pueden quedar sueltas si el
+    // encabezado se parte en varias líneas).
+    const soloEncabezado = /^(nombre|género|genero|calificaci[oó]n|grupo\w*|labores|sexo)s?[|]?$/i;
+    for (let i = headerEndIdx + 1; i < lines.length; i++) {
+      const ln = lines[i].replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim();
       if (!ln || /^[-–—|=_*·]+$/.test(ln)) continue;
+      if (soloEncabezado.test(ln)) continue;
       const p = parsePersonRow(ln, { laboresConocidas });
       if (p && p.name) personas.push(p);
     }
     if (personas.length) {
       return {
         data: { personas },
-        warnings: [`Se detectaron ${personas.length} personas en formato tabla. Verifique que los campos (género, calificación, grupo y labores) se hayan asignado correctamente.`],
+        warnings: [`Se detectaron ${personas.length} personas en formato tabla. Verifique que los campos (género y calificación) se hayan asignado correctamente.`],
       };
     }
     return { data: null, warnings: ['Se detectó una tabla de personas pero no se reconocieron filas con datos. Revise que cada fila contenga al menos un nombre.'] };
@@ -667,20 +682,65 @@ export function rebuildPdfWords(items) {
   // bloques por su posición horizontal media.
   const glifos = seq.filter(i => !/^[\u0002\u0003\s]+$/.test(i.str));
   if (glifos.length >= 50) {
-    const col = clusterX(glifos.map(i => i.x));
-    // Separación real de columnas: los centros de ambos bloques deben estar muy
-    // alejados (>180px). Las páginas de una sola columna (p. ej. Nuestra Vida
-    // Cristiana) también producen 2 clusters pero mucho más cercanos (~115px).
-    if (col && col.centros[1] - col.centros[0] > 180 && col.ns[0] > glifos.length * 0.2 && col.ns[1] > glifos.length * 0.2) {
-      const colMid = (col.centros[0] + col.centros[1]) / 2;
-      const izq = seq.filter(i => i.x < colMid);
-      const der = seq.filter(i => i.x >= colMid);
-      const a = emitPdfLines(izq);
-      const b = emitPdfLines(der);
-      return a && b ? a + '\n' + b : (a || b);
+    // Si la página es una tabla con columnas alineadas y estrechas (p. ej. la
+    // plantilla de participantes: Nombre | Género | Calificación), NO partir en
+    // dos bloques: cada celda es un ítem casi en la misma X que su columna y la
+    // fila debe conservarse completa para que el parser de personas la lea.
+    if (!isTablePage(glifos)) {
+      const col = clusterX(glifos.map(i => i.x));
+      // Separación real de columnas: los centros de ambos bloques deben estar muy
+      // alejados (>180px). Las páginas de una sola columna (p. ej. Nuestra Vida
+      // Cristiana) también producen 2 clusters pero mucho más cercanos (~115px).
+      if (col && col.centros[1] - col.centros[0] > 180 && col.ns[0] > glifos.length * 0.2 && col.ns[1] > glifos.length * 0.2) {
+        const colMid = (col.centros[0] + col.centros[1]) / 2;
+        const izq = seq.filter(i => i.x < colMid);
+        const der = seq.filter(i => i.x >= colMid);
+        const a = emitPdfLines(izq);
+        const b = emitPdfLines(der);
+        return a && b ? a + '\n' + b : (a || b);
+      }
     }
   }
   return emitPdfLines(seq);
+}
+
+// Detecta si una página es una TABLA (celdas alineadas por columna, cada una en
+// una X casi fija) frente a texto corrido de dos columnas (la Guía). En la Guía
+// el texto fluye: los glifos de cada "columna" se extienden ~100-200px; en una
+// tabla las celdas de una columna están en la misma X (dispersión < 40px).
+// Prueba k=2..5: si en algún k TODAS las columnas son estrechas y con tamaño
+// razonable, la página es una tabla.
+function isTablePage(glifos) {
+  const xs = glifos.map(i => i.x);
+  for (let k = 2; k <= 5; k++) {
+    let cs = [...xs].sort((a, b) => a - b);
+    const step = Math.max(1, Math.floor(cs.length / k));
+    const cent = [];
+    for (let i = 0; i < k; i++) cent.push(cs[Math.min(cs.length - 1, i * step)]);
+    for (let it = 0; it < 12; it++) {
+      const groups = Array.from({ length: k }, () => []);
+      for (const x of xs) {
+        let bi = 0, bd = Infinity;
+        for (let i = 0; i < k; i++) { const d = Math.abs(x - cent[i]); if (d < bd) { bd = d; bi = i; } }
+        groups[bi].push(x);
+      }
+      let moved = 0;
+      for (let i = 0; i < k; i++) {
+        if (!groups[i].length) continue;
+        const m = groups[i].reduce((a, b) => a + b, 0) / groups[i].length;
+        if (Math.abs(m - cent[i]) > 0.01) { cent[i] = m; moved++; }
+      }
+      if (!moved) break;
+    }
+    const info = cent.map(c => {
+      const grp = xs.filter(x => Math.abs(x - c) === Math.min(...cent.map(cc => Math.abs(x - cc))));
+      const mn = Math.min(...grp), mx = Math.max(...grp);
+      return { n: grp.length, spread: mx - mn };
+    });
+    const ok = info.every(g => g.spread < 40 && g.n >= xs.length * 0.1);
+    if (ok) return true;
+  }
+  return false;
 }
 
 // Separa valores de X en dos grupos (k-means k=2, inicializado en los extremos).
@@ -1185,7 +1245,8 @@ const PAR_LIMIT = [['A', 'B'], ['B', 'B'], ['A', 'C']];
 // ¿dos colaboradores pueden ser pareja en una asignación de a 2?
 // persona1/persona2: { id, calificacion, genero, enlace }
 // Reglas:
-//  · D solo puede pareja con su enlace designado (enlace mutuo).
+//  · D solo puede pareja con su enlace designado (unidireccional: basta que el
+//    D apunte a su pareja, la pareja no tiene por qué apuntar de vuelta).
 //  · Mismo género: siempre válido.
 //  · Mixto (hombre+mujer): solo si están enlazados entre sí.
 //  · Sin género definido: se aplica la tabla de calificaciones A+B · B+B · A+C.
@@ -1196,9 +1257,10 @@ export function canBePair(persona1, persona2) {
   const cal = (p) => CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '';
   const c1 = cal(persona1), c2 = cal(persona2);
 
-  // Enlace único de D: solo con su pareja enlazada (mutuo).
+  // Enlace único de D: solo con su pareja enlazada (unidireccional).
   if (c1 === 'D' || c2 === 'D') {
-    return String(persona1.enlace || '') === String(persona2.id) && String(persona2.enlace || '') === String(persona1.id);
+    if (c1 === 'D') return String(persona1.enlace || '') === String(persona2.id);
+    return String(persona2.enlace || '') === String(persona1.id);
   }
 
   const g1 = persona1.genero, g2 = persona2.genero;
@@ -1222,6 +1284,13 @@ export function isStudentLabore(labore) { return STUDENT_LABORES.includes(labore
 // cualquiera de las labores de estudiante (lectura, presentación, discurso).
 export function isStudentPerson(p) {
   return !Array.isArray(p?.labores) || p.labores.length === 0 || p.labores.some(r => STUDENT_LABORES.includes(r));
+}
+
+// Labor de equipo permitida para una persona: las mujeres solo pueden tener la
+// presentación (asignacion2); el resto de labores quedan bloqueadas en la UI.
+export function laboreAllowedForPerson(person, labore) {
+  if (person && person.genero === 'femenino') return labore === 'asignacion2';
+  return true;
 }
 
 /* ---------- Estructura de partes de entre semana ---------- */

@@ -14,7 +14,7 @@ import {
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
-  isStudentPerson, isStudentLabore,
+  isStudentPerson, isStudentLabore, laboreAllowedForPerson,
   automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   camposFinSemana, extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
@@ -316,7 +316,6 @@ function renderTop() {
   const items = [
     { id: 'home', label: 'Inicio' },
     { id: 'lists', label: 'Listas' },
-    { id: 'algoritmo', label: 'Algoritmo' },
     { id: 'uploads', label: 'Carga' },
     { id: 'eventos', label: 'Eventos' },
     { id: 'settings', label: 'Ajustes' },
@@ -342,7 +341,6 @@ function renderSide() {
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
     { id: 'lists', icon: 'group', label: 'Personas y Deptos.', view: 'lists' },
-    { id: 'algoritmo', icon: 'smart_toy', label: 'Algoritmo', view: 'algoritmo' },
     { id: 'uploads', icon: 'upload_file', label: 'Carga de Archivos', view: 'uploads' },
     { id: 'eventos', icon: 'event', label: 'Eventos', view: 'eventos' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
@@ -634,7 +632,7 @@ async function renderNew() {
   const goMonth = (m) => { state.progMonth = m; renderNew(); };
   $('#progMonth').onchange = (e) => goMonth(e.target.value);
   app.querySelectorAll('[data-month]').forEach(b => b.onclick = () => goMonth(b.dataset.month));
-  $('#autoBtn').onclick = () => go('auto');
+  $('#autoBtn').onclick = () => go('algoritmo');
 
   const tabNodes = app.querySelectorAll('.newTab');
   const setActive = () => {
@@ -926,9 +924,6 @@ async function renderAutoAsignacion() {
           Mes a trabajar
           <input id="autoMonth" type="month" value="${month}" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md font-semibold focus:border-primary">
         </label>
-        <button id="autoMotor" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-container transition-colors whitespace-nowrap">
-          <span class="material-symbols-outlined text-[18px]">smart_toy</span> Probar motor configurable
-        </button>
         <div class="flex items-stretch gap-2 bg-surface-container-low rounded-xl border border-outline-variant p-3 w-full md:w-auto">${barra}</div>
       </div>
 
@@ -944,7 +939,6 @@ async function renderAutoAsignacion() {
     `;
 
     $('[data-back]').onclick = () => go('new');
-    if ($('#autoMotor')) $('#autoMotor').onclick = () => { state.progMonth = month; go('algoritmo'); };
     $('#autoMonth').onchange = async (e) => {
       month = e.target.value;
       sesion.rewrite = false;
@@ -1251,92 +1245,48 @@ function svgDona(rows, { size = 180 } = {}) {
   </div>`;
 }
 
-// Render de la vista Algoritmo: panel de configuración del motor + generador de
-// propuestas (con ranking 0-100) + gráficos de historial/carga.
+// Render de la vista Asignación Automática (motor): generador de propuestas con
+// ranking 0-100 y gráficos de historial/carga. La configuración del motor se
+// edita desde Ajustes. Se abre desde el botón "Asignación automática" de Programa.
 async function renderAlgoritmo() {
   state.month = null;
   renderTop();
   const app = $('#app');
   const config = await db.getConfig();
   const algo = { ...defaultAlgorithmConfig(), ...(config.algorithm || {}) };
-  const scoring = { ...defaultScoringConfig(), ...(config.algorithm?.scoring || {}) };
-  const personasOptions = (sel, cur) => `<option value="">—</option>${state.people.map(p => `<option value="${escapeAttr(String(p.id))}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeAttr(p.name)}</option>`).join('')}`;
-  const selMode = (cur) => ['PREFERRED', 'LIMIT', 'STRICT'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'PREFERRED' ? 'Preferida (permite 1 repetición) ' : m === 'LIMIT' ? 'Límite estricto' : 'Prohibida'}</option>`).join('');
-  const selPair = (cur) => ['NOT_ALLOWED', 'ALLOWED_LOW', 'ALLOWED_MEDIUM', 'ALLOWED_HIGH'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'NOT_ALLOWED' ? 'Prohibido' : m === 'ALLOWED_LOW' ? 'Solo con motivo' : m === 'ALLOWED_MEDIUM' ? 'Permitido' : 'Permitido (prioridad)'}</option>`).join('');
-  const selLevel = (cur) => ['A', 'B', 'C'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>Nivel ${m}</option>`).join('');
 
-  const campoNum = (id, label, val, min = 0, max = 100) => `
-    <div>
-      <label for="${id}" class="block font-label-md text-label-md text-on-surface-variant mb-1">${label}</label>
-      <input id="${id}" type="number" value="${escapeAttr(val)}" min="${min}" max="${max}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
-    </div>`;
-  const campoSel = (id, label, opts) => `
-    <div>
-      <label for="${id}" class="block font-label-md text-label-md text-on-surface-variant mb-1">${label}</label>
-      <select id="${id}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${opts}</select>
-    </div>`;
+  const mes = state.progMonth || isoDate(new Date()).slice(0, 7);
 
   app.innerHTML = `
-    <div class="flex items-center justify-between flex-wrap gap-3 mb-2">
+    <div class="flex items-center gap-3 mb-2">
+      <button data-algo-back class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary rounded-full">arrow_back</button>
       <div>
-        <h1 class="font-headline-lg text-headline-lg text-primary">Motor de asignación</h1>
-        <p class="text-on-surface-variant font-label-md">Configura las reglas del algoritmo y genera propuestas equilibradas con ranking.</p>
+        <h1 class="font-headline-lg text-headline-lg text-primary">Asignación automática</h1>
+        <p class="text-on-surface-variant font-label-md">Genera varias propuestas del mes y aplica la que mejor se ajuste a sus reglas.</p>
+      </div>
+    </div>
+
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-6">
+      <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant">
+        Mes a generar
+        <input id="algoMonth" type="month" value="${escapeAttr(mes)}" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md font-semibold focus:border-primary">
+      </label>
+      <div class="flex flex-wrap items-center gap-2">
+        <button data-algo-config class="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-outline font-label-md text-label-md text-on-surface-variant hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[18px]">tune</span> Configurar motor (Ajustes)
+        </button>
+        <button data-algo-manual class="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-outline font-label-md text-label-md text-on-surface-variant hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[18px]">edit_note</span> Ajuste manual por etapas
+        </button>
+        <button id="algoGenerate" data-admin class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined text-[20px]">play_arrow</span> Generar</button>
       </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="lg:col-span-1 space-y-6">
-        <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
-          <h3 class="font-headline-md text-headline-md text-primary mb-4 flex items-center gap-2"><span class="material-symbols-outlined">tune</span> Reglas</h3>
-          <div class="space-y-4">
-            ${campoNum('algoPropuestas', 'Propuestas a generar', algo.numberOfProposals, 1, 10)}
-            ${campoNum('algoMaxRep', 'Máx. misma asignación / mes', algo.maxSameAssignmentPerMonth, 0, 4)}
-            ${campoSel('algoModeRep', 'Repetición mensual', selMode(algo.sameAssignmentMonthlyMode))}
-            ${campoSel('algoPairMode', 'Pareja de género mixto', selPair(algo.mixedGenderPairing))}
-            ${campoSel('algoLectorNivel', 'Nivel del lector estudiantil', selLevel(algo.studentReaderLevel))}
-            <div>
-              <label for="algoConductor" class="block font-label-md text-label-md text-on-surface-variant mb-1">Conductor permanente</label>
-              <select id="algoConductor" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
-            </div>
-            <div>
-              <label for="algoConductorBackup" class="block font-label-md text-label-md text-on-surface-variant mb-1">Conductor suplente</label>
-              <select id="algoConductorBackup" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorBackupId)}</select>
-            </div>
-            <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant cursor-pointer">
-              <input id="algoServiceMale" type="checkbox" ${algo.serviceRolesOnlyMale ? 'checked' : ''} class="accent-primary"> Labores de servicio solo hombres
-            </label>
-          </div>
-        </div>
-
-        <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
-          <h3 class="font-headline-md text-headline-md text-primary mb-1 flex items-center gap-2"><span class="material-symbols-outlined">scale</span> Ponderación del ranking</h3>
-          <p class="text-sm text-on-surface-variant mb-4">Peso de cada dimensión en la puntuación 0-100 de las propuestas.</p>
-          <div class="space-y-3">
-            ${campoNum('scWorkload', 'Equilibrio de carga', scoring.workloadBalance)}
-            ${campoNum('scRotacion', 'Rotación de roles', scoring.roleRotation)}
-            ${campoNum('scSemanal', 'Reparto semanal', scoring.weeklyBalance)}
-            ${campoNum('scRepeticion', 'Menos repetición mensual', scoring.monthlyRepetition)}
-            ${campoNum('scEscasez', 'Protección de escasez', scoring.scarceRoleProtection)}
-            ${campoNum('scParejas', 'Alternancia encargado/ayudante', scoring.pairRoleBalance)}
-            ${campoNum('scOportunidad', 'Oportunidad a estudiantes', scoring.studentOpportunityBalance)}
-          </div>
-          <div class="flex gap-3 pt-4">
-            <button id="algoSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
-            <button id="algoReset" class="px-4 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Restaurar</button>
-          </div>
-        </div>
-      </div>
-
       <div class="lg:col-span-2 space-y-6">
         <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
-          <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
-            <div>
-              <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2"><span class="material-symbols-outlined">auto_awesome</span> Generar propuestas</h3>
-              <p class="text-sm text-on-surface-variant">Prueba el motor sobre el mes en curso. Elige la mejor y aplícala a los programas.</p>
-            </div>
-            <button id="algoGenerate" data-admin class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined text-[20px]">play_arrow</span> Generar</button>
-          </div>
-          <div class="mt-4" id="algoMes"></div>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1 flex items-center gap-2"><span class="material-symbols-outlined">auto_awesome</span> Propuestas</h3>
+          <p class="text-sm text-on-surface-variant mb-4">El motor respeta las reglas guardadas en Ajustes y ofrece las mejores ${algo.numberOfProposals} con su puntuación.</p>
           <div id="algoResults" class="space-y-4"></div>
         </div>
 
@@ -1363,54 +1313,30 @@ async function renderAlgoritmo() {
           </div>
         </div>
       </div>
+
+      <div class="lg:col-span-1 space-y-6">
+        <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
+          <h3 class="font-headline-md text-headline-md text-primary mb-3 flex items-center gap-2"><span class="material-symbols-outlined">rule</span> Reglas vigentes</h3>
+          <ul class="space-y-2 text-sm text-on-surface">
+            <li class="flex justify-between gap-2"><span class="text-on-surface-variant">Propuestas a generar</span><span class="font-semibold">${algo.numberOfProposals}</span></li>
+            <li class="flex justify-between gap-2"><span class="text-on-surface-variant">Mismo puesto / mes</span><span class="font-semibold">máx. ${algo.maxSameAssignmentPerMonth}</span></li>
+            <li class="flex justify-between gap-2"><span class="text-on-surface-variant">Repetición mensual</span><span class="font-semibold">${algo.sameAssignmentMonthlyMode === 'PREFERRED' ? 'Preferida' : algo.sameAssignmentMonthlyMode === 'LIMIT' ? 'Límite' : 'Prohibida'}</span></li>
+            <li class="flex justify-between gap-2"><span class="text-on-surface-variant">Pareja mixta</span><span class="font-semibold">${algo.mixedGenderPairing === 'NOT_ALLOWED' ? 'Prohibido' : algo.mixedGenderPairing === 'ALLOWED_LOW' ? 'Solo con motivo' : algo.mixedGenderPairing === 'ALLOWED_MEDIUM' ? 'Permitido' : 'Permitido (prioridad)'}</span></li>
+            <li class="flex justify-between gap-2"><span class="text-on-surface-variant">Lector estudiantil</span><span class="font-semibold">nivel ${algo.studentReaderLevel}</span></li>
+            <li class="flex justify-between gap-2"><span class="text-on-surface-variant">Labores de servicio</span><span class="font-semibold">${algo.serviceRolesOnlyMale ? 'solo hombres' : 'sin restricción'}</span></li>
+          </ul>
+          <div class="mt-4">
+            <button data-algo-config class="w-full px-4 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-container transition-colors">Editar reglas</button>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
-  const readForm = () => {
-    const a = {
-      numberOfProposals: Math.min(10, Math.max(1, parseInt($('#algoPropuestas').value, 10) || 3)),
-      maxSameAssignmentPerMonth: Math.min(4, Math.max(0, parseInt($('#algoMaxRep').value, 10) || 1)),
-      sameAssignmentMonthlyMode: $('#algoModeRep').value,
-      mixedGenderPairing: $('#algoPairMode').value,
-      studentReaderLevel: $('#algoLectorNivel').value,
-      permanentConductorId: $('#algoConductor').value,
-      permanentConductorBackupId: $('#algoConductorBackup').value,
-      serviceRolesOnlyMale: $('#algoServiceMale').checked,
-    };
-    const s = {
-      workloadBalance: parseInt($('#scWorkload').value, 10) || 0,
-      roleRotation: parseInt($('#scRotacion').value, 10) || 0,
-      weeklyBalance: parseInt($('#scSemanal').value, 10) || 0,
-      monthlyRepetition: parseInt($('#scRepeticion').value, 10) || 0,
-      scarceRoleProtection: parseInt($('#scEscasez').value, 10) || 0,
-      pairRoleBalance: parseInt($('#scParejas').value, 10) || 0,
-      studentOpportunityBalance: parseInt($('#scOportunidad').value, 10) || 0,
-    };
-    return { a, s };
-  };
-
-  $('#algoMes').innerHTML = `
-    <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant">
-      Mes a evaluar
-      <input id="algoMonth" type="month" value="${escapeAttr(state.progMonth || isoDate(new Date()).slice(0, 7))}" class="bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
-    </label>`;
-
-  $('#algoSave').onclick = async () => {
-    const { a, s } = readForm();
-    const prev = await db.getConfig();
-    const next = { ...prev, algorithm: { ...a, scoring: s } };
-    await db.setConfig(next);
-    state.config = next;
-    toast('Configuración del motor guardada', 'success');
-  };
-  $('#algoReset').onclick = async () => {
-    const prev = await db.getConfig();
-    const next = { ...prev, algorithm: { ...defaultAlgorithmConfig(), scoring: { ...defaultScoringConfig() } } };
-    await db.setConfig(next);
-    state.config = next;
-    toast('Configuración del motor restaurada', 'success');
-    go('algoritmo');
-  };
+  const bck = (d) => { const b = document.querySelector('[data-algo-back]'); if (b) b.onclick = d; };
+  bck(() => go('new'));
+  app.querySelectorAll('[data-algo-config]').forEach(b => b.onclick = () => go('settings'));
+  if ($('[data-algo-manual]')) $('[data-algo-manual]').onclick = () => go('auto');
 
   // Gráficos con el historial real.
   const log = await db.listAssignmentLog();
@@ -1424,20 +1350,43 @@ async function renderAlgoritmo() {
     ? svgBarras(pairStats.map(r => ({ label: r.name, value: r.encargado + r.ayudante, sub: `${r.encargado}E / ${r.ayudante}A` })))
     : '<p class="text-sm text-on-surface-variant">Sin presentaciones registradas.</p>';
 
-  // Generación de propuestas (botón).
+  // Generación de propuestas (botón). Lee la config guardada (Ajustes).
   const generar = async () => {
-    const { a, s } = readForm();
+    const cfg = await db.getConfig();
+    const a = { ...defaultAlgorithmConfig(), ...(cfg.algorithm || {}) };
+    const s = { ...defaultScoringConfig(), ...((cfg.algorithm || {}).scoring || {}) };
     const month = $('#algoMonth').value;
     const btn = $('#algoGenerate');
+
+    // Validación: debe haber semanas de la guía de actividades cargadas para el mes.
+    const mwMes = (await db.listMidweeks()).filter(m => String(m.id).slice(0, 7) === month);
+    if (!mwMes.length) {
+      const mesTxt = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+      openModal(`
+        <div class="text-center">
+          <span class="material-symbols-outlined text-6xl text-primary mb-2">upload_file</span>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">No hay semanas cargadas</h3>
+          <p class="text-on-surface-variant text-sm mb-1">Para generar propuestas de ${mesTxt} primero debes subir la <b>Guía de Actividades</b> de ese mes.</p>
+          <p class="text-on-surface-variant text-sm mb-6">La guía se carga desde la vista Carga de Archivos.</p>
+          <div class="flex gap-3 justify-center">
+            <button id="algoFaltaGuiaCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+            <button id="algoFaltaGuiaGo" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Subir la guía</button>
+          </div>
+        </div>`);
+      $('#algoFaltaGuiaCancel').onclick = closeModal;
+      $('#algoFaltaGuiaGo').onclick = () => { closeModal(); go('uploads'); };
+      return;
+    }
+
     btn.disabled = true;
     btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Generando…';
     try {
-      const [midweeks, months, salidas, atencion, logMes] = await Promise.all([
-        db.listMidweeks(), db.listMonths(), db.listSalidas(), db.listAtencion(), db.listAssignmentLog(),
+      const [months, salidas, atencion, logMes] = await Promise.all([
+        db.listMonths(), db.listSalidas(), db.listAtencion(), db.listAssignmentLog(),
       ]);
       const input = {
         people,
-        midweeks: midweeks.filter(m => String(m.id).slice(0, 7) === month),
+        midweeks: mwMes,
         months: months.filter(m => m.id === month),
         salidas: salidas.filter(p => p.id === month),
         atencion: atencion.filter(p => p.id === month),
@@ -2453,6 +2402,14 @@ async function renderLists() {
           <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="search">search</span>
           <input id="pSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md" placeholder="Buscar miembro..." type="text">
         </div>
+        <div class="relative w-full sm:w-40">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="filter">filter_alt</span>
+          <select id="pGenderFilter" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md ${state.listsTab === 'historial' ? 'hidden' : ''}">
+            <option value="">Todos</option>
+            <option value="masculino">Hombre</option>
+            <option value="femenino">Mujer</option>
+          </select>
+        </div>
         <button class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleEditMode">
           <span class="material-symbols-outlined text-[18px]">lock_open</span>
           <span id="editText">Desbloquear</span>
@@ -2502,16 +2459,25 @@ async function renderLists() {
     if (first && first.disabled) { toast('Desbloquea la edición primero', 'info'); return; }
     const labore = btn.dataset.marklabore;
     const lbl = (state.labores.find(r => r.id === labore) || {}).label || labore;
-    const add = state.people.some(p => !(Array.isArray(p.labores) && p.labores.includes(labore)));
-    for (const p of state.people) {
+    // "Seleccionar todo" actúa solo sobre las filas visibles (filtro de búsqueda
+    // o género): si se filtró por hombres, solo se marcan los hombres visibles.
+    const rows = [...document.querySelectorAll('#pList tr')].filter(tr => tr.style.display !== 'none');
+    const ids = new Set(rows.map(tr => tr.dataset.pid).filter(Boolean));
+    const visible = state.people.filter(p => ids.has(String(p.id)) && laboreAllowedForPerson(p, labore));
+    if (!visible.length) { toast('No hay filas visibles para marcar', 'info'); return; }
+    const add = visible.some(p => !(Array.isArray(p.labores) && p.labores.includes(labore)));
+    for (const p of visible) {
       const labores = Array.isArray(p.labores) ? [...p.labores] : [];
       if (add) { if (!labores.includes(labore)) labores.push(labore); }
       else { const i = labores.indexOf(labore); if (i !== -1) labores.splice(i, 1); }
       await db.setPersonLabores(p.id, labores);
       p.labores = labores;
     }
-    document.querySelectorAll(`#pList .labore-checkbox[data-plabore="${labore}"]`).forEach(cb => cb.checked = add);
-    toast(add ? `"${lbl}" marcado para todos` : `"${lbl}" desmarcado de todos`, 'success');
+    document.querySelectorAll(`#pList tr`).forEach(tr => {
+      if (tr.style.display === 'none') return;
+      tr.querySelectorAll(`.labore-checkbox[data-plabore="${labore}"]`).forEach(cb => { if (!cb.hasAttribute('data-locked')) cb.checked = add; });
+    });
+    toast(add ? `"${lbl}" marcado en ${visible.length} visible(s)` : `"${lbl}" desmarcado en ${visible.length} visible(s)`, 'success');
   });
 
   let editMode = false;
@@ -2522,7 +2488,7 @@ async function renderLists() {
       toggleBtn.classList.remove('border-primary', 'text-primary');
       toggleBtn.classList.add('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
       toggleBtn.lastElementChild.textContent = 'Guardar y Bloquear';
-      $('#pList').querySelectorAll('.labore-checkbox').forEach(cb => cb.disabled = false);
+      $('#pList').querySelectorAll('.labore-checkbox').forEach(cb => cb.disabled = cb.hasAttribute('data-locked'));
     } else {
       toggleBtn.classList.add('border-primary', 'text-primary');
       toggleBtn.classList.remove('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
@@ -2535,12 +2501,18 @@ async function renderLists() {
   $('#manageLaboresBtn').onclick = renderLaboresModal;
 
   const search = $('#pSearch');
-  search.addEventListener('input', () => {
+  const genderFilter = $('#pGenderFilter');
+  const applyFilter = () => {
     const q = normalizeStr(search.value);
+    const gen = genderFilter.value;
     document.querySelectorAll('#pList tr').forEach(tr => {
-      tr.style.display = tr.dataset.norm.includes(q) ? '' : 'none';
+      const matchName = tr.dataset.norm.includes(q);
+      const matchGen = !gen || tr.dataset.genero === gen;
+      tr.style.display = matchName && matchGen ? '' : 'none';
     });
-  });
+  };
+  search.addEventListener('input', applyFilter);
+  genderFilter.addEventListener('change', applyFilter);
 
   $('#pList').innerHTML = state.people.map(renderRows).join('') || `
     <tr><td colspan="${state.labores.length + 1}" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>`;
@@ -2573,8 +2545,19 @@ function openAddMemberModal() {
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     const labores = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
     const attrs = readPersonAttrs();
-    try { await db.addPerson({ name, labores, ...attrs }); closeModal(); toast('Miembro agregado', 'success'); renderLists(); }
-    catch (err) { toast(err.message, 'error'); }
+    try {
+      const newId = await db.addPerson({ name, labores, ...attrs });
+      // Enlace bidireccional: si el nuevo miembro no es D y tiene enlace, la
+      // persona enlazada pasa a tenerlo como enlace a él.
+      if (attrs.enlace && attrs.calificacion !== 'D') {
+        const target = state.people.find(x => String(x.id) === String(attrs.enlace));
+        if (target && target.calificacion !== 'D') {
+          target.enlace = String(newId);
+          await db.updatePerson(target);
+        }
+      }
+      closeModal(); toast('Miembro agregado', 'success'); renderLists();
+    } catch (err) { toast(err.message, 'error'); }
   };
 }
 
@@ -2593,9 +2576,10 @@ function renderRows(p) {
   const labores = Array.isArray(p.labores) ? p.labores : [];
   const checks = state.labores.map(r => {
     const on = labores.includes(r.id);
-    return `<td class="p-3 text-center"><div class="checkbox-cell"><input type="checkbox" data-plabore="${r.id}" data-pid="${p.id}" class="text-primary labore-checkbox" ${on ? 'checked' : ''} disabled></div></td>`;
+    const locked = !laboreAllowedForPerson(p, r.id);
+    return `<td class="p-3 text-center"><div class="checkbox-cell"><input type="checkbox" data-plabore="${r.id}" data-pid="${p.id}" class="text-primary labore-checkbox" ${on ? 'checked' : ''} ${locked ? 'data-locked' : ''} disabled></div></td>`;
   }).join('');
-  return `<tr class="hover:bg-surface-container-low transition-colors group" data-norm="${escapeAttr(normalizeStr(p.name))}">
+  return `<tr class="hover:bg-surface-container-low transition-colors group" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-pid="${p.id}">
     <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10 border-l-4 border-l-transparent hover:border-l-primary">
       <div class="w-8 h-8 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold">${initialsOf(p.name)}</div>
       <span class="truncate">${escapeHtml(p.name)}</span>
@@ -2620,10 +2604,10 @@ function renderRowsBindings() {
     const pid = parseInt(b.dataset.markall, 10);
     const person = state.people.find(x => String(x.id) === String(pid));
     if (!person) return;
-    const labores = anyUnchecked ? state.labores.map(r => r.id) : [];
+    const labores = anyUnchecked ? state.labores.filter(r => laboreAllowedForPerson(person, r.id)).map(r => r.id) : [];
     await db.setPersonLabores(pid, labores);
     person.labores = labores;
-    cbs.forEach(cb => cb.checked = anyUnchecked);
+    cbs.forEach(cb => cb.checked = anyUnchecked && !cb.hasAttribute('data-locked'));
     toast(anyUnchecked ? 'Todas las labores marcadas' : 'Labores desmarcadas', 'success');
   });
   $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
@@ -2722,11 +2706,12 @@ function personAttrsFields() {
       </div>
     </div>
     <div class="text-left">
-      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (si calificación D)</label>
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
       <select data-attr="enlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
         <option value="">— Sin enlace —</option>
         ${state.people.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
       </select>
+      <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada también quedará enlazada a él.</p>
     </div>`;
 }
 
@@ -2736,6 +2721,50 @@ function readPersonAttrs() {
   const calificacion = (document.querySelector('[data-attr="calificacion"]') || {}).value || '';
   const enlace = (document.querySelector('[data-attr="enlace"]') || {}).value || '';
   return { genero, calificacion, enlace };
+}
+
+// Aplica el enlace de pareja con la regla de direccionalidad:
+//  · Persona NO D → bidireccional: la otra persona también pasa a tener como
+//    enlace a esta (y se limpia el reflejo previo si el enlace anterior era mutuo).
+//  · Persona D → unidireccional: solo cambia su propio enlace, no toca al otro
+//    (así un D puede tener a Juan como enlace aunque Juan conserve a María).
+async function applyEnlace(person, newEnlace) {
+  const oldEnlace = person.enlace || '';
+  const newVal = newEnlace || '';
+  const isD = person.calificacion === 'D';
+
+  // Si se rompe un enlace anterior que era mutuo (el otro apuntaba a esta
+  // persona), limpiar el reflejo.
+  if (oldEnlace && oldEnlace !== newVal) {
+    const oldT = state.people.find(x => String(x.id) === String(oldEnlace));
+    if (oldT && String(oldT.enlace || '') === String(person.id) && oldT.calificacion !== 'D') {
+      oldT.enlace = '';
+      await db.updatePerson(oldT);
+    }
+  }
+
+  person.enlace = newVal;
+  await db.updatePerson(person);
+
+  if (!isD && newVal) {
+    const target = state.people.find(x => String(x.id) === String(newVal));
+    if (target) {
+      // Si el destino ya apuntaba a otro (enlace mutuo), limpiar ese reflejo viejo.
+      const prevT = String(target.enlace || '');
+      if (prevT && String(prevT) !== String(person.id)) {
+        const prevTarget = state.people.find(x => String(x.id) === String(prevT));
+        if (prevTarget && String(prevTarget.enlace || '') === String(target.id) && prevTarget.calificacion !== 'D') {
+          prevTarget.enlace = '';
+          await db.updatePerson(prevTarget);
+        }
+      }
+      // El destino (si no es D) apunta de vuelta a esta persona.
+      if (target.calificacion !== 'D') {
+        target.enlace = String(person.id);
+        await db.updatePerson(target);
+      }
+    }
+  }
 }
 
 // Modal de perfil de un colaborador: género + calificación (A/B/C/D) + enlace para D.
@@ -2770,7 +2799,7 @@ function openPersonProfile(person) {
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
           <select id="pfEnlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${enlOpts}</select>
-          <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada.</p>
+          <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada también quedará enlazada a él.</p>
         </div>
       </div>
       <div class="flex gap-3 justify-end mt-5">
@@ -2782,10 +2811,15 @@ function openPersonProfile(person) {
   $('#pfSave').onclick = async () => {
     p.genero = $('#pfGenero').value;
     p.calificacion = $('#pfCalif').value;
-    p.enlace = $('#pfEnlace').value;
-    await db.updatePerson(p);
+    const enlace = $('#pfEnlace').value;
+    await applyEnlace(p, enlace);
     const orig = state.people.find(x => String(x.id) === String(p.id));
     if (orig) Object.assign(orig, p);
+    const target = enlace ? state.people.find(x => String(x.id) === String(enlace)) : null;
+    if (target && String(target.enlace || '') === String(p.id)) {
+      const origT = state.people.find(x => String(x.id) === String(target.id));
+      if (origT) origT.enlace = String(p.id);
+    }
     closeModal();
     toast('Perfil actualizado', 'success');
     renderLists();
@@ -2879,8 +2913,8 @@ const UPLOAD_TYPES = [
     key: 'people',
     title: 'Personas',
     icon: 'group',
-    desc: 'Lista de participantes con sus atributos. Use la plantilla descargable, complétela y súbala convertida a PDF.',
-    pdfHint: 'Se extraen nombres, género, calificación, grupo y labores de la tabla para revisar.',
+    desc: 'Lista de participantes. Use la plantilla descargable (solo Nombre, Género y Calificación), complétela y súbala convertida a PDF.',
+    pdfHint: 'Se extraen nombre, género y calificación de la tabla. Los roles y las parejas se asignan después en el sistema.',
   },
   {
     key: 'midweeks',
@@ -2909,7 +2943,7 @@ async function renderUploads() {
           <button data-dl-template class="flex items-center gap-2 border border-tertiary text-tertiary px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-tertiary-fixed/40 transition-colors">
             <span class="material-symbols-outlined text-[18px]">download</span> Descargar plantilla
           </button>
-          <span class="flex items-center gap-1 text-caption text-on-surface-variant"><span class="material-symbols-outlined text-[16px]">info</span> Llene la plantilla, conviértala a PDF y súbala aquí.</span>
+          <span class="flex items-center gap-1 text-caption text-on-surface-variant"><span class="material-symbols-outlined text-[16px]">info</span> Llene la plantilla (Nombre, Género, Calificación), conviértala a PDF y súbala aquí.</span>
         </div>` : ''}
       <div data-slot="pdf">
         <label for="upl-pdf-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
@@ -3052,11 +3086,19 @@ async function cargarGuiaMidweeks(summary, text, label, status) {
 }
 
 // Descarga la plantilla de participantes (Excel .xls con tabla).
+// Solo pide Nombre, Género y Calificación; los roles y las parejas se asignan
+// después en el sistema.
 function downloadPeopleTemplate() {
-  const groups = state.departments.map(d => d.name).join(', ') || '1, 2, 3';
-  const labores = state.labores.map(r => r.label).join(', ');
   const html = `<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><title>Plantilla de participantes</title>
+<html lang="es" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+<head>
+<meta charset="UTF-8">
+<meta name="ProgId" content="Excel.Sheet">
+<meta name="Generator" content="Reunión+">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+<x:Name>Participantes</x:Name>
+<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
 <style>
   body { font-family: Arial, sans-serif; margin: 24px; }
   h2 { color: #1a3a5c; }
@@ -3066,13 +3108,13 @@ function downloadPeopleTemplate() {
   th { background: #e8f0f8; }
 </style></head><body>
   <h2>Reunión+ · Plantilla de participantes</h2>
-  <p class="small">Complete una fila por participante. Género: Masculino/Femenino. Calificación: A, B, C o D (D = requiere enlace). Grupo: número o nombre del grupo (grupos: ${groups}). Labores: separe con comas (labores: ${labores}). Luego convierta la hoja a PDF y súbala en Personas.</p>
+  <p class="small">Complete una fila por participante. Género: Masculino o Femenino. Calificación: A, B, C o D (D = requiere enlace de pareja). Los roles de asignación y las parejas se ingresan después en el sistema. Luego convierta la hoja a PDF y súbala en la vista Carga de Archivos.</p>
   <table>
-    <thead><tr><th>Nombre</th><th>Género</th><th>Calificación</th><th>Grupo</th><th>Labores</th></tr></thead>
+    <thead><tr><th>Nombre</th><th>Género</th><th>Calificación</th></tr></thead>
     <tbody>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
     </tbody>
   </table>
 </body></html>`;
@@ -3622,6 +3664,12 @@ async function renderSettings() {
   renderTop();
   const congregation = await db.getSetting('congregation', '');
   const config = await db.getConfig();
+  const algo = { ...defaultAlgorithmConfig(), ...(config.algorithm || {}) };
+  const scoring = { ...defaultScoringConfig(), ...((config.algorithm || {}).scoring || {}) };
+  const personasOptions = (sel, cur) => `<option value="">—</option>${state.people.map(p => `<option value="${escapeAttr(String(p.id))}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeAttr(p.name)}</option>`).join('')}`;
+  const selMode = (cur) => ['PREFERRED', 'LIMIT', 'STRICT'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'PREFERRED' ? 'Preferida (permite 1 repetición)' : m === 'LIMIT' ? 'Límite estricto' : 'Prohibida'}</option>`).join('');
+  const selPair = (cur) => ['NOT_ALLOWED', 'ALLOWED_LOW', 'ALLOWED_MEDIUM', 'ALLOWED_HIGH'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'NOT_ALLOWED' ? 'Prohibido' : m === 'ALLOWED_LOW' ? 'Solo con motivo' : m === 'ALLOWED_MEDIUM' ? 'Permitido' : 'Permitido (prioridad)'}</option>`).join('');
+  const selLevel = (cur) => ['A', 'B', 'C'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>Nivel ${m}</option>`).join('');
   const app = $('#app');
 
   app.innerHTML = `
@@ -3692,6 +3740,91 @@ async function renderSettings() {
         <div class="flex gap-3 pt-2">
           <button id="grpSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar grupos</button>
           <button id="grpAuto" class="px-5 py-2.5 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container">Aplicar rotación a todos los programas</button>
+        </div>
+      </div>
+
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Motor de asignación automática</h3>
+          <p class="text-on-surface-variant text-sm mb-4">Reglas que sigue el algoritmo al generar propuestas y el peso de cada dimensión en la puntuación 0-100.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Propuestas a generar</label>
+            <input id="algoPropuestas" type="number" value="${escapeAttr(algo.numberOfProposals)}" min="1" max="10" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Máx. misma asignación / mes</label>
+            <input id="algoMaxRep" type="number" value="${escapeAttr(algo.maxSameAssignmentPerMonth)}" min="0" max="4" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Repetición mensual</label>
+            <select id="algoModeRep" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selMode(algo.sameAssignmentMonthlyMode)}</select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Pareja de género mixto</label>
+            <select id="algoPairMode" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selPair(algo.mixedGenderPairing)}</select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Nivel del lector estudiantil</label>
+            <select id="algoLectorNivel" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selLevel(algo.studentReaderLevel)}</select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Conductor permanente</label>
+            <select id="algoConductor" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Conductor suplente</label>
+            <select id="algoConductorBackup" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorBackupId)}</select>
+          </div>
+          <div class="flex items-end">
+            <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant cursor-pointer py-2.5">
+              <input id="algoServiceMale" type="checkbox" ${algo.serviceRolesOnlyMale ? 'checked' : ''} class="accent-primary"> Labores de servicio solo hombres
+            </label>
+          </div>
+        </div>
+
+        <div class="border-t border-outline-variant pt-5">
+          <div class="mb-3">
+            <p class="font-label-md text-label-md text-on-surface uppercase tracking-wider">Ponderación del ranking</p>
+            <p class="text-on-surface-variant text-caption">Peso de cada dimensión en la puntuación 0-100 de las propuestas.</p>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Equilibrio de carga</label>
+              <input id="scWorkload" type="number" value="${escapeAttr(scoring.workloadBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Rotación de roles</label>
+              <input id="scRotacion" type="number" value="${escapeAttr(scoring.roleRotation)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Reparto semanal</label>
+              <input id="scSemanal" type="number" value="${escapeAttr(scoring.weeklyBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Menos repetición mensual</label>
+              <input id="scRepeticion" type="number" value="${escapeAttr(scoring.monthlyRepetition)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Protección de escasez</label>
+              <input id="scEscasez" type="number" value="${escapeAttr(scoring.scarceRoleProtection)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Alternancia encargado/ayudante</label>
+              <input id="scParejas" type="number" value="${escapeAttr(scoring.pairRoleBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+            <div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Oportunidad a estudiantes</label>
+              <input id="scOportunidad" type="number" value="${escapeAttr(scoring.studentOpportunityBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button id="algoSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar motor</button>
+          <button id="algoReset" class="px-4 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Restaurar</button>
         </div>
       </div>
 
@@ -3776,6 +3909,46 @@ async function renderSettings() {
     toast('Grupos guardados', 'success');
   };
   $('#grpSave').onclick = saveGroups;
+
+  // ---- Motor de asignación: guardar/restaurar reglas + ponderación ----
+  const readAlgoForm = () => {
+    const a = {
+      numberOfProposals: Math.min(10, Math.max(1, parseInt($('#algoPropuestas').value, 10) || 3)),
+      maxSameAssignmentPerMonth: Math.min(4, Math.max(0, parseInt($('#algoMaxRep').value, 10) || 1)),
+      sameAssignmentMonthlyMode: $('#algoModeRep').value,
+      mixedGenderPairing: $('#algoPairMode').value,
+      studentReaderLevel: $('#algoLectorNivel').value,
+      permanentConductorId: $('#algoConductor').value,
+      permanentConductorBackupId: $('#algoConductorBackup').value,
+      serviceRolesOnlyMale: $('#algoServiceMale').checked,
+    };
+    const s = {
+      workloadBalance: parseInt($('#scWorkload').value, 10) || 0,
+      roleRotation: parseInt($('#scRotacion').value, 10) || 0,
+      weeklyBalance: parseInt($('#scSemanal').value, 10) || 0,
+      monthlyRepetition: parseInt($('#scRepeticion').value, 10) || 0,
+      scarceRoleProtection: parseInt($('#scEscasez').value, 10) || 0,
+      pairRoleBalance: parseInt($('#scParejas').value, 10) || 0,
+      studentOpportunityBalance: parseInt($('#scOportunidad').value, 10) || 0,
+    };
+    return { a, s };
+  };
+  $('#algoSave').onclick = async () => {
+    const { a, s } = readAlgoForm();
+    const cfg = await db.getConfig();
+    cfg.algorithm = { ...a, scoring: s };
+    await db.setConfig(cfg);
+    state.config = cfg;
+    toast('Motor de asignación guardado', 'success');
+  };
+  $('#algoReset').onclick = async () => {
+    const cfg = await db.getConfig();
+    cfg.algorithm = { ...defaultAlgorithmConfig(), scoring: { ...defaultScoringConfig() } };
+    await db.setConfig(cfg);
+    state.config = cfg;
+    toast('Motor restaurado a valores por defecto', 'success');
+    renderSettings();
+  };
 
   $('#grpAuto').onclick = async () => {
     await saveGroups();

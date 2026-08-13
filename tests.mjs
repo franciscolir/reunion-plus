@@ -13,7 +13,7 @@ import {
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
-  isStudentPerson, isStudentLabore,
+  isStudentPerson, isStudentLabore, laboreAllowedForPerson,
   extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
   mulberry32, rotateSeed, generateOneProposal, generateProposals, scoreSolution,
@@ -438,6 +438,55 @@ console.log('[rebuildPdfWords]');
     `out=${JSON.stringify(out.slice(0, 200))}`);
 }
 {
+  // Tabla de participantes (plantilla Nombre/Género/Calificación exportada a
+  // PDF): celdas alineadas en columnas estrechas (~1px de dispersión). rebuildPdfWords
+  // debe NO partir la página en dos bloques y conservar cada fila con sus 3 celdas.
+  const fs = 10;
+  const glyph = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y], width: str.length * 6, height: fs });
+  const items = [];
+  const rows = [
+    ['Nombre', 'Género', 'Calificación'],
+    ['Ana', 'Femenino', 'A'],
+    ['Juan Pérez', 'Masculino', 'B'],
+  ];
+  const xs = [70, 220, 360];
+  rows.forEach((cells, ri) => {
+    const y = 300 - ri * 20;
+    cells.forEach((cell, ci) => items.push(glyph(cell, xs[ci], y)));
+  });
+  const txt = rebuildPdfWords(items);
+  const lines = txt.split('\n').filter(Boolean);
+  ok('tabla: filas conservadas con sus 3 celdas', lines.length === rows.length, `got=${JSON.stringify(lines)}`);
+  ok('tabla: encabezado completo', lines[0] === 'Nombre Género Calificación', `l0=${JSON.stringify(lines[0])}`);
+  ok('tabla: fila con nombre compuesto completa', /Juan Pérez\s+Masculino\s+B/.test(lines[2]), `l2=${JSON.stringify(lines[2])}`);
+}
+{
+  // Caso real: lista.pdf exportado de Excel con columnas en x=71/221/364 y
+  // muchas filas (dispersión ~1px por columna). Antes el k-means k=2 lo partía
+  // en dos bloques (nombres | género+calificación) y rompía las filas.
+  const fs = 10;
+  const glyph = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y], width: str.length * 6, height: fs });
+  const items = [];
+  const rows = [
+    ['Nombre', 'Género', 'Calificación'],
+    ['rigoberto toledo', 'Masculino', 'a'],
+    ['silvia toledo', 'femenino', 'c'],
+    ['gregorio de la fuente', 'Masculino', 'a'],
+    ['alejandra de la fuente', 'femenino', 'a'],
+  ];
+  const xs = [71, 221, 364];
+  rows.forEach((cells, ri) => {
+    const y = 500 - ri * 20;
+    cells.forEach((cell, ci) => items.push(glyph(cell, xs[ci], y)));
+  });
+  const txt = rebuildPdfWords(items);
+  const parsed = convertPdfPeople(txt, { labores: [] });
+  ok('real: no parte en dos bloques, filas completas', txt.split('\n').filter(Boolean).length === rows.length, `got=${JSON.stringify(txt)}`);
+  ok('real: parser detecta todas las personas', parsed.data?.personas?.length === rows.length - 1, `got=${parsed.data?.personas?.length}`);
+  ok('real: género y calificación correctos', parsed.data.personas[0].genero === 'masculino' && parsed.data.personas[0].calificacion === 'A', `got=${JSON.stringify(parsed.data.personas[0])}`);
+  ok('real: nombre compuesto conservado', parsed.data.personas[2].name === 'gregorio de la fuente');
+}
+{
   // Texto naturalmente espaciado (lo que produce rebuildPdfWords): el parser
   // debe respetar los títulos sin usar el diccionario.
   const natural = [
@@ -577,9 +626,12 @@ ok('A+C mixto sin enlace inválido', canBePair(p(1, 'A', 'masculino'), p(2, 'C',
 // A+C sin género definido → válido por tabla.
 ok('A+C sin género válido', canBePair(p(1, 'A', ''), p(2, 'C', '')) === true);
 ok('A+A inválido', canBePair(p(1, 'A', ''), p(2, 'A', '')) === false);
-// D solo con su enlace mutuo.
+// D con su enlace (basta que el D apunte a su pareja, no exige enlace mutuo).
 ok('D con su enlace válido', canBePair(p(1, 'D', 'masculino', '2'), p(2, 'D', 'masculino', '1')));
-ok('D sin enlace mutuo inválido', canBePair(p(1, 'D', 'masculino', ''), p(2, 'D', 'masculino', '1')) === false);
+ok('D sin enlace inválido', canBePair(p(1, 'D', 'masculino', ''), p(2, 'D', 'masculino', '1')) === false);
+ok('D apunta a su pareja: válido aunque la pareja no apunte de vuelta', canBePair(p(1, 'D', 'masculino', '2'), p(2, 'B', 'femenino', '')) === true);
+ok('D no enlazado a esta pareja: inválido', canBePair(p(1, 'D', 'masculino', '3'), p(2, 'B', 'femenino', '')) === false);
+ok('D con su pareja (que tiene su propio enlace) válido', canBePair(p(1, 'D', 'masculino', '2'), p(2, 'B', 'masculino', '3')) === true);
 // Mismo género siempre válido (aunque calificación A+A).
 ok('mismo género A+A válido', canBePair(p(1, 'A', 'masculino'), p(2, 'A', 'masculino')));
 // Mixto solo si enlazados.
@@ -592,6 +644,17 @@ ok('sin calificación ni género: permitida', canBePair(p(1, '', ''), p(2, '', '
 ok('una sola sin calificación: permitida', canBePair(p(1, '', ''), p(2, 'A', '')) === true);
 // Mixto sin enlace sigue inválido aunque falte la calificación.
 ok('mixto sin enlace inválido aunque falte calificación', canBePair(p(1, '', 'masculino'), p(2, 'A', 'femenino')) === false);
+
+// --- Labores permitidas por género (laboreAllowedForPerson) ---
+console.log('[laboreAllowedForPerson]');
+ok('mujer: presentación permitida', laboreAllowedForPerson({ genero: 'femenino' }, 'asignacion2'));
+ok('mujer: demás labores bloqueadas', laboreAllowedForPerson({ genero: 'femenino' }, 'presidente') === false);
+ok('mujer: lectura bloqueada', laboreAllowedForPerson({ genero: 'femenino' }, 'asignacion1') === false);
+ok('mujer: discurso estudiantil bloqueado', laboreAllowedForPerson({ genero: 'femenino' }, 'asignacion3') === false);
+ok('hombre: todas las labores permitidas', laboreAllowedForPerson({ genero: 'masculino' }, 'orador'));
+ok('hombre: lectura permitida', laboreAllowedForPerson({ genero: 'masculino' }, 'asignacion1'));
+ok('sin género: todas permitidas', laboreAllowedForPerson({ genero: '' }, 'presidente'));
+ok('sin persona: todas permitidas', laboreAllowedForPerson(null, 'presidente'));
 
 console.log('[isStudentPerson / isStudentLabore]');
 ok('isStudentLabore asignacion2', isStudentLabore('asignacion2') === true);
@@ -1000,6 +1063,28 @@ console.log('[convertPdfPeople: tabla]');
   const { data, warnings } = convertPdfPeople(txt, { labores });
   ok('encabezado abreviado detecta 2 personas', data?.personas?.length === 2);
   ok('nombres correctos', data.personas[0].name === 'Pedro Ruiz' && data.personas[1].name === 'Lucía Díaz');
+}
+{
+  // Plantilla actual (3 columnas): el encabezado puede venir partido en varias
+  // líneas (cada celda en su línea, típico de exportación PDF).
+  const txt = 'Nombre\nGénero\nCalificación\nAna Pérez Femenino A\nJuan López Masculino B';
+  const r = convertPdfPeople(txt, { labores: ['presidente'] });
+  ok('encabezado en líneas separadas detecta 2 personas', r.data?.personas?.length === 2, `got=${r.data?.personas?.length}`);
+  ok('fila con nombre compuesto y calificación', r.data.personas[0].name === 'Ana Pérez' && r.data.personas[0].genero === 'femenino' && r.data.personas[0].calificacion === 'A');
+  ok('no incluye la línea Calificación como persona', !r.data.personas.some(p => p.name.toLowerCase().includes('calific')));
+}
+{
+  // Plantilla con separador de columna "|" (Excel exportado a PDF).
+  const txt = 'Nombre | Género | Calificación\nAna Pérez | Femenino | A';
+  const r = convertPdfPeople(txt, { labores: [] });
+  ok('fila con pipes se limpia', r.data?.personas?.length === 1 && r.data.personas[0].name === 'Ana Pérez', `got=${JSON.stringify(r.data)}`);
+}
+{
+  // Plantilla de 3 columnas clásica en una sola línea de encabezado.
+  const txt = 'Nombre Género Calificación\nAna Pérez Femenino A\nMaría González Femenino C';
+  const r = convertPdfPeople(txt, { labores: ['presidente'] });
+  ok('3 columnas detecta 2 personas', r.data?.personas?.length === 2);
+  ok('sin grupo ni labores quedan vacíos', r.data.personas.every(p => p.grupoId === '' && p.labores.length === 0));
 }
 
 // --- motor configurable: defaults ---
