@@ -22,28 +22,35 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'admin';
     }
-    // ¿El usuario tiene un documento en `usuarios/{uid}` con rol reader?
-    function esReader() {
-      return autenticado() &&
-        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'reader';
-    }
     // ¿El documento corresponde al propio usuario autenticado?
     function esPropietario(uid) {
       return autenticado() && request.auth.uid == uid;
     }
-    // Reglas por rol para cualquier colección de datos de la app.
-    function lecturaApp() { return autenticado(); }
+    // ¿El correo del usuario está en la whitelist (configuracion/general.emailsPermitidos)?
+    function emailPermitido() {
+      let cfg = get(/databases/$(database)/documents/configuracion/general);
+      return autenticado() &&
+        cfg.exists() &&
+        cfg.data.config != null &&
+        cfg.data.config.emailsPermitidos != null &&
+        cfg.data.config.emailsPermitidos.hasAny([request.auth.token.email]);
+    }
+    // La lectura exige que el usuario sea admin o que su correo esté en la
+    // whitelist (configuracion/general.emailsPermitidos). Las cuentas autenticadas
+    // cuyo correo no esté autorizado no pueden leer datos de la congregación.
+    function lecturaApp() {
+      return autenticado() && (esAdmin() || emailPermitido());
+    }
     function escrituraApp() { return esAdmin(); }
 
     // ---- usuarios ----
     // Cada usuario lee su propio documento; los admins leen todos.
-    // Cualquier usuario autenticado puede crear SU documento (primer login),
-    // pero siempre con rol 'reader' (nunca admin). Solo un admin puede
-    // promocionar/cambiar/eliminar roles.
+    // Un usuario autenticado puede crear SU documento (primer login) solo si su
+    // correo está en la whitelist, y siempre con rol 'reader' (nunca admin).
+    // Solo un admin puede promocionar/cambiar/eliminar roles.
     match /usuarios/{uid} {
       allow read: if autenticado() && (esAdmin() || esPropietario(uid));
-      allow create: if esPropietario(uid) && request.resource.data.rol == 'reader';
+      allow create: if esPropietario(uid) && emailPermitido() && request.resource.data.rol == 'reader';
       allow update: if esAdmin();
       allow delete: if esAdmin();
     }

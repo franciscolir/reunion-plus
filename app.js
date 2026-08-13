@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady, borrarParticipantesReunionesProgramas, limpiarTodasLasColecciones } from './firestore.js';
 import { iniciarSync, pullSiVacio, reconciliar, syncStatus } from './sync.js';
-import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
+import { login, loginWithGoogle, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
@@ -54,12 +54,15 @@ async function init() {
   // Autenticación: restaurar sesión persistente y actualizar la UI.
   onAuthChange((user) => {
     renderAuthUI();
+    // Al cambiar la sesión, refrescar la vista Inicio (bienvenida ↔ tablero).
+    if (state.view === 'home') router();
     // Al iniciar sesión en un dispositivo sin datos locales, traer de Firebase.
     if (user && isAuthenticated()) pullSiVacio().catch(() => {});
     if (user && isAuthenticated()) reconciliar().catch(() => {});
   });
   restoreSession().catch(() => {}).finally(renderAuthUI);
   window.addEventListener('hashchange', router);
+  initSyncIndicator();
   router();
 }
 
@@ -73,6 +76,40 @@ async function refreshCatalogs() {
   state.labores = (saved && Array.isArray(saved) && saved.length)
     ? saved
     : DEFAULT_LABORES.map(r => ({ ...r }));
+}
+
+// Indicador global de descarga/sincronización con Firebase. Simple e intuitivo:
+// un punto animado con el mensaje actual, que desaparece al terminar.
+// Escucha el evento `reunion-sync` que emite sync.js y refresca la vista al
+// finalizar una descarga para mostrar los datos recién bajados.
+function initSyncIndicator() {
+  const root = el(`<div id="syncIndicator" class="hidden fixed items-center gap-2.5 rounded-full bg-surface-container-high px-4 py-2 shadow-[0_4px_16px_rgba(0,0,0,0.18)] text-sm font-medium text-on-surface" style="left:50%;top:56px;transform:translateX(-50%);z-index:70;">
+    <span class="spinner" style="width:14px;height:14px;border:2px solid #2e5e2e;border-top-color:transparent;border-radius:50%;display:inline-block"></span>
+    <span id="syncIndicatorTxt">Descargando datos…</span>
+  </div>`);
+  document.body.appendChild(root);
+  const style = document.createElement('style');
+  style.textContent = '#syncIndicator{display:flex}.spinner{animation:rp-spin .8s linear infinite}@keyframes rp-spin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(style);
+
+  let descargando = false;
+  const pintar = (st) => {
+    const txt = $('#syncIndicatorTxt');
+    if (!txt) return;
+    if (st.state === 'syncing') {
+      root.classList.remove('hidden');
+      txt.textContent = st.detail || 'Sincronizando…';
+      descargando = descargando || /descargando|descarga|conciliando/i.test(String(st.detail || ''));
+    } else {
+      root.classList.add('hidden');
+      if (descargando) {
+        descargando = false;
+        // La descarga terminó: refrescar catálogos y repintar la vista actual.
+        refreshCatalogs().then(() => router()).catch((err) => console.warn('[Reunión+] Refresco tras descarga falló', err));
+      }
+    }
+  };
+  window.addEventListener('reunion-sync', (e) => pintar(e.detail || {}));
 }
 
 // Reconstruye el historial de asignaciones desde el estado actual de todos los
@@ -153,7 +190,9 @@ async function onClickAuthBtn() {
     await logout();
     toast('Sesión cerrada', 'success');
     renderAuthUI();
-    if (state.view === 'settings') renderSettings();
+    // Con la sesión cerrada, la app vuelve a la bienvenida (bloqueo real).
+    if (location.hash.replace(/^#\/?/, '') !== 'home') location.hash = '#/home';
+    renderWelcome();
     return;
   }
   openLoginModal();
@@ -180,8 +219,33 @@ function openLoginModal() {
           <button type="submit" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Entrar</button>
         </div>
       </form>
+      <div class="flex items-center gap-3 my-4">
+        <div class="flex-1 h-px bg-outline-variant"></div>
+        <span class="text-on-surface-variant text-sm">o</span>
+        <div class="flex-1 h-px bg-outline-variant"></div>
+      </div>
+      <button type="button" id="loginGoogle" class="w-full flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">
+        <svg class="w-4 h-4" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continuar con Google
+      </button>
+      <p class="text-on-surface-variant text-xs mt-3">Acceso restringido a los correos autorizados por la congregación.</p>
     </div>`);
   $('#loginCancel').onclick = closeModal;
+  $('#loginGoogle').onclick = async () => {
+    try {
+      await loginWithGoogle();
+      closeModal();
+      toast('Sesión iniciada', 'success');
+      renderAuthUI();
+    } catch (err) {
+      toast('No se pudo iniciar sesión: ' + (err.message || err), 'error');
+    }
+  };
   $('#loginForm').onsubmit = async (e) => {
     e.preventDefault();
     const email = $('#loginEmail').value.trim();
@@ -227,6 +291,15 @@ function router() {
   const [path, query] = hash.split('?');
   const segs = path.split('/').filter(Boolean);
   const view = segs[0] || 'home';
+  // Arquitectura segura: sin sesión, la única pantalla accesible es la
+  // bienvenida; cualquier vista interna queda bloqueada.
+  if (appBloqueada()) {
+    state.view = 'home';
+    renderTop();
+    renderSide();
+    renderWelcome();
+    return;
+  }
   state.view = view;
   if (segs[1]) state.monthId = segs[1];
   const qp = new URLSearchParams(query || '');
@@ -311,8 +384,18 @@ function confirmDialog(message, okText = 'Confirmar') {
 }
 
 /* ---------- Top + Side ---------- */
+// Bloqueo real de la app: si Firebase está configurado y no hay sesión, la única
+// pantalla accesible es la bienvenida con el botón de inicio de sesión. La
+// seguridad efectiva la impone `firestore.rules`; esta es la capa de UI.
+function appBloqueada() {
+  return isFirebaseConfigured() && !isAuthenticated();
+}
+
 function renderTop() {
   const nav = $('#topNav');
+  // Sin sesión: ocultar la navegación, solo queda la bienvenida.
+  if (appBloqueada()) { nav.innerHTML = ''; $('#settingsBtn').style.display = 'none'; $('#topTitle').textContent = 'Reunión+'; $('#topBadge').classList.add('hidden'); return; }
+  $('#settingsBtn').style.display = 'flex';
   const items = [
     { id: 'home', label: 'Inicio' },
     { id: 'lists', label: 'Listas' },
@@ -337,6 +420,16 @@ function renderTop() {
 }
 
 function renderSide() {
+  const nav = $('#sideNavItems');
+  // Sin sesión: sin navegación lateral ni acciones administrativas.
+  if (appBloqueada()) {
+    nav.innerHTML = '';
+    $('#sideNewMonth').style.display = 'none';
+    $('#sideAbout').style.display = 'none';
+    return;
+  }
+  $('#sideNewMonth').style.display = '';
+  $('#sideAbout').style.display = '';
   const items = [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
@@ -345,7 +438,6 @@ function renderSide() {
     { id: 'eventos', icon: 'event', label: 'Eventos', view: 'eventos' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
   ];
-  const nav = $('#sideNavItems');
   nav.innerHTML = items.map(i =>
     `<button data-go="${i.id}" class="flex items-center gap-3 px-4 py-3 ${state.view === i.view ? 'bg-secondary-container text-on-secondary-container rounded-lg font-bold' : 'text-on-surface-variant hover:bg-surface-variant rounded-lg'} transition-all w-full text-left">
       <span class="material-symbols-outlined">${i.icon}</span>
@@ -356,8 +448,34 @@ function renderSide() {
 }
 
 /* ---------- HOME: Tablero principal ---------- */
+// Página de bienvenida a la app: se muestra en la vista Inicio cuando no hay
+// sesión activa. Ofrece el botón de inicio de sesión de la congregación.
+function renderWelcome() {
+  const app = $('#app');
+  app.innerHTML = `
+    <div class="flex flex-col items-center justify-center text-center py-16 md:py-24">
+      <div class="w-20 h-20 rounded-2xl bg-primary text-on-primary flex items-center justify-center mb-6 shadow-lg">
+        <span class="material-symbols-outlined text-5xl">auto_stories</span>
+      </div>
+      <h1 class="font-display-lg text-display-lg text-primary mb-3">Bienvenido a Reunión+</h1>
+      <p class="font-body-lg text-body-lg text-on-surface-variant max-w-md mb-8">
+        Organiza el programa mensual de las reuniones de la congregación: asignaciones,
+        reuniones de entre semana, atención y salidas, todo en un solo lugar.
+      </p>
+      <button id="welcomeLogin" class="flex items-center gap-2 bg-primary text-on-primary px-8 py-3.5 rounded-xl font-label-lg text-label-lg hover:opacity-90 hover:shadow-lg transition-all active:scale-95">
+        <span class="material-symbols-outlined text-[22px]">login</span>
+        Entrar
+      </button>
+      <button id="welcomeMore" class="mt-3 text-on-surface-variant text-sm underline hover:text-primary transition-colors">¿Qué es esto?</button>
+    </div>
+  `;
+  $('#welcomeLogin').onclick = openLoginModal;
+  $('#welcomeMore').onclick = () => go('about');
+}
+
 async function renderHome() {
   state.month = null;
+  if (isFirebaseConfigured() && !isAuthenticated()) { renderWelcome(); return; }
   const months = await db.listMonths();
   months.sort((a, b) => b.id.localeCompare(a.id));
   _homeMonths = months;
@@ -3781,6 +3899,21 @@ async function renderSettings() {
         </div>
       </div>
 
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6" data-admin>
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Acceso de usuarios</h3>
+          <p class="text-on-surface-variant text-sm">Lista de correos autorizados para iniciar sesión (con correo/contraseña o con Google). Solo los correos que aparecen aquí pueden entrar y ver los datos. Un correo por línea; cada usuario mantiene su propio rol.</p>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Correos permitidos</label>
+          <textarea id="cfgEmails" rows="5" placeholder="usuario1@ejemplo.com&#10;usuario2@ejemplo.com"
+            class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${escapeAttr(Array.isArray(config.emailsPermitidos) ? config.emailsPermitidos.join('\n') : '')}</textarea>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button id="cfgEmailsSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar lista de correos</button>
+        </div>
+      </div>
+
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
         <div>
           <h3 class="font-headline-md text-headline-md text-primary mb-1">Motor de asignación automática</h3>
@@ -3947,6 +4080,18 @@ async function renderSettings() {
     toast('Grupos guardados', 'success');
   };
   $('#grpSave').onclick = saveGroups;
+
+  // ---- Acceso de usuarios: guardar whitelist de correos ----
+  $('#cfgEmailsSave').onclick = async () => {
+    const cfg = await db.getConfig();
+    cfg.emailsPermitidos = $('#cfgEmails').value
+      .split(/\n|,/)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    await db.setConfig(cfg);
+    state.config = cfg;
+    toast('Lista de correos guardada', 'success');
+  };
 
   // ---- Motor de asignación: guardar/restaurar reglas + ponderación ----
   const readAlgoForm = () => {

@@ -135,9 +135,22 @@ async function commitSilent(storeName, run) {
 }
 
 // ===== MONTHS =====
+// Normaliza las semanas de un programa: compatibilidad con datos que todavía
+// usan el campo `tipo` (Firestore/migraciones) en lugar de `type`.
+function normalizarWeeks(month) {
+  if (!month || !Array.isArray(month.weeks)) return month;
+  return {
+    ...month,
+    weeks: month.weeks.map(w => {
+      if (w && !w.type && w.tipo) return { ...w, type: w.tipo };
+      return w;
+    }),
+  };
+}
+
 export async function getMonth(id) {
   const db = await openDB();
-  return reqToPromise(tx(db, STORE_MONTHS).get(id));
+  return normalizarWeeks(await reqToPromise(tx(db, STORE_MONTHS).get(id)));
 }
 
 export async function putMonth(month) {
@@ -152,7 +165,8 @@ export async function deleteMonth(id) {
 
 export async function listMonths() {
   const db = await openDB();
-  return reqToPromise(tx(db, STORE_MONTHS).getAll());
+  const all = await reqToPromise(tx(db, STORE_MONTHS).getAll());
+  return all.map(normalizarWeeks);
 }
 
 // ===== PEOPLE =====
@@ -323,6 +337,7 @@ export function defaultConfig() {
     events: { commemorations: [], visits: [], assemblies: [] },
     groups: { cantidad: 3, start: 1, labores: '' }, // nº de grupos, grupo inicial (1-based), labores comunes
     algorithm: defaultAlgorithmConfig(),
+    emailsPermitidos: [], // whitelist de correos autorizados para iniciar sesión
   };
 }
 
@@ -340,6 +355,7 @@ export async function getConfig() {
     },
     groups: { ...def.groups, ...(v.groups || {}) },
     algorithm: { ...defaultAlgorithmConfig(), ...(v.algorithm || {}) },
+    emailsPermitidos: Array.isArray(v.emailsPermitidos) ? v.emailsPermitidos.map(e => String(e).trim().toLowerCase()).filter(Boolean) : [],
   };
 }
 export async function setConfig(cfg) {

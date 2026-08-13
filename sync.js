@@ -406,12 +406,17 @@ async function desplegarPrograma(prog) {
   const semanas = (prog.semanas || []).map(s => ({
     ...s,
     date: s.fecha,
+    type: s.tipo || s.type || 'normal',
     outings: (s.salidas || []).map(o => ({ oradorSalida: o.oradorSalida, tituloDiscurso: o.tituloDiscurso })),
     labores: s.atencion || {},
     group: (s.aseo && s.aseo.grupo) || '',
   }));
   if (prog.mes && prog.month && semanas.length) {
-    await db.putMonthSilent({ id: mes, year: prog.year, month: prog.month, weeks: semanas.map(w => ({ ...w, labores: undefined, group: undefined, salidas: undefined, atencion: undefined, aseo: undefined, outings: w.outings })), published: !!prog.published });
+    const limpiar = (w) => {
+      const { tipo, salidas, atencion, aseo, ...rest } = w;
+      return { ...rest, outings: w.outings };
+    };
+    await db.putMonthSilent({ id: mes, year: prog.year, month: prog.month, weeks: semanas.map(limpiar), published: !!prog.published });
     await db.putSalidasSilent({ id: mes, weeks: semanas.map(w => ({ saturday: w.fecha, outings: w.outings })) });
     await db.putAtencionSilent({ id: mes, weeks: semanas.map(w => ({ saturday: w.fecha, labores: w.labores })) });
     await db.putAseoSilent({ id: mes, weeks: semanas.map(w => ({ saturday: w.fecha, group: w.group })) });

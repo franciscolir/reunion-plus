@@ -17,3 +17,10 @@ desktop.ini
 
 # Dependencias (no aplica: app sin build)
 node_modules/
+# PDFs con copyright / materiales de reuniones
+mwb_S_*.pdf
+lista.pdf
+plantilla-participantes.xls
+
+# Cache de Firebase CLI (local)
+.firebase/

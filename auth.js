@@ -8,7 +8,7 @@
 // devuelve false y las funciones de sesión no hacen nada (la app sigue offline).
 
 import { FIREBASE_SDK_BASE, isFirebaseConfigured, getFirebaseApp } from './firebase-config.js';
-import { obtenerUsuario, guardarUsuario } from './firestore.js';
+import { obtenerUsuario, guardarUsuario, obtenerConfiguracion } from './firestore.js';
 
 let _auth = null;
 let _currentUser = null;      // { uid, email, rol }
@@ -39,7 +39,31 @@ function errorLogin(msg) {
   if (/TOO_MANY_ATTEMPTS|too-many-requests/.test(m)) return 'Demasiados intentos. Espere un momento y vuelva a intentar.';
   if (/NETWORK_ERROR|network-request-failed/.test(m)) return 'Sin conexión. Verifique su red e intente de nuevo.';
   if (/user-disabled/.test(m)) return 'La cuenta está deshabilitada.';
+  if (/popup-blocked|popup-closed|cancelled-popup|account-exists-with-different-credential|unauthorized-domain/.test(m)) return 'No se pudo completar el acceso con Google. La cuenta de la congregación y la de Google deben coincidir; verifique los dominios autorizados en la consola de Firebase.';
   return String(msg || 'No se pudo iniciar sesión.');
+}
+
+// ¿El correo del usuario está autorizado para acceder a los datos? Regla compartida
+// con firestore.rules (lecturaApp): admin siempre permitido, resto por whitelist.
+async function emailAutorizado(p) {
+  const email = String((p && p.email) || '').trim().toLowerCase();
+  if (!email) return { ok: false, reason: 'denied' };
+  try {
+    const propio = await obtenerUsuario(p.uid);
+    if (propio && propio.rol === 'admin') return { ok: true };
+  } catch (e) { /* sin permiso para leer su doc propio: sigue */ }
+  try {
+    const cfg = await obtenerConfiguracion();
+    const list = (cfg && cfg.config && Array.isArray(cfg.config.emailsPermitidos))
+      ? cfg.config.emailsPermitidos.map((e) => String(e).trim().toLowerCase())
+      : [];
+    if (list.includes(email)) return { ok: true };
+    return { ok: false, reason: 'denied' };
+  } catch (e) {
+    const m = String((e && (e.code || e.message)) || e);
+    if (/permission-denied|PERMISSION_DENIED|insufficient/.test(m)) return { ok: false, reason: 'denied' };
+    return { ok: false, reason: 'error', msg: errorLogin(e.message || e.code || e) };
+  }
 }
 
 // Inicia sesión con email + contraseña.
@@ -49,9 +73,41 @@ export async function login(email, password) {
   const { signInWithEmailAndPassword } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-auth.js');
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
+    const aut = await emailAutorizado(cred.user);
+    if (!aut.ok) {
+      await logout();
+      throw new Error(aut.reason === 'denied' ? 'Tu correo no está autorizado para acceder a esta aplicación.' : aut.msg);
+    }
     await refreshUser(cred.user);
     return _currentUser;
   } catch (err) {
+    throw new Error(errorLogin(err.message || err.code || err));
+  }
+}
+
+// Inicia sesión con Google (coexiste con email/contraseña; exige whitelist).
+export async function loginWithGoogle() {
+  const auth = await initAuth();
+  if (!auth) throw new Error('Firebase no configurado');
+  const { GoogleAuthProvider, signInWithPopup } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-auth.js');
+  try {
+    // select_account fuerza a Google a mostrar el selector de cuentas para que
+    // el usuario pueda elegir otra cuenta si la actual no es la registrada.
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const cred = await signInWithPopup(auth, provider);
+    const aut = await emailAutorizado(cred.user);
+    if (!aut.ok) {
+      await logout();
+      throw new Error(aut.reason === 'denied' ? 'Tu correo no está autorizado para acceder a esta aplicación.' : aut.msg);
+    }
+    await refreshUser(cred.user);
+    return _currentUser;
+  } catch (err) {
+    const m = String((err && (err.code || err.message)) || err);
+    if (/operation-not-allowed|admin-only-operation|EMAIL_NOT_ENABLED/.test(m)) {
+      throw new Error('El acceso con Google no está habilitado en la consola de Firebase (Authentication → Sign-in method).');
+    }
     throw new Error(errorLogin(err.message || err.code || err));
   }
 }
