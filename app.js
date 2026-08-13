@@ -396,21 +396,10 @@ function appBloqueada() {
 }
 
 function renderTop() {
-  const nav = $('#topNav');
+  // El menú superior se elimina; la navegación vive en la barra lateral (sidebar).
   // Sin sesión: ocultar la navegación, solo queda la bienvenida.
-  if (appBloqueada()) { nav.innerHTML = ''; $('#settingsBtn').style.display = 'none'; $('#topTitle').textContent = 'Reunión+'; $('#topBadge').classList.add('hidden'); return; }
+  if (appBloqueada()) { $('#settingsBtn').style.display = 'none'; $('#topTitle').textContent = 'Reunión+'; $('#topBadge').classList.add('hidden'); return; }
   $('#settingsBtn').style.display = 'flex';
-  const items = [
-    { id: 'home', label: 'Inicio' },
-    { id: 'lists', label: 'Listas' },
-    { id: 'uploads', label: 'Carga' },
-    { id: 'eventos', label: 'Eventos' },
-    { id: 'settings', label: 'Ajustes' },
-  ];
-  nav.innerHTML = items.map(i =>
-    `<button data-go="${i.id}" class="font-label-md text-label-md ${state.view === i.id ? 'text-primary border-b-2 border-primary pb-1' : 'text-on-surface-variant hover:text-primary'} transition-colors h-full px-2">${i.label}</button>`
-  ).join('');
-  nav.querySelectorAll('button').forEach(b => b.onclick = () => go(b.dataset.go));
 
   const badge = $('#topBadge');
   if (state.month) {
