@@ -101,7 +101,7 @@ function initSyncIndicator() {
     root.classList.remove('hidden');
     root.classList.add('flex');
     dot.style.background = on ? '#2e7d32' : '#e5484d';
-    txt.textContent = on ? 'conectado a db' : 'sin conexión';
+    txt.textContent = on ? 'on line' : 'off line';
   };
   window.addEventListener('online', pintar);
   window.addEventListener('offline', pintar);
