@@ -25,7 +25,7 @@ logic.js            Funciones puras puras (asignación automática, parseadores 
 db.js               Capa IndexedDB (stores + CRUD + reset)
 firestore.js        Capa de acceso a Firestore (snapshots, batch, CRUD)
 auth.js             Autenticación Firebase (login/logout/sesión/rol)
-sync.js             Sync IndexedDB ↔ Firestore (cola offline, pull/push, merge)
+sync.js             Sync IndexedDB ↔ Firestore (cola offline, pull/push, conciliación)
 migracion.js        Migración datos local → Firestore
 firestore.rules     Reglas de seguridad (desplegadas en producción)
 sw.js               Service Worker (cache offline, versión `rp-v123`)

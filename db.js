@@ -645,6 +645,27 @@ export async function addDepartmentWithIdPublic(name, id) {
   await commitSilent(STORE_DEPARTMENTS, (store) => reqToPromise(store.put({ id, name, createdAt: Date.now() })));
 }
 
+// Escribe una persona con id concreto (sin disparar sync). Usado en el pull por registro.
+export async function putPersonSilent(person) {
+  person.updatedAt = Date.now();
+  if (!person.createdAt) person.createdAt = person.updatedAt;
+  await commitSilent(STORE_PEOPLE, (store) => reqToPromise(store.put(person)));
+}
+
+// Escribe un departamento con id concreto (sin disparar sync).
+export async function putDepartmentSilent(dept) {
+  dept.updatedAt = Date.now();
+  if (!dept.createdAt) dept.createdAt = dept.updatedAt;
+  await commitSilent(STORE_DEPARTMENTS, (store) => reqToPromise(store.put(dept)));
+}
+
+// Escribe un discurso (sin disparar sync). Usado en el pull por registro.
+export async function putTalkSilent(talk) {
+  talk.updatedAt = Date.now();
+  if (!talk.createdAt) talk.createdAt = talk.updatedAt;
+  await commitSilent(STORE_TALKS, (store) => reqToPromise(store.put(talk)));
+}
+
 // Reemplaza todos los grupos (sin disparar sync).
 export async function replaceAllDepartmentsSilent(grupos) {
   await commitSilent(STORE_DEPARTMENTS, (store) => new Promise((resolve, reject) => {

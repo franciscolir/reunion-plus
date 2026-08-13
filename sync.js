@@ -19,6 +19,7 @@
 import * as db from './db.js';
 import { batchWrite, isFirebaseReady } from './firestore.js';
 import { isFirebaseConfigured } from './firebase-config.js';
+import { isAdmin } from './auth.js';
 
 let _enabled = false;
 let _syncing = false;
@@ -431,6 +432,181 @@ export async function iniciarSync() {
   setStatus('conectado', 'sincronización activa');
   await drenarPendientes().catch(() => {});
   await pullSiVacio();
+  // Concilia ambos lados: sube lo local que falta en la nube y baja lo de la
+  // nube que falta en local.
+  await reconciliar().catch(() => {});
+}
+
+// Conciliación bidireccional IndexedDB ↔ Firestore.
+// Compara los ids de cada dominio:
+//   - registros locales que NO existen en Firestore → se suben a la nube (push);
+//   - registros remotos que NO existen en IndexedDB → se descargan a local (pull).
+// No elimina nada en ninguna dirección: solo llena los huecos de ambos lados.
+export async function reconciliar() {
+  if (!_enabled || _syncing) return { error: 'inactivo' };
+  if (!navigator.onLine) return { error: 'offline' };
+  if (!(await isFirebaseReady())) return { error: 'firebase-no-disponible' };
+  _syncing = true;
+  const f = await import('./firestore.js');
+  const puedeEscribir = isAdmin();
+  let subidos = 0, bajados = 0;
+  try {
+    setStatus('syncing', 'conciliando IndexedDB ↔ Firestore…');
+
+    // ---- personas: people ↔ participantes ----
+    const personas = await db.listPeople();
+    const participantes = await f.obtenerParticipantes();
+    const idsParticipantes = new Set(participantes.map(p => String(p.id)));
+    const idsPersonas = new Set(personas.map(p => String(p.id)));
+    const personasASubir = personas.filter(p => !idsParticipantes.has(String(p.id)));
+    if (puedeEscribir && personasASubir.length) { await batchWrite(personasASubir.map(personaADocumento)); subidos += personasASubir.length; }
+    for (const pr of participantes) {
+      if (idsPersonas.has(String(pr.id))) continue;
+      await db.putPersonSilent({
+        id: Number(pr.id) || String(pr.id),
+        name: pr.nombre || '',
+        labores: pr.labores || [],
+        cargos: pr.cargos || [],
+        genero: pr.genero || '',
+        calificacion: pr.calificacion || '',
+        enlace: pr.enlace || '',
+        grupoId: pr.grupoId || '',
+        activo: pr.activo !== false,
+        createdAt: pr.createdAt || Date.now(),
+      });
+      bajados++;
+    }
+
+    // ---- grupos: departments ↔ grupos ----
+    const departments = await db.listDepartments();
+    const grupos = await f.obtenerGrupos();
+    const idsGrupos = new Set(grupos.map(g => String(g.id)));
+    const idsDepts = new Set(departments.map(d => String(d.id)));
+    const deptsASubir = departments.filter(d => !idsGrupos.has(String(d.id)));
+    if (puedeEscribir && deptsASubir.length) { await batchWrite(deptsASubir.map(grupoADocumento)); subidos += deptsASubir.length; }
+    for (const g of grupos) {
+      if (idsDepts.has(String(g.id))) continue;
+      await db.putDepartmentSilent({
+        id: String(g.id),
+        name: g.nombre || '',
+        orden: g.orden || 0,
+        labores: g.labores || '',
+        activo: g.activo !== false,
+        createdAt: g.createdAt || Date.now(),
+      });
+      bajados++;
+    }
+
+    // ---- entre semana: midweeks ↔ reuniones ----
+    const midweeks = await db.listMidweeks();
+    const reuniones = await f.obtenerReuniones();
+    const idsReuniones = new Set(reuniones.map(r => String(r.id)));
+    const idsMidweeks = new Set(midweeks.map(m => String(m.id)));
+    const midweeksASubir = midweeks.filter(m => !idsReuniones.has(String(m.id)));
+    if (puedeEscribir && midweeksASubir.length) { await batchWrite(midweeksASubir.map(reunionADocumento)); subidos += midweeksASubir.length; }
+    for (const r of reuniones) {
+      if (idsMidweeks.has(String(r.id))) continue;
+      await db.putMidweekSilent({
+        id: String(r.id),
+        header: r.header || '',
+        reading: r.lectura || '',
+        songIn: (r.canciones && r.canciones.intro) || 0,
+        songOut: (r.canciones && r.canciones.salida) || 0,
+        introTitle: r.introTitle,
+        introMins: r.introMins,
+        closingTitle: r.closingTitle,
+        closingMins: r.closingMins,
+        sections: r.sections || [],
+        createdAt: r.createdAt || Date.now(),
+      });
+      bajados++;
+    }
+
+    // ---- discursos: talks ↔ discursos ----
+    const talks = await db.listTalks();
+    const discursos = await f.obtenerDiscursos();
+    const idsDiscursos = new Set(discursos.map(d => String(d.num)));
+    const idsTalks = new Set(talks.map(t => String(t.num)));
+    const talksASubir = talks.filter(t => !idsDiscursos.has(String(t.num)));
+    if (puedeEscribir && talksASubir.length) {
+      await batchWrite(talksASubir.map(t => ({
+        collection: 'discursos',
+        id: String(t.num),
+        data: { num: t.num, title: t.title || '', createdAt: Date.now() },
+      })));
+      subidos += talksASubir.length;
+    }
+    for (const d of discursos) {
+      if (String(d.num) === 'undefined' || idsTalks.has(String(d.num))) continue;
+      await db.putTalkSilent({ num: Number(d.num), title: d.title || '', createdAt: d.createdAt || Date.now() });
+      bajados++;
+    }
+
+    // ---- programas: months/salidas/atencion/aseos ↔ programas/{mes} ----
+    const programas = await f.obtenerProgramas();
+    const idsProgramas = new Set(programas.map(p => String(p.id)));
+    const mesesLocales = new Set([
+      ...(await db.listMonths()).map(m => String(m.id)),
+      ...(await db.listSalidas()).map(s => String(s.id)),
+      ...(await db.listAtencion()).map(a => String(a.id)),
+      ...(await db.listAseos()).map(a => String(a.id)),
+    ]);
+    const mesesASubir = [...mesesLocales].filter(mes => !idsProgramas.has(mes));
+    for (const mes of mesesASubir) {
+      if (puedeEscribir) { const d = await mesADocumento(mes); if (d) { await batchWrite([d]); subidos++; } }
+    }
+    for (const p of programas) {
+      if (mesesLocales.has(String(p.id))) continue;
+      await desplegarPrograma(p);
+      bajados++;
+    }
+
+    // ---- historial: assignment_log ↔ asignaciones ----
+    const log = await db.listAssignmentLog();
+    const asignaciones = await f.obtenerAsignaciones();
+    const idsAsignaciones = new Set(asignaciones.map(a => String(a.id)));
+    const idsLog = new Set(log.map(a => String(a.id)));
+    const logASubir = log.filter(a => !idsAsignaciones.has(String(a.id)));
+    if (puedeEscribir && logASubir.length) {
+      await batchWrite(logASubir.map(a => ({
+        collection: 'asignaciones',
+        id: String(a.id),
+        data: {
+          fecha: String(a.date || ''),
+          reunionId: (a.program === 'entre') ? String(a.date || '') : '',
+          programaId: String(a.date || '').slice(0, 7),
+          participanteId: String(a.personId || ''),
+          actividadId: String(a.roleKey || ''),
+          rol: String(a.roleLabel || a.roleKey || ''),
+          program: String(a.program || ''),
+          createdAt: a.updatedAt || Date.now(),
+        },
+      })));
+      subidos += logASubir.length;
+    }
+    for (const a of asignaciones) {
+      if (idsLog.has(String(a.id))) continue;
+      await db.putAssignmentLogSilent({
+        id: String(a.id),
+        personId: String(a.participanteId || ''),
+        date: String(a.fecha || ''),
+        program: String(a.program || ''),
+        roleKey: String(a.actividadId || ''),
+        roleLabel: String(a.rol || ''),
+        updatedAt: a.createdAt || Date.now(),
+      });
+      bajados++;
+    }
+
+    setStatus('ok', `conciliación: ${subidos} subidos, ${bajados} bajados`);
+    return { ok: true, subidos, bajados };
+  } catch (e) {
+    console.warn('[Reunión+] Error en conciliación', e);
+    setStatus('error', 'conciliación: ' + (e.message || e));
+    return { error: e.message || String(e) };
+  } finally {
+    _syncing = false;
+  }
 }
 
 // Si la base local está vacía, descarga los datos desde Firebase. Se usa al

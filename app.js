@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady, borrarParticipantesReunionesProgramas, limpiarTodasLasColecciones } from './firestore.js';
-import { iniciarSync, pullSiVacio, syncStatus } from './sync.js';
+import { iniciarSync, pullSiVacio, reconciliar, syncStatus } from './sync.js';
 import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
@@ -53,6 +53,7 @@ async function init() {
     renderAuthUI();
     // Al iniciar sesión en un dispositivo sin datos locales, traer de Firebase.
     if (user && isAuthenticated()) pullSiVacio().catch(() => {});
+    if (user && isAuthenticated()) reconciliar().catch(() => {});
   });
   restoreSession().catch(() => {}).finally(renderAuthUI);
   window.addEventListener('hashchange', router);
