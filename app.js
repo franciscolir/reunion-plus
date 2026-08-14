@@ -4299,14 +4299,11 @@ async function renderSettings() {
             <select id="algoLectorNivel" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selLevel(algo.studentReaderLevel)}</select>
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor permanente ${infoTip('Persona fija que se asigna preferentemente como conductor de la reunión de fin de semana.')}</label>
-            <div class="flex items-center gap-2">
-              <select id="algoConductor" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
-              <button type="button" id="algoAutoConductor" class="px-3 py-2.5 bg-secondary-container text-on-secondary-container rounded-lg font-label-md text-label-md hover:opacity-80" title="Detectar automáticamente según historial">Auto</button>
-            </div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor permanente ${infoTip('Persona fija que se asigna como conductor de la reunión de fin de semana. Si tiene salida ese sábado, se usa el suplente.')}</label>
+            <select id="algoConductor" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor suplente ${infoTip('Alternativa que se usa cuando el conductor permanente tiene salida ese fin de semana.')}</label>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor suplente ${infoTip('Se usa cuando el conductor permanente tiene una salida asignada ese fin de semana.')}</label>
             <select id="algoConductorBackup" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorBackupId)}</select>
           </div>
           <div>
@@ -4490,23 +4487,6 @@ async function renderSettings() {
     state.config = cfg;
     toast('Motor restaurado a valores por defecto', 'success');
     renderSettings();
-  };
-  $('#algoAutoConductor').onclick = async () => {
-    const log = await db.listAssignmentLog();
-    const conductorCounts = {};
-    (log || []).forEach(e => {
-      if (e.roleKey === 'conductor1' || e.roleKey === 'conductor') {
-        conductorCounts[e.personId] = (conductorCounts[e.personId] || 0) + 1;
-      }
-    });
-    const candidates = state.people
-      .filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes('conductor1'))
-      .sort((a, b) => (conductorCounts[String(b.id)] || 0) - (conductorCounts[String(a.id)] || 0));
-    if (!candidates.length) { toast('No hay personas con labor "conductor1"', 'error'); return; }
-    $('#algoConductor').value = String(candidates[0].id);
-    if (candidates.length > 1) $('#algoConductorBackup').value = String(candidates[1].id);
-    if (candidates.length > 2) $('#algoConductorBackup2').value = String(candidates[2].id);
-    toast(`Conductor: ${candidates[0].name}${candidates.length > 1 ? `, Suplente: ${candidates[1].name}` : ''}${candidates.length > 2 ? `, 2º suplente: ${candidates[2].name}` : ''}`, 'success');
   };
 
   $('#grpAuto').onclick = async () => {
