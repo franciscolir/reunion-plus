@@ -636,8 +636,13 @@ ok('D sin enlace inválido', canBePair(p(1, 'D', 'masculino', ''), p(2, 'D', 'ma
 ok('D apunta a su pareja: válido aunque la pareja no apunte de vuelta', canBePair(p(1, 'D', 'masculino', '2'), p(2, 'B', 'femenino', '')) === true);
 ok('D no enlazado a esta pareja: inválido', canBePair(p(1, 'D', 'masculino', '3'), p(2, 'B', 'femenino', '')) === false);
 ok('D con su pareja (que tiene su propio enlace) válido', canBePair(p(1, 'D', 'masculino', '2'), p(2, 'B', 'masculino', '3')) === true);
-// Mismo género siempre válido (aunque calificación A+A).
-ok('mismo género A+A válido', canBePair(p(1, 'A', 'masculino'), p(2, 'A', 'masculino')));
+// Tabla de calificaciones aplicada a cualquier género: A+A, B+C, C+C no valen.
+ok('mismo género A+A inválido', canBePair(p(1, 'A', 'masculino'), p(2, 'A', 'masculino')) === false);
+ok('mismo género B+C inválido', canBePair(p(1, 'B', 'femenino'), p(2, 'C', 'femenino')) === false);
+ok('mismo género C+C inválido', canBePair(p(1, 'C', 'masculino'), p(2, 'C', 'masculino')) === false);
+ok('sin género B+C inválido', canBePair(p(1, 'B', ''), p(2, 'C', '')) === false);
+ok('mixto enlazados A+A inválido por tabla', canBePair(p(1, 'A', 'masculino', '2'), p(2, 'A', 'femenino', '1')) === false);
+ok('mixto enlazados B+B válido por tabla', canBePair(p(1, 'B', 'masculino', '2'), p(2, 'B', 'femenino', '1')));
 // Mixto solo si enlazados.
 ok('mixto enlazados válido', canBePair(p(1, 'A', 'masculino', '2'), p(2, 'B', 'femenino', '1')));
 ok('mixto sin enlace inválido', canBePair(p(1, 'A', 'masculino'), p(2, 'B', 'femenino')) === false);
@@ -948,6 +953,20 @@ console.log('[automatización respeta género]');
   const parejaAsig = [String(aps.estudiante), String(aps.ayudante)].sort();
   ok('mujeres pueden tomar presentación (asignacion2) en la automatización',
     parejaAsig.join(',') === '1,2', JSON.stringify(aps));
+
+  // Las presentaciones priorizan parejas con mujeres (la mujer sale como estudiante).
+  const mezcla = [
+    { id: 1, name: 'Hugo',  labores: ['asignacion2'], genero: 'masculino', calificacion: 'B' },
+    { id: 2, name: 'Héctor', labores: ['asignacion2'], genero: 'masculino', calificacion: 'B' },
+    { id: 3, name: 'María', labores: ['asignacion2'], genero: 'femenino', calificacion: 'B' },
+    { id: 4, name: 'Marta', labores: ['asignacion2'], genero: 'femenino', calificacion: 'B' },
+  ];
+  const wPri = wk('2026-09-21', [{ id: 'maestros', title: 'Maestros', parts: [
+    { num: 1, title: 'Presentación', mins: 15, assignments: {} },
+  ]}]);
+  automatizarEntreSemana(mezcla, [wPri]);
+  const apPri = wPri.sections[0].parts[0].assignments || {};
+  ok('prioriza pareja con mujeres en presentación', String(apPri.estudiante) === '3' && String(apPri.ayudante) === '4', JSON.stringify(apPri));
 
   // Acomodación: con serviceRolesOnlyMale (default) no asigna mujeres.
   const gente = [

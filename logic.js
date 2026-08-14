@@ -1248,11 +1248,11 @@ const PAR_LIMIT = [['A', 'B'], ['B', 'B'], ['A', 'C']];
 // ¿dos colaboradores pueden ser pareja en una asignación de a 2?
 // persona1/persona2: { id, calificacion, genero, enlace }
 // Reglas:
-//  · D solo puede pareja con su enlace designado (unidireccional: basta que el
+// · D solo puede pareja con su enlace designado (unidireccional: basta que el
 //    D apunte a su pareja, la pareja no tiene por qué apuntar de vuelta).
-//  · Mismo género: siempre válido.
-//  · Mixto (hombre+mujer): solo si están enlazados entre sí.
-//  · Sin género definido: se aplica la tabla de calificaciones A+B · B+B · A+C.
+// · Mixto (hombre+mujer): solo si están enlazados entre sí.
+// · Tabla de calificaciones A+B · B+B · A+C (aplica a cualquier género).
+//    Quedan fuera: A+A, B+C, C+C y cualquier combinación con D sin enlace.
 export function canBePair(persona1, persona2) {
   if (!persona1 || !persona2) return false;
   if (String(persona1.id) === String(persona2.id)) return false;
@@ -1267,15 +1267,14 @@ export function canBePair(persona1, persona2) {
   }
 
   const g1 = persona1.genero, g2 = persona2.genero;
-  // Mismo género: siempre válido.
-  if (g1 && g2 && g1 === g2) return true;
-  // Mixto: solo si enlazados entre sí.
+  // Pareja mixta (hombre+mujer): solo si están enlazados entre sí.
   if (g1 && g2 && g1 !== g2) {
-    return String(persona1.enlace || '') === String(persona2.id) && String(persona2.enlace || '') === String(persona1.id);
+    const enlazados = String(persona1.enlace || '') === String(persona2.id) && String(persona2.enlace || '') === String(persona1.id);
+    if (!enlazados) return false;
   }
-  // Sin género y sin calificación registrada: no se puede juzgar, se permite.
+  // Sin calificación registrada: no se puede juzgar la tabla, se permite.
   if (!c1 || !c2) return true;
-  // Sin género: tabla de calificaciones.
+  // Tabla de calificaciones permitidas: A+B · B+B · A+C (aplica a cualquier género).
   return PAR_LIMIT.some(([a, b]) => (c1 === a && c2 === b) || (c1 === b && c2 === a));
 }
 
@@ -1547,7 +1546,12 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
         if (ap[slots[0].key] && ap[slots[1].key]) return;
         if (ap[slots[0].key] || ap[slots[1].key]) { reporte.vacios.push({ semana: weekId, labore: 'asignacion2', key: keyA }); return; }
         const cand = people.filter(isStudentPerson)
-          .slice().sort((a, b) => ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || ''));
+          .slice().sort((a, b) => {
+            const w = (x) => x.genero === 'femenino' ? 0 : 1;
+            const wa = w(a), wb = w(b);
+            if (wa !== wb) return wa - wb;
+            return ORDEN_CAL.indexOf(b.calificacion || '') - ORDEN_CAL.indexOf(a.calificacion || '');
+          });
         let found = false;
         for (const a of cand) {
           if (!elegible(a, keyA, weekId)) continue;
