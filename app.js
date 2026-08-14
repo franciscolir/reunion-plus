@@ -2995,6 +2995,10 @@ function renderLaborColumns(p, editMode) {
     const cat = LABOR_CATEGORY[r.id];
     if (cat) cats[cat].push(r);
   });
+  // La presidencia aparece en ambas columnas (ES y FS) porque son cargos distintos.
+  const pres = state.labores.find(r => r.id === 'presidente');
+  if (pres && !cats.es.includes(pres)) cats.es.push(pres);
+  if (pres && !cats.fs.includes(pres)) cats.fs.push(pres);
   const col = (catKey, title) => {
     const items = cats[catKey].map(r => laborChipMarkup(p, r, editMode)).join('');
     if (!items) return '';

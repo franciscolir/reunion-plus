@@ -34,8 +34,8 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     const card = page.locator('.person-card', { hasText: 'Ana Pérez' });
     await expect(card).toBeVisible();
-    await expect(card.locator('.labor-chip')).toHaveCount(14);
-    await expect(card.locator('.labor-chip[data-plabore="presidente"]')).toHaveClass(/is-on/);
+    await expect(card.locator('.labor-chip')).toHaveCount(15);
+    await expect(card.locator('.labor-chip[data-plabore="presidente"]').first()).toHaveClass(/is-on/);
     await expect(page.locator('#toastRoot')).toContainText('Miembro agregado');
   });
 
@@ -77,7 +77,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.click(`[data-profile="${pid}"]`);
     await expect(page.locator('#pfName')).toHaveValue('María González');
-    await expect(page.locator('#pfLabores .labor-chip')).toHaveCount(14);
+    await expect(page.locator('#pfLabores .labor-chip')).toHaveCount(15);
     await expect(page.locator('#pfLabores .labor-chip.is-on[data-plabore="asignacion1"]')).toHaveCount(1);
     await expect(page.locator('#pfHistory')).toContainText('Sin asignaciones registradas');
 
