@@ -2955,6 +2955,28 @@ function avatarClassFor(name) {
   return s % 2 ? 'bg-secondary-container text-on-secondary-container' : 'bg-primary-container text-on-primary-container';
 }
 
+// Mapa de labores a categoría para la presentación en 3 columnas.
+// La presidencia aparece en ambas columnas (ES y FS) porque son cargos distintos.
+const LABOR_CATEGORY = {
+  // Entre semana
+  presidente: 'es',
+  asignacion1: 'es',
+  asignacion2: 'es',
+  asignacion3: 'es',
+  asignacion4: 'es',
+  conductor2: 'es',
+  lector2: 'es',
+  // Fin de semana
+  conductor1: 'fs',
+  lector1: 'fs',
+  orador: 'fs',
+  // Servicio / Acomodación
+  audio: 'svc',
+  microf: 'svc',
+  plataforma: 'svc',
+  acomodador: 'svc',
+};
+
 function laborChipMarkup(p, r, editMode) {
   const on = Array.isArray(p.labores) && p.labores.includes(r.id);
   const locked = !laboreAllowedForPerson(p, r.id);
@@ -2966,13 +2988,29 @@ function laborChipMarkup(p, r, editMode) {
   return `<button type="button" data-plabore="${r.id}" data-pid="${p.id}" class="${cls.join(' ')}" ${dis} title="${escapeAttr(r.label)}${lockTitle}">${escapeHtml(r.label)}</button>`;
 }
 
+function renderLaborColumns(p, editMode) {
+  const labores = Array.isArray(p.labores) ? p.labores : [];
+  const cats = { es: [], fs: [], svc: [] };
+  state.labores.forEach(r => {
+    const cat = LABOR_CATEGORY[r.id];
+    if (cat) cats[cat].push(r);
+  });
+  const col = (catKey, title) => {
+    const items = cats[catKey].map(r => laborChipMarkup(p, r, editMode)).join('');
+    if (!items) return '';
+    return `<div class="flex flex-col gap-1.5 min-w-0 flex-1">
+      <span class="text-xs font-semibold text-on-surface-variant uppercase tracking-wide">${title}</span>
+      <div class="flex flex-wrap gap-1.5">${items}</div>
+    </div>`;
+  };
+  return `<div class="grid grid-cols-3 gap-3 mt-3">${col('es', 'Entre semana')}${col('fs', 'Fin de semana')}${col('svc', 'Servicio')}</div>`;
+}
+
 // Tarjeta de persona (vista Personas y Grupos → Labores). El nombre es el
 // elemento principal; sus labores se muestran como chips conmutables. Si la
 // persona está desactivada (borrado lógico) se muestra atenuada con botón
 // de restauración.
 function renderPersonCard(p, editMode, isInactive = false) {
-  const labores = Array.isArray(p.labores) ? p.labores : [];
-  const chips = state.labores.map(r => laborChipMarkup(p, r, isInactive ? false : editMode)).join('');
   const gen = p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : '—';
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '';
   const badges = [];
@@ -2996,7 +3034,7 @@ function renderPersonCard(p, editMode, isInactive = false) {
       </div>
       <div class="flex items-center gap-0.5 shrink-0">${actions}</div>
     </div>
-    <div class="flex flex-wrap gap-2 mt-3">${chips}</div>
+    ${renderLaborColumns(p, isInactive ? false : editMode)}
   </div>`;
 }
 
@@ -3201,7 +3239,7 @@ async function openPersonProfile(person) {
   const calOpts = CALIFICACIONES.map(c => `<option value="${c}" ${cal === c ? 'selected' : ''}>${c}${c === 'D' ? ' (enlace)' : ''}</option>`).join('');
   const enlOpts = `<option value="">— Sin enlace —</option>` +
     state.people.filter(x => String(x.id) !== String(p.id)).map(x => `<option value="${x.id}" ${p.enlace === String(x.id) ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
-  const laborChips = state.labores.map(r => laborChipMarkup(p, r, true)).join('');
+  const laborCols = renderLaborColumns(p, true);
   openModal(`
     <div>
       <div class="flex items-start gap-3 mb-4">
@@ -3229,7 +3267,7 @@ async function openPersonProfile(person) {
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores asignadas</label>
-          <div id="pfLabores" class="flex flex-wrap gap-2">${laborChips}</div>
+          <div id="pfLabores">${laborCols}</div>
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Historial de asignaciones</label>
