@@ -4020,6 +4020,15 @@ async function renderSettings() {
   };
   const app = $('#app');
   const algoVeces = algo.sameAssignmentMonthlyMode === 'STRICT' ? 0 : Math.min(4, Math.max(1, Number(algo.maxSameAssignmentPerMonth) || 1));
+  const POND = [
+    { id: 'scWorkload', peso: 'workloadBalance', label: 'Equilibrio de carga', izq: 'Da igual el reparto', der: 'Carga pareja', info: 'Peso de repartir la carga de trabajo de forma pareja entre todos los participantes.' },
+    { id: 'scRotacion', peso: 'roleRotation', label: 'Rotación de roles', izq: 'Roles fijos', der: 'Rotar roles', info: 'Peso de alternar los puestos entre distintas personas para que no se encasillen.' },
+    { id: 'scSemanal', peso: 'weeklyBalance', label: 'Reparto semanal', izq: 'Se acumulan en semanas', der: 'Semanas parejas', info: 'Peso de evitar que una persona acumule muchas asignaciones en la misma semana.' },
+    { id: 'scRepeticion', peso: 'monthlyRepetition', label: 'Menos repetición mensual', izq: 'Repiten los mismos', der: 'Todos participan', info: 'Peso de evitar que una persona repita el mismo puesto dentro del mismo mes.' },
+    { id: 'scEscasez', peso: 'scarceRoleProtection', label: 'Protección de escasez', izq: 'Usa a los pocos', der: 'Reserva a los escasos', info: 'Peso de cuidar los puestos que tienen pocos candidatos disponibles para no quedarse sin quién los cubra.' },
+    { id: 'scParejas', peso: 'pairRoleBalance', label: 'Alternancia encargado/ayudante', izq: 'Siempre el mismo rol', der: 'Alterna roles', info: 'Peso de alternar quién es encargado y quién ayudante en las presentaciones en pareja.' },
+    { id: 'scOportunidad', peso: 'studentOpportunityBalance', label: 'Oportunidad a estudiantes', izq: 'Reparto general', der: 'Más a estudiantes', info: 'Peso de dar más participación a los estudiantes que necesitan más prácticas.' },
+  ];
 
   app.innerHTML = `
     <h1 class="font-headline-lg text-headline-lg text-primary mb-6">Ajustes</h1>
@@ -4148,37 +4157,19 @@ async function renderSettings() {
         <div class="border-t border-outline-variant pt-5">
           <div class="mb-3">
             <p class="font-label-md text-label-md text-on-surface uppercase tracking-wider">Ponderación del ranking</p>
-            <p class="text-on-surface-variant text-caption">Peso de cada dimensión en la puntuación 0-100 de las propuestas.</p>
+            <p class="text-on-surface-variant text-caption">Arrastre cada barra para fijar cuánto influye (0 = no influye, 100 = máxima influencia). Los extremos indican qué favorece cada valor; los pesos definen el ranking 0-100 de las propuestas.</p>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+            ${POND.map(p => `
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Equilibrio de carga ${infoTip('Peso de repartir la carga de trabajo de forma pareja entre todos los participantes.')}</label>
-              <input id="scWorkload" type="number" value="${escapeAttr(scoring.workloadBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            </div>
-            <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Rotación de roles ${infoTip('Peso de alternar los puestos entre distintas personas para que no se encasillen.')}</label>
-              <input id="scRotacion" type="number" value="${escapeAttr(scoring.roleRotation)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            </div>
-            <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Reparto semanal ${infoTip('Peso de evitar que una persona acumule muchas asignaciones en la misma semana.')}</label>
-              <input id="scSemanal" type="number" value="${escapeAttr(scoring.weeklyBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            </div>
-            <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Menos repetición mensual ${infoTip('Peso de evitar que una persona repita el mismo puesto dentro del mismo mes.')}</label>
-              <input id="scRepeticion" type="number" value="${escapeAttr(scoring.monthlyRepetition)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            </div>
-            <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Protección de escasez ${infoTip('Peso de cuidar los puestos que tienen pocos candidatos disponibles para no quedarse sin quién los cubra.')}</label>
-              <input id="scEscasez" type="number" value="${escapeAttr(scoring.scarceRoleProtection)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            </div>
-            <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Alternancia encargado/ayudante ${infoTip('Peso de alternar quién es encargado y quién ayudante en las presentaciones en pareja.')}</label>
-              <input id="scParejas" type="number" value="${escapeAttr(scoring.pairRoleBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            </div>
-            <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Oportunidad a estudiantes ${infoTip('Peso de dar más participación a los estudiantes que necesitan más prácticas.')}</label>
-              <input id="scOportunidad" type="number" value="${escapeAttr(scoring.studentOpportunityBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-            </div>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-1.5 flex items-center gap-1">${p.label} ${infoTip(p.info)}</label>
+              <div class="flex items-center gap-2">
+                <span class="text-caption leading-tight text-on-surface-variant min-w-[4.5rem]">${p.izq}</span>
+                <input id="${p.id}" type="range" min="0" max="100" step="1" value="${escapeAttr(scoring[p.peso])}" class="flex-1 accent-primary">
+                <span class="text-caption leading-tight text-on-surface-variant min-w-[4.5rem] text-right">${p.der}</span>
+                <span class="w-7 text-center font-label-md text-label-md text-primary" data-val="${p.id}">${escapeAttr(scoring[p.peso])}</span>
+              </div>
+            </div>`).join('')}
           </div>
         </div>
 
@@ -4286,6 +4277,14 @@ async function renderSettings() {
   };
 
   // ---- Motor de asignación: guardar/restaurar reglas + ponderación ----
+  POND.forEach(p => {
+    const slide = $(`#${p.id}`);
+    if (!slide) return;
+    slide.addEventListener('input', () => {
+      const badge = document.querySelector(`[data-val="${p.id}"]`);
+      if (badge) badge.textContent = slide.value;
+    });
+  });
   const readAlgoForm = () => {
     const veces = Math.min(4, Math.max(0, parseInt($('#algoRepVeces').value, 10) || 1));
     const a = {

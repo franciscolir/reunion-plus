@@ -213,6 +213,12 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#algoLectorNivel option[value="CD"]')).toBeAttached();
     await expect(page.locator('#algoLectorNivel')).toContainText('C y D (CD)');
     await page.selectOption('#algoLectorNivel', 'CD');
+
+    // Ponderación del ranking con barras deslizantes y valor reflejado.
+    await expect(page.locator('#scWorkload')).toHaveAttribute('type', 'range');
+    await page.locator('#scWorkload').fill('70');
+    await expect(page.locator('[data-val="scWorkload"]')).toHaveText('70');
+
     await page.click('#algoSave');
     await expect(page.locator('#toastRoot')).toContainText('Motor de asignación guardado');
   });
