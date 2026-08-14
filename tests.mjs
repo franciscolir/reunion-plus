@@ -19,7 +19,7 @@ import {
   defaultAlgorithmConfig, defaultScoringConfig,
   mulberry32, rotateSeed, generateOneProposal, generateProposals, scoreSolution,
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats, scarcityIndex,
-  salidasFaltantes,
+  salidasFaltantes, laboresVaciasPropuesta, sinAsignarPorMotivo,
 } from './logic.js';
 
 let pass = 0, fail = 0;
@@ -1064,6 +1064,34 @@ console.log('[salidasFaltantes]');
     { saturday: '2026-11-14', outings: [{ oradorSalida: '' }] },
   ]}]);
   ok('detecta salidas sin orador', falt.length === 2 && falt[0].saturday === '2026-11-07' && falt[1].saturday === '2026-11-14', JSON.stringify(falt));
+}
+
+// --- laboresVaciasPropuesta y sinAsignarPorMotivo ---
+console.log('[laboresVaciasPropuesta / sinAsignarPorMotivo]');
+{
+  const prop = {
+    assignments: [{ personId: '1' }, { personId: '2' }],
+    reportes: {
+      entre: { vacios: [{ semana: '2026-11-02', labore: 'presidente' }, { semana: '2026-11-02', labore: 'asignacion1' }] },
+      fin: { vacios: [{ semana: '2026-11-07', labore: 'lector1' }] },
+      atencion: { vacios: [{ semana: '2026-11-07', labore: 'microfono_0' }] },
+    },
+  };
+  const people = [
+    { id: 1, name: 'A', labores: ['presidente'] },
+    { id: 2, name: 'B', labores: ['lector1'] },
+    { id: 3, name: 'C', labores: ['microf'] },
+    { id: 4, name: 'D', labores: ['conductor1'] },
+    { id: 5, name: 'E', labores: [] },
+  ];
+  const vac = laboresVaciasPropuesta(prop);
+  ok('agrega vacíos de entre/atencion/fin', vac.length === 4, JSON.stringify(vac));
+  ok('traduce atencion microfono_0 a Micrófono', vac.some(v => v.labore === 'microfono_0' && v.label === 'Micrófono'));
+  ok('traduce lectores y lectura', vac.some(v => v.labore === 'lector1' && v.label === 'Lector (Atalaya)') && vac.some(v => v.labore === 'asignacion1' && v.label === 'Lectura'));
+  const g = sinAsignarPorMotivo(prop, people);
+  ok('conVacantes: su labor quedó libre', g.conVacantes.length === 1 && String(g.conVacantes[0].persona.id) === '3' && g.conVacantes[0].puestos === 1, JSON.stringify(g.conVacantes));
+  ok('cubiertos: su labor ya está asignada', g.cubiertos.length === 1 && String(g.cubiertos[0].id) === '4');
+  ok('universales: sin labores', g.universales.length === 1 && String(g.universales[0].id) === '5');
 }
 
 // --- automatizarFinSemana ---

@@ -1689,6 +1689,78 @@ export function salidasFaltantes(salidas) {
   return faltantes;
 }
 
+const LABOR_LABEL = {
+  'presidente': 'Presidente',
+  'conductor1': 'Conductor (Atalaya)',
+  'lector1': 'Lector (Atalaya)',
+  'conductor2': 'Conductor (Estudio)',
+  'lector2': 'Lector (Estudio)',
+  'orador': 'Orador de salidas',
+  'asignacion1': 'Lectura',
+  'asignacion2': 'Presentación',
+  'asignacion3': 'Discurso estudiantil',
+  'asignacion4': 'Discurso de la reunión',
+};
+const ATENCION_LABORE_TO_ROLE = { acomodacion: 'acomodador', microfono: 'microf', plataforma: 'plataforma', sonido: 'audio' };
+
+// Etiqueta legible de una labor (puestos de la automatización).
+function labelDeLabore(labore) {
+  if (LABOR_LABEL[labore]) return LABOR_LABEL[labore];
+  const base = String(labore).split('_')[0];
+  const def = ATENCION_DEF.find(d => d.key === base);
+  return def ? def.label : String(labore);
+}
+
+// Puestos que quedaron vacíos en una propuesta, agregados de los reportes de los
+// motores. Devuelve [{ programa: 'entre'|'atencion'|'fin', semana, labore, label }].
+export function laboresVaciasPropuesta(p) {
+  const out = [];
+  const r = (p && p.reportes) || {};
+  const rec = (programa, ls) => (ls || []).forEach(v => {
+    out.push({ programa, semana: String(v.semana || ''), labore: v.labore, label: labelDeLabore(v.labore) });
+  });
+  rec('entre', r.entre && r.entre.vacios);
+  rec('atencion', r.atencion && r.atencion.vacios);
+  rec('fin', r.fin && r.fin.vacios);
+  return out;
+}
+
+// Personas activas sin ninguna asignación en la propuesta, agrupadas por motivo:
+//  · conVacantes: su labor quedó sin cubrir en algún puesto (podrían cubrirlo).
+//  · cubiertos:   sus labores quedaron cubiertas por otros (no quedaron puestos).
+//  · universales: sin labores definidas (disponibles para cualquier labor).
+// Cada entrada de conVacantes incluye `laboresVacantes` y `puestos` (nº de vacíos).
+export function sinAsignarPorMotivo(p, people = []) {
+  const asignados = new Set(((p && p.assignments) || []).map(a => String(a.personId)));
+  const noAsignados = people.filter(x => x.activo !== false && !asignados.has(String(x.id)));
+  const vacios = new Set();
+  const puestosPorLabore = {};
+  const rec = (ls, atencion) => (ls || []).forEach(v => {
+    const k = atencion
+      ? (ATENCION_LABORE_TO_ROLE[String(v.labore).split('_')[0]] || v.labore)
+      : v.labore;
+    vacios.add(k);
+    puestosPorLabore[k] = (puestosPorLabore[k] || 0) + 1;
+  });
+  const r = (p && p.reportes) || {};
+  rec(r.entre && r.entre.vacios, false);
+  rec(r.atencion && r.atencion.vacios, true);
+  rec(r.fin && r.fin.vacios, false);
+
+  const universales = [], conVacantes = [], cubiertos = [];
+  noAsignados.forEach(x => {
+    const roles = Array.isArray(x.labores) ? x.labores : [];
+    if (!roles.length) { universales.push(x); return; }
+    const laboresVacantes = roles.filter(k => vacios.has(k));
+    if (laboresVacantes.length) {
+      conVacantes.push({ persona: x, laboresVacantes, puestos: laboresVacantes.reduce((s, k) => s + (puestosPorLabore[k] || 0), 0) });
+    } else {
+      cubiertos.push(x);
+    }
+  });
+  return { universales, conVacantes, cubiertos };
+}
+
 // Automatiza la reunión de fin de semana: rellena los campos editables por
 // persona (presidente, conductor, lector, estudioSinLectura según el tipo de
 // semana) sin repetir a quienes ya están en acomodación o salidas esa semana

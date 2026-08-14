@@ -19,6 +19,7 @@ import {
   camposFinSemana, extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
   generateProposals, scoreSolution, salidasFaltantes,
+  laboresVaciasPropuesta, sinAsignarPorMotivo,
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats,
 } from './logic.js';
 
@@ -1646,6 +1647,7 @@ function abrirVistaPreviaPropuesta(p, month, i) {
         <button data-close-modal class="material-symbols-outlined p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant">close</button>
       </div>
       <div id="pvConflictos" class="mb-4"></div>
+      <div id="pvVacios" class="mb-4"></div>
       <div id="pvSinAsignar" class="mb-4"></div>
       <div id="pvGeneral"></div>
       <div class="flex gap-3 justify-end mt-5 pt-4 border-t border-outline-variant/40">
@@ -1654,6 +1656,9 @@ function abrirVistaPreviaPropuesta(p, month, i) {
       </div>
     </div>`, true);
   $('#pvConflictos').innerHTML = redaccionConflictosPropuesta(p, month);
+  const pvVacios = $('#pvVacios');
+  pvVacios.innerHTML = redaccionVaciosPropuesta(p);
+  pvVacios.style.display = pvVacios.innerHTML ? '' : 'none';
   $('#pvSinAsignar').innerHTML = redaccionSinAsignarPropuesta(p);
   renderGeneralMonth(month, {
     embed: $('#pvGeneral'),
@@ -1741,35 +1746,67 @@ function redaccionConflictosPropuesta(p, month) {
   return parts.join('');
 }
 
-// Lista de personas sin asignación en una propuesta (los que no participan).
+// Resumen de puestos que quedaron vacíos en la propuesta (semana + labor).
+function redaccionVaciosPropuesta(p) {
+  const vac = laboresVaciasPropuesta(p);
+  if (!vac.length) return '';
+  const PROG = { entre: 'Entre semana', atencion: 'Atención', fin: 'Fin de semana' };
+  const fmt = (iso) => { try { return new Date(iso + 'T00:00:00').toLocaleDateString('es', { day: '2-digit', month: 'short' }); } catch (e) { return iso; } };
+  return `<div class="rounded-xl border border-error/40 bg-error-container/15 p-4">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="material-symbols-outlined text-error">report_gmailerrorred</span>
+      <h4 class="font-label-lg text-label-lg text-on-surface">Puestos sin cubrir (${vac.length})</h4>
+    </div>
+    <ul class="space-y-1 text-sm text-on-surface-variant">${vac.map(v => `<li>${PROG[v.programa] || v.programa} · ${fmt(v.semana)}: <span class="text-on-surface">${escapeHtml(v.label)}</span></li>`).join('')}</ul>
+  </div>`;
+}
+
+// Lista de personas sin asignación en una propuesta (los que no participan),
+// agrupadas por motivo.
 function redaccionSinAsignarPropuesta(p) {
-  const asignados = new Set((p.assignments || []).map(a => String(a.personId)));
-  const sin = state.people
-    .filter(x => x.activo !== false && !asignados.has(String(x.id)))
-    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
-  if (!sin.length) {
+  const g = sinAsignarPorMotivo(p, state.people);
+  const total = g.universales.length + g.conVacantes.length + g.cubiertos.length;
+  if (!total) {
     return `<div class="rounded-xl border border-tertiary/40 bg-tertiary-container/20 p-4 flex items-center gap-2 text-sm">
       <span class="material-symbols-outlined text-tertiary">group_add</span>
       <span class="text-on-surface">Todos los participantes tienen asignación en esta propuesta.</span>
     </div>`;
   }
+  const labelDe = (id) => (state.labores.find(r => String(r.id) === String(id)) || {}).label || String(id);
+  const fila = (x, nota) => `<li class="flex items-center justify-between gap-3 rounded-lg bg-surface-bright border border-outline-variant px-3 py-2">
+    <span class="text-sm text-on-surface">${escapeHtml(x.name)}</span>
+    <span class="text-xs text-on-surface-variant text-right">${nota}</span>
+  </li>`;
+  const grupo = (icono, titulo, texto, filas) => `<div class="rounded-lg bg-surface-container-high/40 border border-outline-variant/60 p-3">
+    <div class="flex items-center gap-2 mb-1.5">
+      <span class="material-symbols-outlined text-base text-primary">${icono}</span>
+      <h5 class="font-label-md text-label-md text-on-surface">${titulo}</h5>
+    </div>
+    <p class="text-xs text-on-surface-variant mb-2">${texto}</p>
+    <ul class="space-y-1">${filas}</ul>
+  </div>`;
+  const parts = [];
+  if (g.conVacantes.length) {
+    parts.push(grupo('extension', `Con puestos libres de su labor (${g.conVacantes.length})`,
+      `Hay vacantes que podrían cubrir en la labor marcada.`,
+      g.conVacantes.map(x => fila(x.persona, `${x.laboresVacantes.map(labelDe).join(', ')} · ${x.puestos} puesto${x.puestos === 1 ? '' : 's'} libre${x.puestos === 1 ? '' : 's'}`)).join('')));
+  }
+  if (g.cubiertos.length) {
+    parts.push(grupo('check_circle_outline', `Con sus labores cubiertas (${g.cubiertos.length})`,
+      `Sus labores ya quedaron asignadas a otros participantes.`,
+      g.cubiertos.map(x => fila(x, x.labores.map(labelDe).join(', '))).join('')));
+  }
+  if (g.universales.length) {
+    parts.push(grupo('gesture', `Sin labores marcadas (${g.universales.length})`,
+      `Pueden hacer cualquier labor; no quedaron puestos disponibles.`,
+      g.universales.map(x => fila(x, 'Disponible para cualquier labor')).join('')));
+  }
   return `<div class="rounded-xl border border-outline-variant bg-surface-container-low p-4">
     <div class="flex items-center gap-2 mb-2">
       <span class="material-symbols-outlined text-secondary">group_off</span>
-      <h4 class="font-label-lg text-label-lg text-on-surface">Sin asignación en esta propuesta (${sin.length})</h4>
+      <h4 class="font-label-lg text-label-lg text-on-surface">Sin asignación en esta propuesta (${total})</h4>
     </div>
-    <ul class="space-y-1.5">
-      ${sin.map(x => {
-        const lab = x.labores || [];
-        const labText = lab.length
-          ? lab.map(l => (state.labores.find(r => String(r.id) === String(l)) || {}).label || String(l)).join(', ')
-          : 'Disponible para cualquier labor';
-        return `<li class="flex items-center justify-between gap-3 rounded-lg bg-surface-bright border border-outline-variant px-3 py-2">
-          <span class="text-sm text-on-surface">${escapeHtml(x.name)}</span>
-          <span class="text-xs text-on-surface-variant text-right">${labText}</span>
-        </li>`;
-      }).join('')}
-    </ul>
+    <div class="space-y-2">${parts.join('')}</div>
   </div>`;
 }
 
