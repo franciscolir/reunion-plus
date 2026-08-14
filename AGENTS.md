@@ -82,7 +82,12 @@ Los botones de la navegación usan `data-go` (desktop) / `data-route` (sidebar).
 - **NUNCA añadir comentarios al código** salvo que se pida explícitamente.
 - UI y textos de la app en **español**. Código (variables, funciones) en inglés mayormente.
 - **No versionar**: `servidor.ps1`, `WhatsApp Video*.mp4`, `mwb_S_*.pdf`, `plantilla-participantes.xls`, `node_modules/`, `openspec/` (decidir). `S-99_S.pdf` tampoco (copyright) — la lista de discursos vive en Firestore.
-- `npm install` no sirve para tests; los tests se corren con **`node tests.mjs`** (259 tests PASS, usa `assert` de Node). Después de tocar `logic.js` o `app.js` correr los tests.
+- `npm install` instala las dependencias de desarrollo para tests (`@playwright/test`, `fake-indexeddb`). Los tests se corren con npm scripts o Node directo:
+  - **Unitarios**: `node tests.mjs` (320 PASS, `assert` de Node sobre funciones puras de `logic.js`).
+  - **Integración**: `node tests-integration.mjs` (capa de datos real: `db.js` sobre IndexedDB con `fake-indexeddb` + flujos cruzados PDF→lógica→persistencia).
+  - **E2E**: `npm run test:e2e` (Playwright, Chromium; sirve la app local con `firebase-config.js` mockeado para correr offline — requiere `npx playwright install chromium` la primera vez).
+  - **Todo**: `npm run test:all`.
+  - Después de tocar `logic.js`, `app.js`, `db.js` o la UI correr al menos unitarios + integración; para cambios de UI, además E2E.
 - El Service Worker cachea con versión; al cambiar archivos subir el número `rp-v***` (sw.js) y `?v=***` (cargas en index.html).
 - Commit en español, estilo conventional: `feat(firestore): ...`, `fix(...): ...`, `docs: ...`.
 - Rama actual: `main` (única). PRs a `main` desde feature branches.
@@ -92,6 +97,9 @@ Los botones de la navegación usan `data-go` (desktop) / `data-route` (sidebar).
 ```powershell
 powershell -File servidor.ps1        # servidor local http://localhost:5556/
 node tests.mjs                       # tests unitarios de logic.js
+node tests-integration.mjs           # tests de integración (db.js + fake-indexeddb)
+npm run test:e2e                     # tests end-to-end (Playwright, Chromium)
+npm run test:all                     # unitarios + integración + E2E
 openspec.cmd propose "descripción"   # proponer cambio (OpenSpec)
 openspec.cmd plan / implement / deliver
 ```

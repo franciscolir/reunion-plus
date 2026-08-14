@@ -10,7 +10,12 @@
       "package*.json",
       "**/*.pdf",
       "mwb_*.pdf",
-      "servidor.ps1"
+      "servidor.ps1",
+      "tests/",
+      "tests-integration.mjs",
+      "playwright.config.mjs",
+      "test-results/",
+      "playwright-report/"
     ],
     "rewrites": [
       {

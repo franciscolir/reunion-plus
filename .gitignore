@@ -24,3 +24,8 @@ plantilla-participantes.xls
 
 # Cache de Firebase CLI (local)
 .firebase/
+
+# Artefactos de Playwright (tests E2E)
+test-results/
+playwright-report/
+.tmp/
