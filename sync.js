@@ -173,11 +173,11 @@ async function pushStore(store) {
   _syncing = true;
   try {
     if (store === 'people') {
-      const people = await db.listPeople();
+      const people = await db.listPeopleAll();
       await batchWrite(people.map(personaADocumento));
       setStatus('ok', `participantes: ${people.length}`);
     } else if (store === 'departments') {
-      const grupos = await db.listDepartments();
+      const grupos = await db.listDepartmentsAll();
       await batchWrite(grupos.map(grupoADocumento));
       setStatus('ok', `grupos: ${grupos.length}`);
     } else if (store === 'midweeks') {
@@ -344,7 +344,7 @@ export async function pullAll() {
 
     // grupos
     await db.replaceAllDepartmentsSilent(grupos.map(g => ({
-      id: String(g.id), name: g.nombre || '', orden: g.orden || 0, labores: g.labores || '', createdAt: g.createdAt || Date.now(),
+      id: String(g.id), name: g.nombre || '', orden: g.orden || 0, labores: g.labores || '', activo: g.activo !== false, createdAt: g.createdAt || Date.now(),
     })));
 
     // reuniones

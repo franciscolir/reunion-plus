@@ -195,6 +195,14 @@ body.is-reader [data-admin-input] { pointer-events: none; opacity: .55; }
   border-color: #b9c2c0;
 }
 .person-card.is-hidden { display: none; }
+.person-card.is-inactive {
+  opacity: .55;
+  filter: grayscale(.9);
+}
+.person-card.is-inactive:hover {
+  opacity: .85;
+  filter: none;
+}
 
 /* Chip de labor (asignación rápida por persona) */
 .labor-chip {

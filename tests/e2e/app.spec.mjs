@@ -124,4 +124,33 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('"Presidente" marcado');
   });
 
+  test('quitar persona la oculta y se puede restaurar (borrado lógico)', async ({ page }) => {
+    await openApp(page);
+    await gotoLabores(page);
+
+    await page.click('#addMemberBtn');
+    await page.fill('#mdName', 'Ana Torrado');
+    await page.click('#mdForm button[type="submit"]');
+    const card = page.locator('.person-card', { hasText: 'Ana Torrado' });
+    await expect(card).toBeVisible();
+    const pid = await card.getAttribute('data-pid');
+
+    // Quitar → tarjeta desaparece (queda oculta).
+    await page.click(`[data-pdel="${pid}"]`);
+    await page.click('#mdOk');
+    await expect(page.locator('.person-card', { hasText: 'Ana Torrado' })).toHaveCount(0, { timeout: 10000 });
+
+    // Ver desactivados → aparece atenuada con botón restauración.
+    await page.click('#toggleInactive');
+    const inactive = page.locator('.person-card.is-inactive', { hasText: 'Ana Torrado' });
+    await expect(inactive).toBeVisible();
+    await expect(inactive.locator('.labor-chip').first()).toBeDisabled();
+    await expect(inactive.locator('[data-prestore]')).toBeAttached();
+
+    // Restaurar → vuelve a la lista activa.
+    await page.click(`[data-prestore="${pid}"]`);
+    await page.click('#mdOk');
+    await expect(page.locator('.person-card', { hasText: 'Ana Torrado' })).toHaveCount(1, { timeout: 10000 });
+  });
+
 });

@@ -59,7 +59,23 @@ test('people CRUD y atributos (género/calificación)', async () => {
   assert.equal(list[0].calificacion, 'D');
 
   await db.deletePerson(id);
-  assert.equal((await db.listPeople()).length, 0);
+  assert.equal((await db.listPeople()).length, 0, 'se oculta de la lista activa');
+  const inactivos = await db.listPeopleInactive();
+  assert.equal(inactivos.length, 1, 'queda registrada como inactiva');
+  assert.equal(inactivos[0].activo, false, 'flag activo:false');
+  await db.restorePerson(id);
+  assert.equal((await db.listPeople()).length, 1, 'restaurada vuelve a la lista activa');
+});
+
+test('departments borrado lógico (ocultar y restaurar)', async () => {
+  const id = await db.addDepartment('Grupo 1');
+  assert.ok(id);
+  assert.equal((await db.listDepartments()).length, 1);
+  await db.deleteDepartment(id);
+  assert.equal((await db.listDepartments()).length, 0, 'se oculta de la lista activa');
+  assert.equal((await db.listDepartmentsInactive()).length, 1, 'queda como inactivo');
+  await db.restoreDepartment(id);
+  assert.equal((await db.listDepartments()).length, 1, 'restaurado vuelve a la lista activa');
 });
 
 test('labores por persona y filtro listPeopleByLabore', async () => {

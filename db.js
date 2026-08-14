@@ -170,7 +170,9 @@ export async function listMonths() {
 }
 
 // ===== PEOPLE =====
-export async function listPeople() {
+// Lista todas las personas (activas e inactivas). Las inactivas se ocultan por
+// defecto (borrado lógico: se conserva el registro para no romper historial).
+async function listPeopleRaw() {
   const db = await openDB();
   const all = await reqToPromise(tx(db, STORE_PEOPLE).getAll());
   // Compatibilidad: las personas guardadas con el campo antiguo `roles` se leen
@@ -180,12 +182,24 @@ export async function listPeople() {
     .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 
+export async function listPeople() {
+  return (await listPeopleRaw()).filter(p => p.activo !== false);
+}
+
+export async function listPeopleAll() {
+  return listPeopleRaw();
+}
+
+export async function listPeopleInactive() {
+  return (await listPeopleRaw()).filter(p => p.activo === false);
+}
+
 export async function addPerson(payload) {
   let record;
   if (typeof payload === 'string') {
     const name = payload.trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, labores: [], cargos: [], genero: '', calificacion: '', createdAt: Date.now() };
+    record = { name, labores: [], cargos: [], genero: '', calificacion: '', activo: true, createdAt: Date.now() };
   } else {
     const name = (payload.name || '').trim();
     if (!name) throw new Error('Nombre vacío');
@@ -196,6 +210,7 @@ export async function addPerson(payload) {
       genero: payload.genero || '',
       calificacion: payload.calificacion || '',
       enlace: payload.enlace || '',
+      activo: payload.activo !== false,
       createdAt: Date.now(),
     };
   }
@@ -206,8 +221,32 @@ export async function updatePerson(person) {
   return commit(STORE_PEOPLE, (store) => reqToPromise(store.put(person)));
 }
 
+// Borrado lógico: marca la persona como inactiva (se oculta de las listas) y
+// limpia los enlaces de pareja que otros tuvieran hacia ella.
 export async function deletePerson(id) {
-  return commit(STORE_PEOPLE, (store) => reqToPromise(store.delete(id)));
+  const all = await listPeopleRaw();
+  const person = all.find(x => String(x.id) === String(id));
+  if (!person) return;
+  await commit(STORE_PEOPLE, (store) => {
+    for (const other of all) {
+      if (String(other.enlace || '') === String(id)) {
+        other.enlace = '';
+        store.put(other);
+      }
+    }
+    person.activo = false;
+    person.deletedAt = Date.now();
+    return reqToPromise(store.put(person));
+  });
+}
+
+// Reactiva una persona previamente marcada como inactiva.
+export async function restorePerson(id) {
+  const person = (await listPeopleRaw()).find(x => String(x.id) === String(id));
+  if (!person) return;
+  person.activo = true;
+  delete person.deletedAt;
+  return commit(STORE_PEOPLE, (store) => reqToPromise(store.put(person)));
 }
 
 export async function clearPeople() {
@@ -230,6 +269,7 @@ export async function replaceAllPeople(data) {
       calificacion: p.calificacion || '',
       enlace: p.enlace || '',
       grupoId: p.grupoId || '',
+      activo: p.activo !== false,
     })).filter(p => p.name);
   } else {
     const rolesMap = (data && (data.roles || data.participantes)) || {};
@@ -238,7 +278,7 @@ export async function replaceAllPeople(data) {
       for (const name of (Array.isArray(names) ? names : [])) {
         const key = String(name).trim().toLowerCase();
         if (!key) continue;
-        if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [] };
+        if (!merged[key]) merged[key] = { name: String(name).trim(), labores: [], activo: true };
         if (!merged[key].labores.includes(role)) merged[key].labores.push(role);
       }
     }
@@ -276,16 +316,28 @@ export async function setPersonLabores(id, labores) {
 }
 
 // ===== DEPARTMENTS =====
-export async function listDepartments() {
+async function listDepartmentsRaw() {
   const db = await openDB();
   const all = await reqToPromise(tx(db, STORE_DEPARTMENTS).getAll());
   return all.sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 
+export async function listDepartments() {
+  return (await listDepartmentsRaw()).filter(d => d.activo !== false);
+}
+
+export async function listDepartmentsAll() {
+  return listDepartmentsRaw();
+}
+
+export async function listDepartmentsInactive() {
+  return (await listDepartmentsRaw()).filter(d => d.activo === false);
+}
+
 export async function addDepartment(name, opts = {}) {
   name = (name || '').trim();
   if (!name) throw new Error('Nombre vacío');
-  const record = { name, createdAt: Date.now() };
+  const record = { name, activo: true, createdAt: Date.now() };
   if (opts.orden !== undefined) record.orden = opts.orden;
   if (opts.labores !== undefined) record.labores = opts.labores;
   return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.add(record)));
@@ -295,8 +347,22 @@ export async function updateDepartment(dept) {
   return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.put(dept)));
 }
 
+// Borrado lógico: marca el departamento como inactivo (se oculta de las listas).
 export async function deleteDepartment(id) {
-  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.delete(id)));
+  const dept = (await listDepartmentsRaw()).find(x => String(x.id) === String(id));
+  if (!dept) return;
+  dept.activo = false;
+  dept.deletedAt = Date.now();
+  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.put(dept)));
+}
+
+// Reactiva un departamento previamente marcado como inactivo.
+export async function restoreDepartment(id) {
+  const dept = (await listDepartmentsRaw()).find(x => String(x.id) === String(id));
+  if (!dept) return;
+  dept.activo = true;
+  delete dept.deletedAt;
+  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.put(dept)));
 }
 
 // ===== SETTINGS =====
@@ -625,8 +691,8 @@ export async function seedIfEmpty() {
 export async function exportAll() {
   return {
     months: await listMonths(),
-    people: await listPeople(),
-    departments: await listDepartments(),
+    people: await listPeopleAll(),
+    departments: await listDepartmentsAll(),
     talks: await listTalks(),
     midweeks: await listMidweeks(),
     aseos: await listAseos(),
@@ -664,7 +730,7 @@ export async function replaceAllPeopleSilent(people) {
 export async function addDepartmentWithIdPublic(name, id) {
   name = (name || '').trim();
   if (!name) return;
-  await commitSilent(STORE_DEPARTMENTS, (store) => reqToPromise(store.put({ id, name, createdAt: Date.now() })));
+  await commitSilent(STORE_DEPARTMENTS, (store) => reqToPromise(store.put({ id, name, activo: true, createdAt: Date.now() })));
 }
 
 // Escribe una persona con id concreto (sin disparar sync). Usado en el pull por registro.

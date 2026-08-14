@@ -39,6 +39,7 @@ const state = {
   mwMonth: null,          // mes seleccionado en la vista mensual de entre semana
   progMonth: null,        // mes seleccionado en Programas (selector global)
   listsTab: 'labores',    // 'labores' | 'historial' (vista Personas)
+  listsShowInactive: false, // mostrar también las personas desactivadas (borrado lógico)
 };
 
 /* ---------- INIT ---------- */
@@ -2563,6 +2564,10 @@ async function renderLists() {
           <span class="material-symbols-outlined text-[18px]">lock_open</span>
           <span id="editText">Desbloquear</span>
         </button>
+        <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border ${state.listsShowInactive ? 'bg-secondary-container text-on-secondary-container border-secondary-container' : 'border-outline text-on-surface-variant'} w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleInactive">
+          <span class="material-symbols-outlined text-[18px]">history_toggle_off</span>
+          <span>${state.listsShowInactive ? 'Ocultar desactivados' : 'Ver desactivados'}</span>
+        </button>
       </div>
     </div>
 
@@ -2617,6 +2622,7 @@ async function renderLists() {
   $('#addMemberBtn').onclick = openAddMemberModal;
 
   $('#manageLaboresBtn').onclick = renderLaboresModal;
+  $('#toggleInactive').onclick = () => { state.listsShowInactive = !state.listsShowInactive; renderLists(); };
 
   const search = $('#pSearch');
   const genderFilter = $('#pGenderFilter');
@@ -2633,8 +2639,13 @@ async function renderLists() {
   genderFilter.addEventListener('change', applyFilter);
 
   const pList = $('#pList');
-  pList.innerHTML = state.people.length
-    ? state.people.map(p => renderPersonCard(p, editMode)).join('')
+  const inactivos = state.listsShowInactive ? await db.listPeopleInactive() : [];
+  const cards = [
+    ...state.people.map(p => renderPersonCard(p, editMode, false)),
+    ...inactivos.map(p => renderPersonCard(p, false, true)),
+  ];
+  pList.innerHTML = cards.length
+    ? cards.join('')
     : `<div class="col-span-full p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</div>`;
   renderPersonCardBindings(editMode);
 }
@@ -2730,28 +2741,34 @@ function laborChipMarkup(p, r, editMode) {
 }
 
 // Tarjeta de persona (vista Personas y Grupos → Labores). El nombre es el
-// elemento principal; sus labores se muestran como chips conmutables.
-function renderPersonCard(p, editMode) {
+// elemento principal; sus labores se muestran como chips conmutables. Si la
+// persona está desactivada (borrado lógico) se muestra atenuada con botón
+// de restauración.
+function renderPersonCard(p, editMode, isInactive = false) {
   const labores = Array.isArray(p.labores) ? p.labores : [];
-  const chips = state.labores.map(r => laborChipMarkup(p, r, editMode)).join('');
+  const chips = state.labores.map(r => laborChipMarkup(p, r, isInactive ? false : editMode)).join('');
   const gen = p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : '—';
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '';
   const badges = [];
   if (p.genero) badges.push(`<span class="px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant text-[11px] font-label-md">${gen}</span>`);
   if (cal) badges.push(`<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-label-md">Cal. ${cal}</span>`);
   if (p.enlace) badges.push(`<span class="px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container text-[11px] font-label-md">Enlazado</span>`);
-  return `<div class="person-card" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-pid="${p.id}">
+  if (isInactive) badges.push(`<span class="px-2 py-0.5 rounded-full bg-error-container text-error text-[11px] font-label-md">Desactivada</span>`);
+  const actions = isInactive
+    ? `
+      <button data-prestore="${p.id}" class="p-1.5 rounded-lg text-primary hover:bg-primary-fixed" title="Restaurar"><span class="material-symbols-outlined text-[18px]">undo</span></button>`
+    : `
+      <button data-profile="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Ver perfil"><span class="material-symbols-outlined text-[18px]">account_circle</span></button>
+      <button data-markall="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Marcar/desmarcar todas las labores"><span class="material-symbols-outlined text-[18px]">select_all</span></button>
+      <button data-pdel="${p.id}" data-admin class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
+  return `<div class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-pid="${p.id}">
     <div class="flex items-center gap-3">
       <div class="w-10 h-10 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(p.name)}</div>
       <div class="min-w-0 flex-1">
         <p class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</p>
         <div class="flex flex-wrap gap-1.5 mt-1">${badges.join('') || '<span class="text-[11px] text-on-surface-variant/60">Sin datos</span>'}</div>
       </div>
-      <div class="flex items-center gap-0.5 shrink-0">
-        <button data-profile="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Ver perfil"><span class="material-symbols-outlined text-[18px]">account_circle</span></button>
-        <button data-markall="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Marcar/desmarcar todas las labores"><span class="material-symbols-outlined text-[18px]">select_all</span></button>
-        <button data-pdel="${p.id}" data-admin class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
-      </div>
+      <div class="flex items-center gap-0.5 shrink-0">${actions}</div>
     </div>
     <div class="flex flex-wrap gap-2 mt-3">${chips}</div>
   </div>`;
@@ -2776,8 +2793,14 @@ function renderPersonCardBindings(editMode) {
     chips.forEach(c => { if (!c.hasAttribute('data-locked')) setChipOn(c, anyUnchecked); });
     toast(anyUnchecked ? 'Todas las labores marcadas' : 'Labores desmarcadas', 'success');
   });
+  $('#pList').querySelectorAll('[data-prestore]').forEach(b => b.onclick = async () => {
+    if (await confirmDialog('¿Restaurar esta persona? Volverá a aparecer en las listas y podrá recibir asignaciones.')) {
+      await db.restorePerson(b.dataset.prestore);
+      renderLists();
+    }
+  });
   $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
-    if (await confirmDialog('¿Eliminar esta persona?')) { await db.deletePerson(parseInt(b.dataset.pdel, 10)); renderLists(); }
+    if (await confirmDialog('¿Quitar a esta persona? No recibirá más asignaciones y quedará oculta; su historial se conserva y puede restaurarse después.')) { await db.deletePerson(b.dataset.pdel); renderLists(); }
   });
   $('#pList').querySelectorAll('.labor-chip').forEach(cb => cb.onclick = async () => {
     if (cb.disabled) return;
@@ -3428,13 +3451,13 @@ async function openPeopleListModal() {
   list.querySelectorAll('[data-pdel2]').forEach(b => b.onclick = async () => {
     const person = state.people.find(x => String(x.id) === String(b.dataset.pdel2));
     if (!person) return;
-    if (!await confirmDialog(`¿Eliminar a ${person.name}?`, 'Eliminar')) return;
+    if (!await confirmDialog(`¿Quitar a ${person.name}? No recibirá más asignaciones y quedará oculta; puede restaurarse después.`, 'Quitar')) return;
     await db.deletePerson(person.id);
     await refreshCatalogs();
     closeModal();
     openPeopleListModal();
     renderUploadSummary();
-    toast('Persona eliminada', 'success');
+    toast('Persona oculta', 'success');
   });
   modalEl('[data-add]').onclick = () => { closeModal(); openAddMemberModal(); };
   modalEl('[data-depts]').onclick = () => { closeModal(); openDepartmentsListModal(); };
@@ -3493,13 +3516,13 @@ async function openDepartmentsListModal() {
   modalEl('[data-list]').querySelectorAll('[data-ddel]').forEach(b => b.onclick = async () => {
     const d = state.departments.find(x => String(x.id) === String(b.dataset.ddel));
     if (!d) return;
-    if (!await confirmDialog(`¿Eliminar el departamento "${d.name}"?`, 'Eliminar')) return;
+    if (!await confirmDialog(`¿Quitar el departamento "${d.name}"? Se ocultará de las listas y puede restaurarse después.`, 'Quitar')) return;
     await db.deleteDepartment(d.id);
     await refreshCatalogs();
     closeModal();
     openDepartmentsListModal();
     renderUploadSummary();
-    toast('Departamento eliminado', 'success');
+    toast('Departamento oculto', 'success');
   });
   modalEl('[data-people]').onclick = () => { closeModal(); openPeopleListModal(); };
   modalEl('[data-close-modal]').onclick = closeModal;
@@ -4108,21 +4131,24 @@ async function renderSettings() {
   };
   fillGrpCant();
 
-  // Asegura que existan exactamente `n` grupos (numerados "Grupo i" o "i") en la
-  // DB, reutilizando los ya existentes para no perder referencias.
+  // Asegura que existan exactamente `n` grupos activos (numerados "Grupo i" o "i")
+  // en la DB, reutilizando los ya existentes (incluso ocultos) para no perder
+  // referencias. Los grupos fuera de rango se ocultan (borrado lógico).
   async function ensureGroupCount(n) {
-    const existing = await db.listDepartments();
+    const existing = await db.listDepartmentsAll();
     const byNum = new Map();
     for (const d of existing) {
       const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
       if (m) byNum.set(parseInt(m[1], 10), d);
     }
     for (let i = 1; i <= n; i++) {
-      if (!byNum.has(i)) await db.addDepartment(`Grupo ${i}`);
+      const d = byNum.get(i);
+      if (!d) await db.addDepartment(`Grupo ${i}`);
+      else if (d.activo === false) await db.restoreDepartment(d.id);
     }
     for (const d of existing) {
       const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
-      if (m && parseInt(m[1], 10) > n) await db.deleteDepartment(d.id);
+      if (m && parseInt(m[1], 10) > n && d.activo !== false) await db.deleteDepartment(d.id);
     }
     state.departments = await db.listDepartments();
   }
