@@ -14,6 +14,7 @@ import {
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
+  readerLevelEligible, readerPriority,
   extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
   mulberry32, rotateSeed, generateOneProposal, generateProposals, scoreSolution,
@@ -1161,6 +1162,45 @@ console.log('[defaultAlgorithmConfig / defaultScoringConfig]');
   const s = defaultScoringConfig();
   const suma = s.workloadBalance + s.roleRotation + s.weeklyBalance + s.monthlyRepetition + s.scarceRoleProtection + s.pairRoleBalance + s.studentOpportunityBalance;
   ok('pesos suman 100', suma === 100, `got=${suma}`);
+}
+
+// --- Nivel del lector estudiantil ---
+console.log('[readerLevelEligible / readerPriority]');
+{
+  ok('nivel A permite solo A', readerLevelEligible('A', 'A') === true && readerLevelEligible('A', 'B') === false);
+  ok('nivel B permite A y B', readerLevelEligible('B', 'A') && readerLevelEligible('B', 'B') && !readerLevelEligible('B', 'C'));
+  ok('nivel C incluye también D', readerLevelEligible('C', 'D') === true && readerLevelEligible('C', 'C') === true);
+  ok('nivel CD abarca todas las calificaciones', ['A', 'B', 'C', 'D'].every(c => readerLevelEligible('CD', c)));
+  ok('sin calificación no discrimina', readerLevelEligible('A', '') === true && readerLevelEligible('A', null) === true);
+  ok('CD tienen prioridad de lectura antes que B y A', readerPriority('C') < readerPriority('B') && readerPriority('D') < readerPriority('B') && readerPriority('B') < readerPriority('A'));
+}
+
+console.log('[automatizarEntreSemana · nivel del lector]');
+{
+  const personas = [
+    { id: 1, name: 'Ana', labores: ['asignacion1'], calificacion: 'A' },
+    { id: 2, name: 'Ben', labores: ['asignacion1'], calificacion: 'B' },
+    { id: 3, name: 'Carlos', labores: ['asignacion1'], calificacion: 'C' },
+    { id: 4, name: 'Diana', labores: ['asignacion1'], calificacion: 'D' },
+  ];
+  const mk = (d) => ({ id: d, header: d, reading: 'X', sections: [
+    { id: 'tesoros', title: 'Tesoros', parts: [
+      { num: 1, title: 'Discurso', mins: 10, assignments: {} },
+      { num: 2, title: 'Lectura de la Biblia', mins: 4, assignments: {} },
+    ]},
+  ]});
+  const wA = mk('2026-09-01');
+  automatizarEntreSemana(personas, [wA], null, { readerLevel: 'A' });
+  const lectorA = wA.sections[0].parts[1].assignments.lector;
+  ok('nivel A asigna lector solo de nivel A', String(lectorA) === '1', `got=${lectorA}`);
+  const wCD = mk('2026-09-08');
+  automatizarEntreSemana(personas, [wCD], null, { readerLevel: 'CD' });
+  const lectorCD = wCD.sections[0].parts[1].assignments.lector;
+  ok('nivel CD prioriza a C o D', String(lectorCD) === '3' || String(lectorCD) === '4', `got=${lectorCD}`);
+  const wC = mk('2026-09-15');
+  automatizarEntreSemana(personas, [wC], null, { readerLevel: 'C' });
+  const lectorC = wC.sections[0].parts[1].assignments.lector;
+  ok('nivel C contempla también a D', String(lectorC) === '3' || String(lectorC) === '4', `got=${lectorC}`);
 }
 
 // --- mulberry32 / rotateSeed ---

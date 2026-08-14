@@ -196,4 +196,25 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     expect(primerSlot).not.toBe('');
   });
 
+  test('ajustes: motor con veces numéricas, tooltips por campo y nivel lector CD', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+    await page.evaluate(() => { location.hash = '#/settings'; });
+    await expect(page.locator('h1:has-text("Ajustes")')).toBeVisible();
+
+    // Repetición mensual ahora es una cantidad de veces (0-4).
+    await expect(page.locator('#algoRepVeces option')).toHaveCount(5);
+    await expect(page.locator('#algoRepVeces option:checked')).toHaveCount(1);
+
+    // Iconos info con tooltip en los campos del motor y la ponderación.
+    await expect(page.locator('label:has(.material-symbols-outlined[title])')).toHaveCount(13);
+
+    // El nivel del lector contempla C y D (opción CD).
+    await expect(page.locator('#algoLectorNivel option[value="CD"]')).toBeAttached();
+    await expect(page.locator('#algoLectorNivel')).toContainText('C y D (CD)');
+    await page.selectOption('#algoLectorNivel', 'CD');
+    await page.click('#algoSave');
+    await expect(page.locator('#toastRoot')).toContainText('Motor de asignación guardado');
+  });
+
 });

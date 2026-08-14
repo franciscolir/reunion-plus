@@ -21,7 +21,7 @@ export function defaultAlgorithmConfig() {
     numberOfProposals: 3,
     permanentConductorId: '',
     permanentConductorBackupId: '',
-    studentReaderLevel: 'A',
+    studentReaderLevel: 'CD',
     serviceRolesOnlyMale: true,
   };
 }
@@ -1328,6 +1328,19 @@ const ROL_NO_ESTUDIANTE = new Set(['asignacion4', 'conductor2', 'lector2']);
 /* ---------- Automatización de asignaciones ---------- */
 const ORDEN_CAL = ['A', 'B', 'C', 'D'];
 
+export function readerLevelEligible(level, calificacion) {
+  const idx = ORDEN_CAL.indexOf(calificacion);
+  if (idx < 0) return true;
+  const lvl = String(level || 'CD').toUpperCase();
+  const maxIdx = (lvl === 'C' || lvl === 'D' || lvl === 'CD') ? ORDEN_CAL.length - 1 : ORDEN_CAL.indexOf(lvl);
+  return maxIdx < 0 ? true : idx <= maxIdx;
+}
+
+export function readerPriority(calificacion) {
+  const prio = { C: 0, D: 1, B: 2, A: 3 };
+  return prio[calificacion] ?? 2;
+}
+
 // Personas con una labor (o sin labores definidas) y que pueden ejercerla en la
 // UI según la regla de género (laboreAllowedForPerson).
 function peopleForLabore(people, labore) {
@@ -1412,15 +1425,24 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
   //   nivel 2: permitir repetir persona en la semana (E2)
   // Nunca asigna a ocupados por acomodación/salidas (E1 no se flexibiliza).
   const elegir = (weekId, labore, key) => {
-    let cand = isStudentLabore(labore) ? people.filter(isStudentPerson) : peopleForLabore(people, labore);
+    const esLector = labore === 'asignacion1';
+    const readerLevel = opts.readerLevel || 'CD';
+    let cand = esLector
+      ? people.filter(p => isStudentPerson(p) && readerLevelEligible(readerLevel, p.calificacion))
+      : isStudentLabore(labore) ? people.filter(isStudentPerson) : peopleForLabore(people, labore);
     cand = cand.filter(p => laboreAllowedForPerson(p, labore));
     // Orden de preferencia: calificación (estudiantes) → menor carga mensual →
     // última participación más antigua → nombre (estable).
     cand = cand.slice().sort((a, b) => {
       if (isStudentLabore(labore)) {
-        const ca = ORDEN_CAL.indexOf(a.calificacion || '');
-        const cb = ORDEN_CAL.indexOf(b.calificacion || '');
-        if (ca !== cb) return ca - cb;
+        if (esLector) {
+          const pa = readerPriority(a.calificacion), pb = readerPriority(b.calificacion);
+          if (pa !== pb) return pa - pb;
+        } else {
+          const ca = ORDEN_CAL.indexOf(a.calificacion || '');
+          const cb = ORDEN_CAL.indexOf(b.calificacion || '');
+          if (ca !== cb) return ca - cb;
+        }
       }
       const caA = cargaMes[String(a.id)] || 0, caB = cargaMes[String(b.id)] || 0;
       if (caA !== caB) return caA - caB;
@@ -1855,7 +1877,7 @@ export function generateOneProposal(input, config = {}, seed = 1) {
   const nombres = input.nombres || {};
   const reportes = {};
 
-  reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres });
+  reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres, readerLevel: config4.studentReaderLevel });
   reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale });
   reportes.fin = automatizarFinSemana(people, months, salidas, atencion);
 

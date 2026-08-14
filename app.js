@@ -349,6 +349,8 @@ const el = (html) => {
   return t.content.firstElementChild;
 };
 
+const infoTip = (text) => `<span class="material-symbols-outlined text-[16px] leading-none text-on-surface-variant cursor-help align-middle" title="${escapeAttr(text)}">info</span>`;
+
 function toast(msg, type = 'info') {
   const root = $('#toastRoot');
   const colors = {
@@ -4010,10 +4012,14 @@ async function renderSettings() {
   const algo = { ...defaultAlgorithmConfig(), ...(config.algorithm || {}) };
   const scoring = { ...defaultScoringConfig(), ...((config.algorithm || {}).scoring || {}) };
   const personasOptions = (sel, cur) => `<option value="">—</option>${state.people.map(p => `<option value="${escapeAttr(String(p.id))}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeAttr(p.name)}</option>`).join('')}`;
-  const selMode = (cur) => ['PREFERRED', 'LIMIT', 'STRICT'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'PREFERRED' ? 'Preferida (permite 1 repetición)' : m === 'LIMIT' ? 'Límite estricto' : 'Prohibida'}</option>`).join('');
+  const selVeces = (cur) => [0, 1, 2, 3, 4].map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>${v === 0 ? 'Prohibido (0 veces)' : v === 1 ? 'Preferido (1 vez al mes)' : `Hasta ${v} veces al mes`}</option>`).join('');
   const selPair = (cur) => ['NOT_ALLOWED', 'ALLOWED_LOW', 'ALLOWED_MEDIUM', 'ALLOWED_HIGH'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'NOT_ALLOWED' ? 'Prohibido' : m === 'ALLOWED_LOW' ? 'Solo con motivo' : m === 'ALLOWED_MEDIUM' ? 'Permitido' : 'Permitido (prioridad)'}</option>`).join('');
-  const selLevel = (cur) => ['A', 'B', 'C'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>Nivel ${m}</option>`).join('');
+  const selLevel = (cur) => {
+    const norm = cur === 'C' || cur === 'D' ? 'CD' : cur;
+    return ['A', 'B', 'CD'].map(m => `<option value="${m}" ${m === norm ? 'selected' : ''}>${m === 'CD' ? 'C y D (CD)' : `Nivel ${m}`}</option>`).join('');
+  };
   const app = $('#app');
+  const algoVeces = algo.sameAssignmentMonthlyMode === 'STRICT' ? 0 : Math.min(4, Math.max(1, Number(algo.maxSameAssignmentPerMonth) || 1));
 
   app.innerHTML = `
     <h1 class="font-headline-lg text-headline-lg text-primary mb-6">Ajustes</h1>
@@ -4109,35 +4115,31 @@ async function renderSettings() {
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Propuestas a generar</label>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Propuestas a generar ${infoTip('Cuántas alternativas distintas genera el algoritmo (1-10) para luego puntuar y elegir la mejor.')}</label>
             <input id="algoPropuestas" type="number" value="${escapeAttr(algo.numberOfProposals)}" min="1" max="10" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Máx. misma asignación / mes</label>
-            <input id="algoMaxRep" type="number" value="${escapeAttr(algo.maxSameAssignmentPerMonth)}" min="0" max="4" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Repetición del mismo puesto por mes ${infoTip('Cuántas veces puede repetir una misma persona el mismo puesto en el mes. 0 = prohibido, 1 = preferido (solo si hace falta), 2 o más = límite permitido.')}</label>
+            <select id="algoRepVeces" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selVeces(algoVeces)}</select>
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Repetición mensual</label>
-            <select id="algoModeRep" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selMode(algo.sameAssignmentMonthlyMode)}</select>
-          </div>
-          <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Pareja de género mixto</label>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Pareja de género mixto ${infoTip('Permite combinar un varón y una mujer en la misma presentación y con qué prioridad a la hora de formar parejas.')}</label>
             <select id="algoPairMode" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selPair(algo.mixedGenderPairing)}</select>
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Nivel del lector estudiantil</label>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Nivel del lector estudiantil ${infoTip('Qué calificaciones pueden tomar la lectura de la Biblia. Al elegir "C y D (CD)" se contemplan ambos niveles (desde CD hacia arriba) y se priorizan los de nivel C y D.')}</label>
             <select id="algoLectorNivel" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${selLevel(algo.studentReaderLevel)}</select>
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Conductor permanente</label>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor permanente ${infoTip('Persona fija que se asigna preferentemente como conductor de la reunión de fin de semana.')}</label>
             <select id="algoConductor" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Conductor suplente</label>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor suplente ${infoTip('Alternativa que se usa cuando el conductor permanente ya está asignado o no puede participar.')}</label>
             <select id="algoConductorBackup" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorBackupId)}</select>
           </div>
           <div class="flex items-end">
-            <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant cursor-pointer py-2.5">
+            <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant cursor-pointer py-2.5" title="Restringe las labores de servicio (micrófono, sonido, acomodación) a varones.">
               <input id="algoServiceMale" type="checkbox" ${algo.serviceRolesOnlyMale ? 'checked' : ''} class="accent-primary"> Labores de servicio solo hombres
             </label>
           </div>
@@ -4150,31 +4152,31 @@ async function renderSettings() {
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Equilibrio de carga</label>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Equilibrio de carga ${infoTip('Peso de repartir la carga de trabajo de forma pareja entre todos los participantes.')}</label>
               <input id="scWorkload" type="number" value="${escapeAttr(scoring.workloadBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             </div>
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Rotación de roles</label>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Rotación de roles ${infoTip('Peso de alternar los puestos entre distintas personas para que no se encasillen.')}</label>
               <input id="scRotacion" type="number" value="${escapeAttr(scoring.roleRotation)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             </div>
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Reparto semanal</label>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Reparto semanal ${infoTip('Peso de evitar que una persona acumule muchas asignaciones en la misma semana.')}</label>
               <input id="scSemanal" type="number" value="${escapeAttr(scoring.weeklyBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             </div>
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Menos repetición mensual</label>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Menos repetición mensual ${infoTip('Peso de evitar que una persona repita el mismo puesto dentro del mismo mes.')}</label>
               <input id="scRepeticion" type="number" value="${escapeAttr(scoring.monthlyRepetition)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             </div>
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Protección de escasez</label>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Protección de escasez ${infoTip('Peso de cuidar los puestos que tienen pocos candidatos disponibles para no quedarse sin quién los cubra.')}</label>
               <input id="scEscasez" type="number" value="${escapeAttr(scoring.scarceRoleProtection)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             </div>
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Alternancia encargado/ayudante</label>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Alternancia encargado/ayudante ${infoTip('Peso de alternar quién es encargado y quién ayudante en las presentaciones en pareja.')}</label>
               <input id="scParejas" type="number" value="${escapeAttr(scoring.pairRoleBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             </div>
             <div>
-              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Oportunidad a estudiantes</label>
+              <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Oportunidad a estudiantes ${infoTip('Peso de dar más participación a los estudiantes que necesitan más prácticas.')}</label>
               <input id="scOportunidad" type="number" value="${escapeAttr(scoring.studentOpportunityBalance)}" min="0" max="100" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             </div>
           </div>
@@ -4285,10 +4287,11 @@ async function renderSettings() {
 
   // ---- Motor de asignación: guardar/restaurar reglas + ponderación ----
   const readAlgoForm = () => {
+    const veces = Math.min(4, Math.max(0, parseInt($('#algoRepVeces').value, 10) || 1));
     const a = {
       numberOfProposals: Math.min(10, Math.max(1, parseInt($('#algoPropuestas').value, 10) || 3)),
-      maxSameAssignmentPerMonth: Math.min(4, Math.max(0, parseInt($('#algoMaxRep').value, 10) || 1)),
-      sameAssignmentMonthlyMode: $('#algoModeRep').value,
+      maxSameAssignmentPerMonth: veces,
+      sameAssignmentMonthlyMode: veces === 0 ? 'STRICT' : veces === 1 ? 'PREFERRED' : 'LIMIT',
       mixedGenderPairing: $('#algoPairMode').value,
       studentReaderLevel: $('#algoLectorNivel').value,
       permanentConductorId: $('#algoConductor').value,
