@@ -8,7 +8,7 @@ import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
   collectWeekPersons, labelOfKey, labelOf,
-  computeConflicts, computeOutingConflicts, weekComplete,
+  computeConflicts, computeOutingConflicts, weekComplete, computeMidweekConflicts,
   dedupPersons, eligiblePeople, isAtencionPerson, ATENCION_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
@@ -364,10 +364,13 @@ function toast(msg, type = 'info') {
   setTimeout(() => { node.style.opacity = '0'; node.style.transition = 'opacity .3s'; setTimeout(() => node.remove(), 300); }, 3500);
 }
 
-function openModal(html) {
+function openModal(html, wide = false) {
   const root = $('#modalRoot');
-  $('#modalCard').innerHTML = html;
-  $('#modalCard').classList.add('modal-enter');
+  const card = $('#modalCard');
+  if (wide) { card.classList.remove('max-w-lg'); card.classList.add('max-w-[64rem]'); }
+  else { card.classList.remove('max-w-[64rem]'); card.classList.add('max-w-lg'); }
+  card.innerHTML = html;
+  card.classList.add('modal-enter');
   root.classList.remove('hidden');
   $('#modalBackdrop').onclick = closeModal;
 }
@@ -1573,7 +1576,7 @@ async function renderAlgoritmo() {
             <div class="flex items-center gap-3">
               <span class="text-4xl font-bold ${p.score >= 80 ? 'text-tertiary' : p.score >= 60 ? 'text-secondary' : 'text-error'}" style="font-family:'Playfair Display',serif">${p.score}</span>
               <span class="text-xs text-on-surface-variant">/ 100</span>
-              <button data-aplicar="${i}" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Aplicar</button>
+              <button data-previa="${i}" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined text-[16px]">visibility</span> Vista previa</button>
             </div>
           </div>
           <div class="space-y-1.5">${dims}</div>
@@ -1581,12 +1584,8 @@ async function renderAlgoritmo() {
         </div>`;
       }).join('');
       caja.innerHTML = `<h4 class="font-label-lg text-label-lg text-on-surface-variant mb-2">Mejores ${props.length} de ${Math.max(props.length, 1)} propuesta(s)</h4>${lista}`;
-      caja.querySelectorAll('[data-aplicar]').forEach(b => b.onclick = async () => {
-        const p = props[Number(b.dataset.aplicar)];
-        const ok = await confirmDialog(`¿Aplicar la propuesta ${Number(b.dataset.aplicar) + 1}? Se reescribirán las asignaciones de los programas del mes seleccionado.`, 'Aplicar');
-        if (!ok) return;
-        await aplicarPropuesta(p, month);
-        toast('Propuesta aplicada a los programas', 'success');
+      caja.querySelectorAll('[data-previa]').forEach(b => b.onclick = () => {
+        abrirVistaPreviaPropuesta(props[Number(b.dataset.previa)], month, Number(b.dataset.previa));
       });
     } catch (e) {
       console.error(e);
@@ -1608,6 +1607,114 @@ async function aplicarPropuesta(p, month) {
   await Promise.all(writes);
   state.midweeks = await db.listMidweeks();
   await syncAssignmentLog();
+}
+
+// Vista previa de una propuesta: renderiza la vista mensual general con los
+// programas de la propuesta en memoria, marca los conflictos con su redacción
+// breve y permite aceptarla (persiste en todos los stores y deja los programas
+// en edición para completarlos).
+function abrirVistaPreviaPropuesta(p, month, i) {
+  openModal(`
+    <div>
+      <div class="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary">Propuesta ${i + 1} <span class="text-on-surface-variant">· ${p.score} / 100</span></h3>
+          <p class="text-xs text-on-surface-variant mt-0.5">${(p.assignments || []).length} asignaciones · semilla ${p.seed}${p.valida === false ? ' · incompleta' : ''}</p>
+        </div>
+        <button data-close-modal class="material-symbols-outlined p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant">close</button>
+      </div>
+      <div id="pvConflictos" class="mb-4"></div>
+      <div id="pvGeneral"></div>
+      <div class="flex gap-3 justify-end mt-5 pt-4 border-t border-outline-variant/40">
+        <button data-cancel class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+        <button id="pvAccept" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Aceptar propuesta</button>
+      </div>
+    </div>`, true);
+  $('#pvConflictos').innerHTML = redaccionConflictosPropuesta(p, month);
+  renderGeneralMonth(month, {
+    embed: $('#pvGeneral'),
+    data: {
+      months: p.months || [],
+      midweeks: p.midweeks || [],
+      salidas: p.salidas || [],
+      atencion: p.atencion || [],
+    },
+  });
+  modalEl('[data-close-modal]').onclick = closeModal;
+  modalEl('[data-cancel]').onclick = closeModal;
+  $('#pvAccept').onclick = async () => {
+    $('#pvAccept').disabled = true;
+    await aplicarPropuesta(p, month);
+    closeModal();
+    state.progMonth = month;
+    go('new');
+    toast('Propuesta aplicada. Revise y complete los programas.', 'success');
+  };
+}
+
+// Redacción breve de los conflictos de una propuesta (cruzados, de fin de semana
+// y de entre semana) y de los puestos que quedan sin completar. Los conflictos se
+// marcan en rojo con su descripción; lo pendiente se lista aparte.
+function redaccionConflictosPropuesta(p, month) {
+  const REGLA = {
+    E1: 'No puede tener más de una asignación (entre semana + acomodación) en la misma semana.',
+    E2: 'No puede tener más de una asignación (fin de semana + acomodación + salidas) en la misma semana.',
+    E3: 'La misma asignación de entre semana se repite en el mes.',
+    E4: 'El mismo cargo de fin de semana se repite en el mes.',
+    E5: 'No puede tener más de una salida en el mes.',
+  };
+  const mesTxt = (id) => `${MONTHS_ES[Number(String(id).slice(5, 7)) - 1]} ${String(id).slice(0, 4)}`;
+  const conflictos = [];
+  const pendientes = [];
+
+  computeCrossConflicts({
+    months: (p.months || []).filter(m => String(m.id).startsWith(month)),
+    midweeks: (p.midweeks || []).filter(m => String(m.id).startsWith(month)),
+    atencion: (p.atencion || []).filter(x => String(x.id) === month),
+    salidas: (p.salidas || []).filter(x => String(x.id) === month),
+  }).forEach(c => conflictos.push(`${personNameOf(c.value)} — ${c.detalle}. ${REGLA[c.regla] || ''}`));
+
+  (p.months || []).forEach(m => {
+    computeConflicts(m).errors.forEach(e => {
+      if (e.includes('falta')) pendientes.push(`${mesTxt(m.id)} · ${e}`);
+      else conflictos.push(`${mesTxt(m.id)} · ${e}`);
+    });
+  });
+
+  (p.midweeks || []).forEach(w => {
+    computeMidweekConflicts(w).errors.forEach(e => conflictos.push(`${mesTxt(w.id)} · ${e}`));
+  });
+
+  const parts = [];
+  if (conflictos.length) {
+    parts.push(`<div class="rounded-xl border border-error bg-error-container/20 p-4 mb-3">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="material-symbols-outlined text-error">report</span>
+        <h4 class="font-label-lg text-label-lg text-on-surface">Conflictos de asignación (${conflictos.length})</h4>
+      </div>
+      <ul class="space-y-1.5 text-sm">
+        ${conflictos.map(t => `<li class="flex items-start gap-2"><span class="material-symbols-outlined text-error text-[16px] mt-0.5">person_off</span><span class="text-on-surface">${escapeHtml(t)}</span></li>`).join('')}
+      </ul>
+    </div>`);
+  }
+  if (pendientes.length) {
+    parts.push(`<div class="rounded-xl border border-outline-variant bg-surface-container-low p-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="material-symbols-outlined text-tertiary">assignment_late</span>
+        <h4 class="font-label-lg text-label-lg text-on-surface">Puestos por completar (${pendientes.length})</h4>
+      </div>
+      <ul class="space-y-1.5 text-sm">
+        ${pendientes.map(t => `<li class="flex items-start gap-2"><span class="material-symbols-outlined text-tertiary text-[16px] mt-0.5">edit</span><span class="text-on-surface">${escapeHtml(t)}</span></li>`).join('')}
+      </ul>
+    </div>`);
+  }
+  if (!parts.length) {
+    parts.push(`<div class="rounded-xl border border-tertiary/40 bg-tertiary-container/20 p-4 flex items-center gap-2 text-sm">
+      <span class="material-symbols-outlined text-tertiary">verified</span>
+      <span class="text-on-surface">Sin conflictos de asignación detectados.</span>
+    </div>`);
+  }
+  return parts.join('');
 }
 
 async function renderNewBody() {
@@ -5011,13 +5118,21 @@ async function renderGeneralMonth(monthId, opts = {}) {
   const embed = opts.embed;
   if (!embed) { state.month = null; renderTop(); }
   const root = embed || $('#app');
-  const months = await db.listMonths();
-  months.sort((a, b) => b.id.localeCompare(a.id));
 
-  const mwMonths = [...new Set(state.midweeks.map(m => String(m.id).slice(0, 7)))];
-  const allMonths = [...new Set([...months.map(m => m.id), ...mwMonths])].sort((a, b) => b.localeCompare(a));
+  // Con `opts.data` se renderiza con datos en memoria (p. ej. una propuesta sin
+  // persistir). Cada store que falte en `data` cae al valor de la BD.
+  const data = opts.data || null;
+  const months = data && data.months != null ? data.months : await db.listMonths();
+  const midweeks = data && data.midweeks != null ? data.midweeks : state.midweeks;
+  const aseos = data && data.aseos != null ? data.aseos : await db.listAseos();
+  const salidasList = data && data.salidas != null ? data.salidas : await db.listSalidas();
+  const laboresList = data && data.atencion != null ? data.atencion : await db.listAtencion();
+  const monthsArr = [...months].sort((a, b) => b.id.localeCompare(a.id));
+
+  const mwMonths = [...new Set(midweeks.map(m => String(m.id).slice(0, 7)))];
+  const allMonths = [...new Set([...monthsArr.map(m => m.id), ...mwMonths])].sort((a, b) => b.localeCompare(a));
   const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
-  const month = months.find(m => m.id === cur) || null;
+  const month = monthsArr.find(m => m.id === cur) || null;
 
   // Cada semana de la organización (domingo que la cierra) agrupa su reunión de
   // entre semana (lunes) y su reunión de fin de semana (sábado).
@@ -5029,11 +5144,8 @@ async function renderGeneralMonth(monthId, opts = {}) {
   const finBySunday = new Map();
   ((month && month.weeks) || []).forEach(w => finBySunday.set(weekSunday(w.date), w));
   const mwBySunday = new Map();
-  state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
+  midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
 
-  const aseos = await db.listAseos();
-  const salidasList = await db.listSalidas();
-  const laboresList = await db.listAtencion();
   const aseoBySunday = new Map();
   aseos.forEach(a => (a.weeks || []).forEach(w => aseoBySunday.set(weekSunday(w.saturday), w)));
   const salidasBySunday = new Map();

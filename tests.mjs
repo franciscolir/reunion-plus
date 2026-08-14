@@ -1262,6 +1262,9 @@ console.log('[generateProposals / generateOneProposal]');
   ok('propuestas ordenadas de mayor a menor score', props.slice(0, -1).every((p, i) => p.score >= props[i + 1].score));
   ok('toda propuesta trae score numérico', props.every(p => typeof p.score === 'number' && p.score >= 0 && p.score <= 100));
   ok('toda propuesta trae breakdown', props.every(p => p.breakdown && 'workloadBalance' in p.breakdown));
+  ok('toda propuesta trae los programas completos (midweeks/months/salidas/atencion)',
+    props.every(p => Array.isArray(p.midweeks) && p.midweeks.length > 0 && Array.isArray(p.months) && Array.isArray(p.salidas) && Array.isArray(p.atencion)), `got=${props.map(p => `${p.midweeks?.length}/${p.months?.length}/${p.salidas?.length}/${p.atencion?.length}`).join(' ')}`);
+  ok('las propuestas rellenan los puestos de entre semana', props.every(p => p.midweeks.every(w => w.presidente)));
   ok('propuestas distintas (huellas distintas)', new Set(props.map(p => JSON.stringify(p.assignments))).size === props.length);
 }
 

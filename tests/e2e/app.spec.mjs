@@ -3,7 +3,7 @@
 // de modo que IndexedDB es la única fuente de datos. Cada test usa un
 // contexto de navegador nuevo (base de datos vacía).
 import { test, expect } from '@playwright/test';
-import { openApp, gotoLabores } from './helpers.mjs';
+import { openApp, gotoLabores, seedProposalData } from './helpers.mjs';
 
 test.describe('Reunión+ PWA (modo offline)', () => {
 
@@ -151,6 +151,49 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click(`[data-prestore="${pid}"]`);
     await page.click('#mdOk');
     await expect(page.locator('.person-card', { hasText: 'Ana Torrado' })).toHaveCount(1, { timeout: 10000 });
+  });
+
+  test('propuesta: vista previa con vista general, conflictos y aceptar deja en edición', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/algoritmo'; });
+    await expect(page.locator('#algoGenerate')).toBeVisible();
+
+    await page.click('#algoGenerate');
+    await expect(page.locator('[data-previa]').first()).toBeVisible({ timeout: 20000 });
+
+    // Vista previa: vista mensual general renderizada con la propuesta.
+    await page.locator('[data-previa]').first().click();
+    await expect(page.locator('#pvGeneral')).toContainText('Semana 1');
+    await expect(page.locator('#pvGeneral')).toContainText('Entre Semana');
+    await expect(page.locator('#pvGeneral')).toContainText('Fin de Semana');
+    await expect(page.locator('#pvConflictos')).toBeVisible();
+
+    // Aceptar: persiste programas y navega a Programas (edición).
+    await page.click('#pvAccept');
+    await page.waitForFunction(() => location.hash === '#/new');
+    await expect(page.locator('#toastRoot')).toContainText('Propuesta aplicada');
+    await expect(page.locator('h1:has-text("Programas")')).toBeVisible();
+
+    // El programa de entre semana quedó asignado en la BD.
+    const [presidente, primerSlot] = await page.evaluate(() => new Promise((res, rej) => {
+      const req = indexedDB.open('reunion-plus', 7);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('midweeks', 'readonly');
+        const g = tx.objectStore('midweeks').get('2026-08-03');
+        g.onsuccess = () => {
+          const w = g.result;
+          db.close();
+          res([w && w.presidente || '', (w.sections || [])[0].parts[0].assignments.conductor || '']);
+        };
+        g.onerror = () => rej(g.error);
+      };
+      req.onerror = () => rej(req.error);
+    }));
+    expect(presidente).not.toBe('');
+    expect(primerSlot).not.toBe('');
   });
 
 });

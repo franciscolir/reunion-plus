@@ -2007,7 +2007,7 @@ export function generateProposals(input, config = {}, scoring = null, n = null) 
     if (vistos.has(fp)) continue;
     vistos.add(fp);
     const scored = scoreSolution(sol.assignments, { people: input.people, config: cfg, scoring });
-    sols.push({ seed, score: scored.score, breakdown: scored.breakdown, warnings: scored.warnings, valida: scored.valida, restricciones: scored.restricciones, assignments: sol.assignments, reportes: sol.reportes });
+    sols.push({ seed, score: scored.score, breakdown: scored.breakdown, warnings: scored.warnings, valida: scored.valida, restricciones: scored.restricciones, assignments: sol.assignments, midweeks: sol.midweeks, months: sol.months, salidas: sol.salidas, atencion: sol.atencion, reportes: sol.reportes });
     if (sols.length >= Math.max(4, cant)) break;
   }
   sols.sort((a, b) => b.score - a.score);
