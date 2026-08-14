@@ -1222,7 +1222,12 @@ export function computeCrossConflicts(context) {
     }
     // E4: mismo mes, fin, mismo campo (2 semanas distintas)
     if (items.every(i => i.value + '|' + i.mes + '|' + i.programa + '|' + i.rol === key1) && items[0].programa === 'fin') {
-      push(first, 'E4', items.slice(1).map(i => i.detalle));
+      // Excepción: el conductor designado (permanente/suplentes) repite el cargo
+      // de fin de semana de forma intencional → no se considera conflicto.
+      const conductores = [context.permanentConductorId, context.permanentConductorBackupId, context.permanentConductorBackupId2].filter(Boolean).map(String);
+      if (!(items[0].rol === 'conductor' && conductores.includes(items[0].value))) {
+        push(first, 'E4', items.slice(1).map(i => i.detalle));
+      }
       return;
     }
     // E5: mismo mes, salidas, más de una
@@ -1621,6 +1626,7 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
     ocupMw.set(sat, set);
   });
   const laboreMes = new Map(); // personaId -> Set de claves labore usadas en el mes
+  const cargaMes = new Map(); // personaId -> nº total de atenciones en el mes (reparto)
 
   // Rellena los puestos vacíos de un objeto atencion `l` para una semana `sat`.
   // `prefijo` separa las claves de FS y ES para que no se bloqueen entre sí en
@@ -1644,6 +1650,7 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
         if (!id) return;
         ocup.add(String(id));
         (laboreMes[String(id)] ||= new Set()).add(`${prefijo}${d.key}_${si}`);
+        cargaMes.set(String(id), (cargaMes.get(String(id)) || 0) + 1);
       });
     });
     ATENCION_DEF.forEach(d => {
@@ -1654,12 +1661,14 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
         if (cur) continue;
         const cand = people
           .filter(p => laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
-          .find(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${prefijo}${d.key}_${si}`)));
+          .filter(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${prefijo}${d.key}_${si}`)))
+          .sort((a, b) => (cargaMes.get(String(a.id)) || 0) - (cargaMes.get(String(b.id)) || 0))[0];
         if (!cand) { reporte.vacios.push({ semana: sat, labore: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
         else l[d.key] = cand.id;
         ocup.add(String(cand.id));
         (laboreMes[String(cand.id)] ||= new Set()).add(`${prefijo}${d.key}_${si}`);
+        cargaMes.set(String(cand.id), (cargaMes.get(String(cand.id)) || 0) + 1);
         reporte.asignados++;
       }
     });
@@ -1783,8 +1792,6 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
   const permId = opts.permanentConductorId ? String(opts.permanentConductorId) : '';
   const backupId = (opts.permanentConductorBackupId && String(opts.permanentConductorBackupId) !== permId) ? String(opts.permanentConductorBackupId) : '';
   const backupId2 = (opts.permanentConductorBackupId2 && String(opts.permanentConductorBackupId2) !== permId && String(opts.permanentConductorBackupId2) !== backupId) ? String(opts.permanentConductorBackupId2) : '';
-  const poolConductor = peopleForLabore(people, 'conductor1');
-  const poolConductorIds = new Set(poolConductor.map(x => String(x.id)));
 
   // Ocupados por SALIDAS (solo oradorSalida) — esto es lo que puede forzar al suplente.
   const ocupadosSalidas = {};
@@ -1831,23 +1838,31 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
     });
 
     // CONDUCTOR: siempre el permanente, salvo que ÉSTE esté en SALIDAS ese sábado.
-  // Prioridad: permanente → suplente → 2º suplente. Solo estos 3 pueden conducir;
-  // si todos están en salidas ese fin de semana, el puesto queda vacío.
-  if (!w.conductor && (permId || backupId || backupId2)) {
-    const permOcupadoEnSalidas = permId && ocupSal.has(permId);
-    const candidatos = permOcupadoEnSalidas
-      ? [backupId, backupId2, permId].filter(Boolean)
-      : [permId, backupId, backupId2].filter(Boolean);
-    const unico = (id) => (id && poolConductorIds.has(id) && !ocup.has(id))
-      ? poolConductor.find(x => String(x.id) === id) : null;
-    const p = unico(candidatos[0]) || unico(candidatos[1]) || unico(candidatos[2]) || null;
-    if (p) {
-      w.conductor = p.id;
-      (cargoMes[String(p.id)] ||= new Set()).add('conductor');
-      ocup.add(String(p.id));
-      reporte.asignados++;
+    // Prioridad: permanente → suplente → 2º suplente. Solo estos 3 pueden conducir;
+    // si todos están en salidas ese fin de semana, el puesto queda vacío.
+    // La designación manual del usuario es la autoridad: no se exige labor conductor1
+    // ni lo bloquea la acomodación; SOLO lo bloquea una salida (oradorSalida) ese día.
+    if (!w.conductor && (permId || backupId || backupId2)) {
+      const permOcupadoEnSalidas = permId && ocupSal.has(permId);
+      const orden = permOcupadoEnSalidas
+        ? [backupId, backupId2, permId].filter(Boolean)
+        : [permId, backupId, backupId2].filter(Boolean);
+      const buscar = (id) => {
+        if (!id) return null;
+        const persona = people.find(x => String(x.id) === String(id));
+        if (!persona) return null;
+        if (ocupSal.has(String(id))) return null;
+        if (String(w.presidente || '') === String(id)) return null;
+        return persona;
+      };
+      const p = buscar(orden[0]) || buscar(orden[1]) || buscar(orden[2]);
+      if (p) {
+        w.conductor = p.id;
+        (cargoMes[String(p.id)] ||= new Set()).add('conductor');
+        ocup.add(String(p.id));
+        reporte.asignados++;
+      }
     }
-  }
 
     // Rellenar solo campos vacíos (el conductor ya se resolvió).
     // El conductor permanente queda ocupado para el resto de cargos (E2).
@@ -1857,7 +1872,8 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
       if (w[campo]) return;
       if (campo === 'conductor' && (permId || backupId || backupId2)) return;
       const p = peopleForLabore(people, labore)
-        .find(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)));
+        .filter(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)))
+        .sort((a, b) => (cargoMes[String(a.id)] || new Set()).size - (cargoMes[String(b.id)] || new Set()).size)[0];
       if (!p) { reporte.vacios.push({ semana: sat, labore: campo }); return; }
       w[campo] = p.id;
       (cargoMes[String(p.id)] ||= new Set()).add(campo);
@@ -2077,9 +2093,14 @@ export function scoreSolution(assignments, { people = [], config = {}, scoring =
   });
 
   // Repetición de la misma labor en el mes por persona.
+  // Excepción: el conductor designado (permanente/suplentes) repite el cargo de
+  // fin de semana de forma intencional → se excluye del conteo de repeticiones.
+  const conductoresDesignados = [cfg.permanentConductorId, cfg.permanentConductorBackupId, cfg.permanentConductorBackupId2]
+    .filter(Boolean).map(String);
   const countsKey = {};
   (assignments || []).forEach(a => {
     const k = `${a.personId}|${a.roleKey}`;
+    if (a.roleKey === 'conductor1' && conductoresDesignados.includes(String(a.personId))) return;
     countsKey[k] = (countsKey[k] || 0) + 1;
   });
   Object.entries(countsKey).forEach(([k, n]) => {

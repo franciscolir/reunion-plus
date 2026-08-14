@@ -1710,6 +1710,9 @@ function redaccionConflictosPropuesta(p, month) {
     midweeks: (p.midweeks || []).filter(m => String(m.id).startsWith(month)),
     atencion: (p.atencion || []).filter(x => String(x.id) === month),
     salidas: (p.salidas || []).filter(x => String(x.id) === month),
+    permanentConductorId: state.config && state.config.algorithm && state.config.algorithm.permanentConductorId,
+    permanentConductorBackupId: state.config && state.config.algorithm && state.config.algorithm.permanentConductorBackupId,
+    permanentConductorBackupId2: state.config && state.config.algorithm && state.config.algorithm.permanentConductorBackupId2,
   }).forEach(c => conflictos.push(`${personNameOf(c.value)} — ${c.detalle}. ${REGLA[c.regla] || ''}`));
 
   (p.months || []).forEach(m => {
@@ -1818,8 +1821,8 @@ function redaccionSinAsignarPropuesta(p) {
       g.conVacantes.map(x => fila(x.persona, `${x.laboresVacantes.map(labelDe).join(', ')} · ${x.puestos} puesto${x.puestos === 1 ? '' : 's'} libre${x.puestos === 1 ? '' : 's'}`)).join('')));
   }
   if (g.cubiertos.length) {
-    parts.push(grupo('check_circle_outline', `Con sus labores cubiertas (${g.cubiertos.length})`,
-      `Sus labores ya quedaron asignadas a otros participantes.`,
+    parts.push(grupo('check_circle_outline', `Sin vacantes para su labor (${g.cubiertos.length})`,
+      `No quedaron puestos libres que coincidan con sus labores en el mes.`,
       g.cubiertos.map(x => fila(x, x.labores.map(labelDe).join(', '))).join('')));
   }
   if (g.universales.length) {

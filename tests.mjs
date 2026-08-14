@@ -597,6 +597,20 @@ console.log('[computeCrossConflicts]');
   const c = computeCrossConflicts(ctx);
   ok('E4: mismo campo fin de semana repetido en el mes', c.some(x => x.regla === 'E4' && x.value === '4'));
 }
+// E4 exento para el conductor designado (permanente/suplentes).
+{
+  const ctx = {
+    midweeks: [],
+    months: [{ id: '2026-09', month: 9, weeks: [
+      { date: '2026-09-05', conductor: '9', type: 'normal' },
+      { date: '2026-09-12', conductor: '9', type: 'normal' },
+    ] }],
+    labores: [], salidas: [],
+    permanentConductorId: '9',
+  };
+  const c = computeCrossConflicts(ctx);
+  ok('E4 exento para el conductor permanente', !c.some(x => x.regla === 'E4' && x.value === '9'));
+}
 // E5: mismo mes, salidas, más de una salida.
 {
   const ctx = {
@@ -1470,6 +1484,18 @@ console.log('[scoreSolution]');
   ];
   const s2 = scoreSolution(repetido, { people, config: { maxSameAssignmentPerMonth: 1 } });
   ok('detecta repetición mensual sobre el máximo', !s2.valida && s2.restricciones.superaMaximo.length > 0);
+
+  // El conductor designado repite el cargo intencionalmente → exento de la advertencia.
+  const condRepetido = [
+    { personId: '3', date: '2026-07-06', roleKey: 'conductor1', roleLabel: 'Conductor' },
+    { personId: '3', date: '2026-07-13', roleKey: 'conductor1', roleLabel: 'Conductor' },
+  ];
+  const sc = scoreSolution(condRepetido, { people, config: { maxSameAssignmentPerMonth: 1, permanentConductorId: '3' } });
+  ok('conductor designado no se marca como repetición', sc.valida === true && sc.restricciones.superaMaximo.length === 0);
+
+  // Otro conductor que repite sin estar designado → sí se marca.
+  const sc2 = scoreSolution(condRepetido, { people, config: { maxSameAssignmentPerMonth: 1 } });
+  ok('conductor no designado que repite sí se marca', sc2.restricciones.superaMaximo.length > 0);
 
   // Violación: mujer en labor de servicio (atención) con serviceRolesOnlyMale.
   const mujer = [
