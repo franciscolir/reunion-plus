@@ -1744,7 +1744,9 @@ function redaccionConflictosPropuesta(p, month) {
 // Lista de personas sin asignación en una propuesta (los que no participan).
 function redaccionSinAsignarPropuesta(p) {
   const asignados = new Set((p.assignments || []).map(a => String(a.personId)));
-  const sin = state.people.filter(x => x.activo !== false && !asignados.has(String(x.id)));
+  const sin = state.people
+    .filter(x => x.activo !== false && !asignados.has(String(x.id)))
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
   if (!sin.length) {
     return `<div class="rounded-xl border border-tertiary/40 bg-tertiary-container/20 p-4 flex items-center gap-2 text-sm">
       <span class="material-symbols-outlined text-tertiary">group_add</span>
@@ -1756,7 +1758,18 @@ function redaccionSinAsignarPropuesta(p) {
       <span class="material-symbols-outlined text-secondary">group_off</span>
       <h4 class="font-label-lg text-label-lg text-on-surface">Sin asignación en esta propuesta (${sin.length})</h4>
     </div>
-    <div class="flex flex-wrap gap-1.5">${sin.map(x => `<span class="px-2.5 py-1 rounded-full bg-surface-bright border border-outline-variant text-xs text-on-surface-variant">${escapeHtml(x.name)}</span>`).join('')}</div>
+    <ul class="space-y-1.5">
+      ${sin.map(x => {
+        const lab = x.labores || [];
+        const labText = lab.length
+          ? lab.map(l => (state.labores.find(r => String(r.id) === String(l)) || {}).label || String(l)).join(', ')
+          : 'Disponible para cualquier labor';
+        return `<li class="flex items-center justify-between gap-3 rounded-lg bg-surface-bright border border-outline-variant px-3 py-2">
+          <span class="text-sm text-on-surface">${escapeHtml(x.name)}</span>
+          <span class="text-xs text-on-surface-variant text-right">${labText}</span>
+        </li>`;
+      }).join('')}
+    </ul>
   </div>`;
 }
 
