@@ -679,6 +679,17 @@ console.log('[ATENCION_DEF / labore roles]');
 eq('ATENCION_DEF 4 roles con icono y cantidad', ATENCION_DEF.map(d => `${d.key}:${d.count}:${!!d.icon}`), ['acomodacion:2:true', 'microfono:2:true', 'plataforma:1:true', 'sonido:1:true']);
 ok('ATENCION_ROLES incluye roles de atención', ['audio', 'microf', 'plataforma', 'acomodador'].every(r => ATENCION_ROLES.includes(r)));
 ok('isAtencionPerson con rol de atención', isAtencionPerson({ name: 'X', labores: ['audio'] }));
+ok('isAtencionPerson causa sonido equivalente a audio', isAtencionPerson({ name: 'X', labores: ['sonido'] })) && console.log('[unificación sonido/audio]');
+{
+  const people = [
+    { id: 1, name: 'SoloSonido', labores: ['sonido'], genero: 'masculino' },
+    { id: 2, name: 'SoloAudio',  labores: ['audio'],  genero: 'masculino' },
+    { id: 3, name: 'Micro',      labores: ['microf'], genero: 'masculino' },
+  ];
+  const at = [{ id: '2026-08', weeks: [{ saturday: '2026-08-15', labores: { acomodacion: ['100', '101'], microfono: ['102', '103'], plataforma: '104', sonido: '' } }] }];
+  automatizarAtencion(people, at, [], {});
+  ok('el puesto Sonido se cubre con el rol sonido/audio', String(at[0].weeks[0].labores.sonido) === '1', `got=${at[0].weeks[0].labores.sonido}`);
+}
 ok('isAtencionPerson sin roles incluida', isAtencionPerson({ name: 'X' }));
 ok('isAtencionPerson con roles ajenos excluida', !isAtencionPerson({ name: 'X', labores: ['presidente'] }));
 

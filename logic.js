@@ -204,7 +204,7 @@ export const ATENCION_DEF = [
 // Labores considerados de atención (sostienen la reunión). Filtran quién aparece
 // en los selectores de atencion, igual que el resto de filtros por rol.
 export const ATENCION_ROLES = [
-  'audio', 'microf', 'plataforma', 'acomodador',
+  'audio', 'sonido', 'microf', 'plataforma', 'acomodador',
 ];
 
 // ¿La persona puede asignarse a atencion? Sin labores (datos antiguos) se incluye,

@@ -78,6 +78,15 @@ async function refreshCatalogs() {
   state.labores = (saved && Array.isArray(saved) && saved.length)
     ? saved
     : DEFAULT_LABORES.map(r => ({ ...r }));
+  const canonAudio = state.labores.find(r => r.id === 'audio');
+  if (canonAudio) canonAudio.label = 'Sonido';
+  if (state.labores.some(r => r.id === 'sonido')) {
+    state.labores = state.labores.filter(r => r.id !== 'sonido');
+  }
+  state.people.forEach(p => {
+    if (!Array.isArray(p.labores)) return;
+    p.labores = p.labores.map(l => (l === 'sonido' ? 'audio' : l));
+  });
 }
 
 // Indicador global de conexión con la base de datos. Luz simple en la barra de
@@ -2722,7 +2731,7 @@ const DEFAULT_LABORES = [
   { id: 'orador',       label: 'Orador' },
   { id: 'lector1',      label: 'Lector Atalaya' },
   { id: 'lector2',      label: 'Lector Libro' },
-  { id: 'audio',        label: 'Audio' },
+  { id: 'audio',        label: 'Sonido' },
   { id: 'microf',       label: 'Micrófono' },
   { id: 'plataforma',   label: 'Plataforma' },
   { id: 'acomodador',   label: 'Acomodador' },
