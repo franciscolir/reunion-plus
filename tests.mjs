@@ -1040,6 +1040,20 @@ console.log('[automatizarFinSemana · conductor permanente/suplente]');
   ok('conductor no queda vacío: cae a otro disponible', String(w3.conductor) === '3', `got=${w3.conductor}`);
 }
 
+// --- Prioridad del conductor permanente sobre el presidente ---
+console.log('[automatizarFinSemana · prioridad del conductor permanente]');
+{
+  const people = [
+    { id: 1, name: 'Perm',   labores: ['presidente', 'conductor1'] },
+    { id: 2, name: 'Backup', labores: ['presidente', 'conductor1'] },
+    { id: 3, name: 'Otro',   labores: ['presidente'] },
+  ];
+  const w = { type: 'normal', date: '2026-11-07', presidente: '', conductor: '', lector: '', orador: '' };
+  automatizarFinSemana(people, [{ id: '2026-11', year: 2026, month: 11, weeks: [w] }], [], [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
+  ok('el permanente conduce aunque también sea candidato a presidente', String(w.conductor) === '1', `got=${w.conductor}`);
+  ok('el presidente recae en otro que no es el conductor', String(w.presidente) === '2' || String(w.presidente) === '3', `got=${w.presidente}`);
+}
+
 // --- salidasFaltantes ---
 console.log('[salidasFaltantes]');
 {

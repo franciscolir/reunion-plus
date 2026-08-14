@@ -1722,22 +1722,21 @@ export function automatizarFinSemana(people, months, salidas, atencion, opts = {
       const id = w[campo];
       if (id) { (cargoMes[String(id)] ||= new Set()).add(campo); ocup.add(String(id)); }
     });
-    // Rellenar solo campos vacíos.
+    // El conductor permanente conduce cada fin de semana con prioridad; solo se
+    // usa el suplente cuando el permanente está ocupado esa semana (p. ej. en salidas).
+    if (!w.conductor && (permId || backupId)) {
+      const preferido = (id) => (id && poolConductorIds.has(id) && !ocup.has(id) ? poolConductor.find(x => String(x.id) === id) : null);
+      const p = preferido(permId) || preferido(backupId);
+      if (p) {
+        w.conductor = p.id;
+        (cargoMes[String(p.id)] ||= new Set()).add('conductor');
+        ocup.add(String(p.id));
+        reporte.asignados++;
+      }
+    }
+    // Rellenar solo campos vacíos (el conductor ya se resolvió).
     camposFinSemana(w).forEach(({ campo, labore }) => {
       if (w[campo]) return;
-      // El conductor permanente conduce cada fin de semana; solo se usa el
-      // suplente cuando el permanente está ocupado esa semana (p. ej. en salidas).
-      if (campo === 'conductor' && (permId || backupId)) {
-        const preferido = (id) => (id && poolConductorIds.has(id) && !ocup.has(id) ? poolConductor.find(x => String(x.id) === id) : null);
-        const p = preferido(permId) || preferido(backupId);
-        if (p) {
-          w[campo] = p.id;
-          (cargoMes[String(p.id)] ||= new Set()).add(campo);
-          ocup.add(String(p.id));
-          reporte.asignados++;
-          return;
-        }
-      }
       const p = peopleForLabore(people, labore)
         .find(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)));
       if (!p) { reporte.vacios.push({ semana: sat, labore: campo }); return; }
