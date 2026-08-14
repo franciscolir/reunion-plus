@@ -2559,20 +2559,20 @@ async function renderLists() {
             <option value="femenino">Mujer</option>
           </select>
         </div>
-        <button class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleEditMode">
+        <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleEditMode">
           <span class="material-symbols-outlined text-[18px]">lock_open</span>
           <span id="editText">Desbloquear</span>
         </button>
       </div>
     </div>
 
+    <div id="quickLaboresWrap" class="${state.listsTab === 'historial' ? 'hidden' : ''} flex flex-wrap items-center gap-2 mb-4">
+      <span class="font-label-md text-label-md text-on-surface-variant">Marcar labor en todos:</span>
+      ${state.labores.map(r => `<button type="button" data-quicklabore="${r.id}" class="quick-chip" title="Marcar/desmarcar ${escapeAttr(r.label)} en las visibles">${escapeHtml(r.label)}</button>`).join('')}
+    </div>
+
     <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant overflow-hidden">
-      <div class="overflow-auto max-h-[70vh]">
-        <table class="w-full text-left border-collapse" id="laboresTable">
-          <thead><tr class="bg-surface-container border-b border-outline-variant"></tr></thead>
-          <tbody class="divide-y divide-outline-variant/50" id="pList"></tbody>
-        </table>
-      </div>
+      <div id="pList" class="overflow-auto max-h-[68vh] p-3 sm:p-4 grid grid-cols-1 xl:grid-cols-2 gap-3 content-start"></div>
     </div>
 
     <div class="mt-6 flex justify-between flex-wrap gap-3">
@@ -2594,39 +2594,8 @@ async function renderLists() {
     return;
   }
 
-  const thead = app.querySelector('#laboresTable thead tr');
-  thead.innerHTML = `
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[220px]">Miembro del Equipo</th>
-    ${state.labores.map(r => `<th class="p-4 font-label-md text-label-md text-on-surface-variant text-center w-14 whitespace-nowrap sticky top-0 bg-surface-container z-20" title="${escapeAttr(r.label)}">
-      <button data-marklabore="${r.id}" class="material-symbols-outlined text-[16px] hover:text-primary block mx-auto mb-1" title="Marcar ${escapeAttr(r.label)} para todos">select_all</button>
-      <div class="rotate-180" style="writing-mode: vertical-rl; letter-spacing: 0.05em;">${r.label}</div>
-    </th>`).join('')}
-  `;
-
-  app.querySelectorAll('[data-marklabore]').forEach(btn => btn.onclick = async () => {
-    const first = document.querySelector('#pList .labore-checkbox');
-    if (first && first.disabled) { toast('Desbloquea la edición primero', 'info'); return; }
-    const labore = btn.dataset.marklabore;
-    const lbl = (state.labores.find(r => r.id === labore) || {}).label || labore;
-    // "Seleccionar todo" actúa solo sobre las filas visibles (filtro de búsqueda
-    // o género): si se filtró por hombres, solo se marcan los hombres visibles.
-    const rows = [...document.querySelectorAll('#pList tr')].filter(tr => tr.style.display !== 'none');
-    const ids = new Set(rows.map(tr => tr.dataset.pid).filter(Boolean));
-    const visible = state.people.filter(p => ids.has(String(p.id)) && laboreAllowedForPerson(p, labore));
-    if (!visible.length) { toast('No hay filas visibles para marcar', 'info'); return; }
-    const add = visible.some(p => !(Array.isArray(p.labores) && p.labores.includes(labore)));
-    for (const p of visible) {
-      const labores = Array.isArray(p.labores) ? [...p.labores] : [];
-      if (add) { if (!labores.includes(labore)) labores.push(labore); }
-      else { const i = labores.indexOf(labore); if (i !== -1) labores.splice(i, 1); }
-      await db.setPersonLabores(p.id, labores);
-      p.labores = labores;
-    }
-    document.querySelectorAll(`#pList tr`).forEach(tr => {
-      if (tr.style.display === 'none') return;
-      tr.querySelectorAll(`.labore-checkbox[data-plabore="${labore}"]`).forEach(cb => { if (!cb.hasAttribute('data-locked')) cb.checked = add; });
-    });
-    toast(add ? `"${lbl}" marcado en ${visible.length} visible(s)` : `"${lbl}" desmarcado en ${visible.length} visible(s)`, 'success');
+  app.querySelectorAll('[data-quicklabore]').forEach(btn => btn.onclick = async () => {
+    await applyLaboreToVisible(btn.dataset.quicklabore);
   });
 
   let editMode = false;
@@ -2637,12 +2606,12 @@ async function renderLists() {
       toggleBtn.classList.remove('border-primary', 'text-primary');
       toggleBtn.classList.add('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
       toggleBtn.lastElementChild.textContent = 'Guardar y Bloquear';
-      $('#pList').querySelectorAll('.labore-checkbox').forEach(cb => cb.disabled = cb.hasAttribute('data-locked'));
+      $('#pList').querySelectorAll('.labor-chip').forEach(cb => { if (!cb.hasAttribute('data-locked')) cb.disabled = false; });
     } else {
       toggleBtn.classList.add('border-primary', 'text-primary');
       toggleBtn.classList.remove('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
       toggleBtn.lastElementChild.textContent = 'Desbloquear';
-      $('#pList').querySelectorAll('.labore-checkbox').forEach(cb => cb.disabled = true);
+      $('#pList').querySelectorAll('.labor-chip').forEach(cb => cb.disabled = true);
     }
   };
   $('#addMemberBtn').onclick = openAddMemberModal;
@@ -2654,18 +2623,46 @@ async function renderLists() {
   const applyFilter = () => {
     const q = normalizeStr(search.value);
     const gen = genderFilter.value;
-    document.querySelectorAll('#pList tr').forEach(tr => {
-      const matchName = tr.dataset.norm.includes(q);
-      const matchGen = !gen || tr.dataset.genero === gen;
-      tr.style.display = matchName && matchGen ? '' : 'none';
+    document.querySelectorAll('#pList .person-card').forEach(card => {
+      const matchName = card.dataset.norm.includes(q);
+      const matchGen = !gen || card.dataset.genero === gen;
+      card.classList.toggle('is-hidden', !(matchName && matchGen));
     });
   };
   search.addEventListener('input', applyFilter);
   genderFilter.addEventListener('change', applyFilter);
 
-  $('#pList').innerHTML = state.people.map(renderRows).join('') || `
-    <tr><td colspan="${state.labores.length + 1}" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>`;
-  renderRowsBindings();
+  const pList = $('#pList');
+  pList.innerHTML = state.people.length
+    ? state.people.map(p => renderPersonCard(p, editMode)).join('')
+    : `<div class="col-span-full p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</div>`;
+  renderPersonCardBindings(editMode);
+}
+
+// Marca o desmarca una labor en todas las personas visibles (respeta el filtro
+// de búsqueda/género y la regla de género por labor).
+async function applyLaboreToVisible(labore) {
+  const visibleCards = [...document.querySelectorAll('#pList .person-card')].filter(c => !c.classList.contains('is-hidden'));
+  const ids = new Set(visibleCards.map(c => c.dataset.pid).filter(Boolean));
+  const visible = state.people.filter(p => ids.has(String(p.id)) && laboreAllowedForPerson(p, labore));
+  if (!visible.length) { toast('No hay personas visibles para esa labor', 'info'); return; }
+  const add = visible.some(p => !(Array.isArray(p.labores) && p.labores.includes(labore)));
+  for (const p of visible) {
+    const labores = Array.isArray(p.labores) ? [...p.labores] : [];
+    if (add) { if (!labores.includes(labore)) labores.push(labore); }
+    else { const i = labores.indexOf(labore); if (i !== -1) labores.splice(i, 1); }
+    await db.setPersonLabores(p.id, labores);
+    p.labores = labores;
+    const chip = document.querySelector(`#pList .labor-chip[data-pid="${p.id}"][data-plabore="${labore}"]`);
+    if (chip) setChipOn(chip, add);
+  }
+  const lbl = (state.labores.find(r => r.id === labore) || {}).label || labore;
+  toast(add ? `"${lbl}" marcado en ${visible.length} visible(s)` : `"${lbl}" desmarcado en ${visible.length} visible(s)`, 'success');
+}
+
+// Refleja el estado "asignado" de un chip de labor en sus clases CSS.
+function setChipOn(chip, on) {
+  chip.classList.toggle('is-on', on);
 }
 
 // Modal para añadir un miembro (usado en la vista Personas, tab Labores e Historial).
@@ -2721,58 +2718,81 @@ function avatarClassFor(name) {
   return s % 2 ? 'bg-secondary-container text-on-secondary-container' : 'bg-primary-container text-on-primary-container';
 }
 
-function renderRows(p) {
-  const labores = Array.isArray(p.labores) ? p.labores : [];
-  const checks = state.labores.map(r => {
-    const on = labores.includes(r.id);
-    const locked = !laboreAllowedForPerson(p, r.id);
-    return `<td class="p-3 text-center"><div class="checkbox-cell"><input type="checkbox" data-plabore="${r.id}" data-pid="${p.id}" class="text-primary labore-checkbox" ${on ? 'checked' : ''} ${locked ? 'data-locked' : ''} disabled></div></td>`;
-  }).join('');
-  return `<tr class="hover:bg-surface-container-low transition-colors group" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-pid="${p.id}">
-    <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10 border-l-4 border-l-transparent hover:border-l-primary">
-      <div class="w-8 h-8 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold">${initialsOf(p.name)}</div>
-      <span class="truncate">${escapeHtml(p.name)}</span>
-      <button data-profile="${p.id}" class="text-on-surface-variant hover:text-primary material-symbols-outlined text-[18px] opacity-50 hover:opacity-100 transition-opacity" title="Ver perfil">account_circle</button>
-      <button data-markall="${p.id}" class="ml-auto text-on-surface-variant hover:text-primary material-symbols-outlined text-[18px]" title="Marcar todos los roles">select_all</button>
-      <button data-pdel="${p.id}" class="text-error opacity-0 group-hover:opacity-100 transition-opacity material-symbols-outlined text-[18px]" title="Eliminar">delete</button>
-    </td>
-    ${checks}
-  </tr>`;
+function laborChipMarkup(p, r, editMode) {
+  const on = Array.isArray(p.labores) && p.labores.includes(r.id);
+  const locked = !laboreAllowedForPerson(p, r.id);
+  const cls = ['labor-chip'];
+  if (on) cls.push('is-on');
+  if (locked) cls.push('is-locked');
+  const dis = (locked || !editMode) ? 'disabled' : '';
+  const lockTitle = locked ? ' (no permitido para este género)' : '';
+  return `<button type="button" data-plabore="${r.id}" data-pid="${p.id}" class="${cls.join(' ')}" ${dis} title="${escapeAttr(r.label)}${lockTitle}">${escapeHtml(r.label)}</button>`;
 }
 
-function renderRowsBindings() {
+// Tarjeta de persona (vista Personas y Grupos → Labores). El nombre es el
+// elemento principal; sus labores se muestran como chips conmutables.
+function renderPersonCard(p, editMode) {
+  const labores = Array.isArray(p.labores) ? p.labores : [];
+  const chips = state.labores.map(r => laborChipMarkup(p, r, editMode)).join('');
+  const gen = p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : '—';
+  const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '';
+  const badges = [];
+  if (p.genero) badges.push(`<span class="px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant text-[11px] font-label-md">${gen}</span>`);
+  if (cal) badges.push(`<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-label-md">Cal. ${cal}</span>`);
+  if (p.enlace) badges.push(`<span class="px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container text-[11px] font-label-md">Enlazado</span>`);
+  return `<div class="person-card" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-pid="${p.id}">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(p.name)}</div>
+      <div class="min-w-0 flex-1">
+        <p class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</p>
+        <div class="flex flex-wrap gap-1.5 mt-1">${badges.join('') || '<span class="text-[11px] text-on-surface-variant/60">Sin datos</span>'}</div>
+      </div>
+      <div class="flex items-center gap-0.5 shrink-0">
+        <button data-profile="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Ver perfil"><span class="material-symbols-outlined text-[18px]">account_circle</span></button>
+        <button data-markall="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Marcar/desmarcar todas las labores"><span class="material-symbols-outlined text-[18px]">select_all</span></button>
+        <button data-pdel="${p.id}" data-admin class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3">${chips}</div>
+  </div>`;
+}
+
+function renderPersonCardBindings(editMode) {
   $('#pList').querySelectorAll('[data-profile]').forEach(b => b.onclick = () => {
     const person = state.people.find(x => String(x.id) === String(b.dataset.profile));
     if (person) openPersonProfile(person);
   });
   $('#pList').querySelectorAll('[data-markall]').forEach(b => b.onclick = async () => {
-    const tr = b.closest('tr');
-    const cbs = [...tr.querySelectorAll('.labore-checkbox')];
-    if (cbs.length && cbs[0].disabled) { toast('Desbloquea la edición primero', 'info'); return; }
-    const anyUnchecked = cbs.some(cb => !cb.checked);
+    const card = b.closest('.person-card');
+    const chips = [...card.querySelectorAll('.labor-chip')];
+    if (chips.length && chips[0].disabled) { toast('Desbloquea la edición primero', 'info'); return; }
     const pid = parseInt(b.dataset.markall, 10);
     const person = state.people.find(x => String(x.id) === String(pid));
     if (!person) return;
+    const anyUnchecked = chips.some(c => !c.classList.contains('is-on'));
     const labores = anyUnchecked ? state.labores.filter(r => laboreAllowedForPerson(person, r.id)).map(r => r.id) : [];
     await db.setPersonLabores(pid, labores);
     person.labores = labores;
-    cbs.forEach(cb => cb.checked = anyUnchecked && !cb.hasAttribute('data-locked'));
+    chips.forEach(c => { if (!c.hasAttribute('data-locked')) setChipOn(c, anyUnchecked); });
     toast(anyUnchecked ? 'Todas las labores marcadas' : 'Labores desmarcadas', 'success');
   });
   $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
     if (await confirmDialog('¿Eliminar esta persona?')) { await db.deletePerson(parseInt(b.dataset.pdel, 10)); renderLists(); }
   });
-  $('#pList').querySelectorAll('[data-plabore]').forEach(cb => cb.onchange = async () => {
+  $('#pList').querySelectorAll('.labor-chip').forEach(cb => cb.onclick = async () => {
+    if (cb.disabled) return;
     const pid = parseInt(cb.dataset.pid, 10);
     const labore = cb.dataset.plabore;
     const person = state.people.find(x => String(x.id) === String(pid));
     if (!person) return;
     const labores = Array.isArray(person.labores) ? [...person.labores] : [];
     const idx = labores.indexOf(labore);
-    if (cb.checked && idx === -1) labores.push(labore);
-    else if (!cb.checked && idx !== -1) labores.splice(idx, 1);
+    const willOn = idx === -1;
+    if (willOn) labores.push(labore);
+    else labores.splice(idx, 1);
     await db.setPersonLabores(pid, labores);
     person.labores = labores;
+    setChipOn(cb, willOn);
   });
 }
 
@@ -2781,18 +2801,9 @@ function renderRowsBindings() {
 // Columnas: asignaciones último mes, promedio por mes, puede dar (tiene labor)
 // pero no le ha tocado, última asignación y total.
 async function renderListsHistorial() {
-  const app = $('#app');
-  const thead = app.querySelector('#laboresTable thead tr');
-  thead.innerHTML = `
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[220px]">Miembro</th>
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Cantidad de asignaciones en los últimos 30 días">Último mes</th>
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Promedio de asignaciones por mes">Promedio / mes</th>
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Total de asignaciones registradas">Total</th>
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-left sticky top-0 bg-surface-container z-20" title="Labores que puede dar (las tiene) pero aún no le han tocado">Puede dar, no le ha tocado</th>
-    <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap sticky top-0 bg-surface-container z-20" title="Fecha de su última asignación (orden ascendente = hace más tiempo)">Última asignación</th>
-  `;
-  const tbody = app.querySelector('#pList');
-  tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Cargando historial…</td></tr>';
+  const pList = $('#pList');
+  pList.className = 'overflow-auto max-h-[68vh] p-0';
+  pList.innerHTML = '<div class="p-6 text-center text-on-surface-variant text-sm">Cargando historial…</div>';
 
   const log = await db.listAssignmentLog();
   const metrics = assignmentMetrics(log, state.people, state.labores)
@@ -2805,7 +2816,7 @@ async function renderListsHistorial() {
     return `${d.getDate()} ${MONTHS_ES[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
   };
 
-  tbody.innerHTML = metrics.map(m => {
+  const rows = metrics.map(m => {
     const canGive = m.canGiveButNot.length
       ? m.canGiveButNot.map(labelOfLabore).join(', ')
       : '<span class="text-on-surface-variant/60">—</span>';
@@ -2822,10 +2833,25 @@ async function renderListsHistorial() {
     </tr>`;
   }).join('') || '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Sin asignaciones registradas todavía. Guarde o automatice programas para empezar a llevar el historial.</td></tr>';
 
+  pList.innerHTML = `
+    <table class="w-full text-left border-collapse">
+      <thead>
+        <tr class="bg-surface-container border-b border-outline-variant">
+          <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[200px]">Miembro</th>
+          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Cantidad de asignaciones en los últimos 30 días">Último mes</th>
+          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Promedio de asignaciones por mes">Promedio / mes</th>
+          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Total de asignaciones registradas">Total</th>
+          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-left" title="Labores que puede dar (las tiene) pero aún no le han tocado">Puede dar, no le ha tocado</th>
+          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Fecha de su última asignación (orden ascendente = hace más tiempo)">Última asignación</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-outline-variant/50">${rows}</tbody>
+    </table>`;
+
   const search = $('#pSearch');
   if (search) search.addEventListener('input', () => {
     const q = normalizeStr(search.value);
-    document.querySelectorAll('#pList tr').forEach(tr => {
+    document.querySelectorAll('#pList tbody tr').forEach(tr => {
       tr.style.display = tr.dataset.norm.includes(q) ? '' : 'none';
     });
   });
@@ -2916,8 +2942,9 @@ async function applyEnlace(person, newEnlace) {
   }
 }
 
-// Modal de perfil de un colaborador: género + calificación (A/B/C/D) + enlace para D.
-function openPersonProfile(person) {
+// Modal de perfil de un colaborador: nombre, género, calificación (A/B/C/D),
+// enlace, labores conmutables e historial de asignaciones.
+async function openPersonProfile(person) {
   const p = { ...person };
   p.labores = Array.isArray(p.labores) ? p.labores : [];
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
@@ -2925,13 +2952,14 @@ function openPersonProfile(person) {
   const calOpts = CALIFICACIONES.map(c => `<option value="${c}" ${cal === c ? 'selected' : ''}>${c}${c === 'D' ? ' (enlace)' : ''}</option>`).join('');
   const enlOpts = `<option value="">— Sin enlace —</option>` +
     state.people.filter(x => String(x.id) !== String(p.id)).map(x => `<option value="${x.id}" ${p.enlace === String(x.id) ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
+  const laborChips = state.labores.map(r => laborChipMarkup(p, r, true)).join('');
   openModal(`
     <div>
-      <div class="flex items-center gap-3 mb-4">
-        <div class="w-12 h-12 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-headline-md text-headline-md font-bold">${initialsOf(p.name)}</div>
-        <div>
-          <h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(p.name)}</h3>
-          <p class="text-on-surface-variant text-sm">${p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador'} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-12 h-12 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-headline-md text-headline-md font-bold shrink-0">${initialsOf(p.name)}</div>
+        <div class="flex-1 min-w-0">
+          <input id="pfName" type="text" value="${escapeAttr(p.name)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-headline-md text-headline-md text-primary focus:border-primary" autocomplete="off">
+          <p class="text-on-surface-variant text-sm mt-1">${p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador'} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
         </div>
       </div>
       <div class="space-y-4">
@@ -2950,29 +2978,65 @@ function openPersonProfile(person) {
           <select id="pfEnlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${enlOpts}</select>
           <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada también quedará enlazada a él.</p>
         </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores asignadas</label>
+          <div id="pfLabores" class="flex flex-wrap gap-2">${laborChips}</div>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Historial de asignaciones</label>
+          <div id="pfHistory" class="max-h-52 overflow-y-auto rounded-lg border border-outline-variant bg-surface-bright px-3">Cargando…</div>
+        </div>
       </div>
       <div class="flex gap-3 justify-end mt-5">
         <button id="pfCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
         <button id="pfSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
       </div>
     </div>`);
+
+  $('#pfHistory').innerHTML = await personHistoryMarkup(p.id);
+
+  $('#pfLabores').querySelectorAll('.labor-chip').forEach(cb => cb.onclick = () => {
+    if (cb.disabled) return;
+    cb.classList.toggle('is-on');
+  });
+
   $('#pfCancel').onclick = closeModal;
   $('#pfSave').onclick = async () => {
+    p.name = ($('#pfName').value || '').trim() || p.name;
     p.genero = $('#pfGenero').value;
     p.calificacion = $('#pfCalif').value;
-    const enlace = $('#pfEnlace').value;
-    await applyEnlace(p, enlace);
+    p.labores = [...$('#pfLabores').querySelectorAll('.labor-chip.is-on')].map(c => c.dataset.plabore);
+    await applyEnlace(p, $('#pfEnlace').value);
     const orig = state.people.find(x => String(x.id) === String(p.id));
     if (orig) Object.assign(orig, p);
-    const target = enlace ? state.people.find(x => String(x.id) === String(enlace)) : null;
-    if (target && String(target.enlace || '') === String(p.id)) {
-      const origT = state.people.find(x => String(x.id) === String(target.id));
-      if (origT) origT.enlace = String(p.id);
-    }
     closeModal();
     toast('Perfil actualizado', 'success');
     renderLists();
   };
+}
+
+// Construye el historial de asignaciones de una persona a partir del log.
+async function personHistoryMarkup(personId) {
+  const log = await db.listAssignmentLog();
+  const entries = (log || [])
+    .filter(e => String(e.personId) === String(personId))
+    .sort((a, b) => (b.date || '') < (a.date || '') ? -1 : ((b.date || '') > (a.date || '') ? 1 : 0))
+    .slice(0, 20);
+  if (!entries.length) return '<p class="py-4 text-center text-on-surface-variant text-sm">Sin asignaciones registradas todavía.</p>';
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso + 'T00:00:00');
+    return `${d.getDate()} ${MONTHS_ES[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
+  };
+  return entries.map(e => `
+    <div class="hist-row">
+      <span class="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">event</span>
+      <div class="min-w-0 flex-1">
+        <p class="font-body-md text-body-md text-on-surface truncate">${escapeHtml(e.roleLabel || e.roleKey || 'Asignación')}</p>
+        <p class="text-caption text-on-surface-variant truncate">${escapeHtml(e.program || '')}</p>
+      </div>
+      <span class="text-body-md text-on-surface-variant whitespace-nowrap shrink-0">${fmtDate(e.date)}</span>
+    </div>`).join('');
 }
 
 function renderLaboresModal() {
