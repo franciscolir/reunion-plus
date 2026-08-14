@@ -1624,6 +1624,14 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
   // Rellena los puestos vacíos de un objeto atencion `l` para una semana `sat`.
   // `prefijo` separa las claves de FS y ES para que no se bloqueen entre sí en
   // el mes (una persona puede hacer el mismo labore en una reunión distinta).
+  // Mapeo: cada puesto de ATENCION_DEF requiere la(s) labor(es) de persona correspondiente(s).
+  const ATENCION_REQUIERE = {
+    sonido: ['audio', 'sonido'],
+    microfono: ['microf'],
+    plataforma: ['plataforma'],
+    acomodacion: ['acomodador'],
+  };
+
   const rellenar = (l, sat, ocupInicial, prefijo) => {
     const ocup = new Set(ocupInicial || []);
     ATENCION_DEF.forEach(d => {
@@ -1639,10 +1647,12 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
     });
     ATENCION_DEF.forEach(d => {
       const v = l[d.key];
+      const laboresRequeridas = ATENCION_REQUIERE[d.key] || [];
       for (let si = 0; si < d.count; si++) {
         const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
         if (cur) continue;
-        const cand = people.filter(esAtencion)
+        const cand = people
+          .filter(p => laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
           .find(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${prefijo}${d.key}_${si}`)));
         if (!cand) { reporte.vacios.push({ semana: sat, labore: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
@@ -1765,7 +1775,7 @@ export function sinAsignarPorMotivo(p, people = []) {
 // persona (presidente, conductor, lector, estudioSinLectura según el tipo de
 // semana) sin repetir a quienes ya están en acomodación o salidas esa semana
 // (E2) ni repetir el mismo cargo en el mes (E4). Muta `months`. Devuelve reporte.
-export function automatizarFinSemana(people, months, salidas, atencion, opts = {}) {
+export function automatizarFinSemana(people, months, salidas, atencion, midweeks = [], opts = {}) {
   const reporte = { asignados: 0, vacios: [] };
   const cargoMes = {}; // personaId -> Set de cargos usados en el mes (E4)
   const ocupados = {}; // saturday -> Set de personas ocupadas (acomodación + salidas)
@@ -1774,31 +1784,58 @@ export function automatizarFinSemana(people, months, salidas, atencion, opts = {
   const poolConductor = peopleForLabore(people, 'conductor1');
   const poolConductorIds = new Set(poolConductor.map(x => String(x.id)));
 
-  const marcarOcupado = (sat, id) => {
-    if (id) (ocupados[sat] ||= new Set()).add(String(id));
+  // Ocupados por SALIDAS (solo oradorSalida) — esto es lo que puede forzar al suplente.
+  const ocupadosSalidas = {};
+  const marcarOcupadoSalida = (sat, id) => {
+    if (id) (ocupadosSalidas[sat] ||= new Set()).add(String(id));
   };
-  salidas.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcarOcupado(String(w.saturday), o.oradorSalida))));
+  salidas.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcarOcupadoSalida(String(w.saturday), o.oradorSalida))));
+
+  // Ocupados por ATENCION (acomodación FS + ES) — para E2 general.
+  const ocupadosAtencion = {};
+  const marcarOcupadoAtencion = (sat, id) => {
+    if (id) (ocupadosAtencion[sat] ||= new Set()).add(String(id));
+  };
   atencion.forEach(p => (p.weeks || []).forEach(w => {
     const l = w.labores || {};
     ATENCION_DEF.forEach(d => {
       const v = l[d.key];
-      (Array.isArray(v) ? v : [v]).forEach(id => marcarOcupado(String(w.saturday), id));
+      (Array.isArray(v) ? v : [v]).forEach(id => marcarOcupadoAtencion(String(w.saturday), id));
     });
   }));
+  // También sumar atencion de entre semana (guardada en midweeks).
+  midweeks.forEach(mw => {
+    const sat = addDays(mw.id, 5);
+    const l = mw.labores || {};
+    ATENCION_DEF.forEach(d => {
+      const v = l[d.key];
+      (Array.isArray(v) ? v : [v]).forEach(id => marcarOcupadoAtencion(String(sat), id));
+    });
+  });
 
   months.forEach(m => (m.weeks || []).forEach(w => {
     const sat = String(w.date);
-    const ocup = new Set(ocupados[sat] || []);
+    // Ocupados por salidas esta semana (solo para decidir conductor).
+    const ocupSal = new Set(ocupadosSalidas[sat] || []);
+    // Ocupados por atencion esta semana (para E2 en resto de cargos).
+    const ocupAte = new Set(ocupadosAtencion[sat] || []);
+    // Conjunto combinado para E2 general.
+    const ocup = new Set([...ocupSal, ...ocupAte]);
+
     // Registrar lo ya asignado (E4) y ocupar la semana.
     camposFinSemana(w).forEach(({ campo }) => {
       const id = w[campo];
       if (id) { (cargoMes[String(id)] ||= new Set()).add(campo); ocup.add(String(id)); }
     });
-    // El conductor permanente conduce cada fin de semana con prioridad; solo se
-    // usa el suplente cuando el permanente está ocupado esa semana (p. ej. en salidas).
+
+    // CONDUCTOR: siempre el permanente, salvo que ÉSTE esté en SALIDAS ese sábado.
+    // El suplente SOLO se usa en ese caso excepcional.
     if (!w.conductor && (permId || backupId)) {
-      const preferido = (id) => (id && poolConductorIds.has(id) && !ocup.has(id) ? poolConductor.find(x => String(x.id) === id) : null);
-      const p = preferido(permId) || preferido(backupId);
+      const permOcupadoEnSalidas = permId && ocupSal.has(permId);
+      const elegirConductor = permOcupadoEnSalidas ? backupId : permId;
+      const p = (elegirConductor && poolConductorIds.has(elegirConductor) && !ocup.has(elegirConductor))
+        ? poolConductor.find(x => String(x.id) === elegirConductor)
+        : null;
       if (p) {
         w.conductor = p.id;
         (cargoMes[String(p.id)] ||= new Set()).add('conductor');
@@ -1806,7 +1843,9 @@ export function automatizarFinSemana(people, months, salidas, atencion, opts = {
         reporte.asignados++;
       }
     }
+
     // Rellenar solo campos vacíos (el conductor ya se resolvió).
+    // El conductor permanente queda ocupado para el resto de cargos (E2).
     camposFinSemana(w).forEach(({ campo, labore }) => {
       if (w[campo]) return;
       const p = peopleForLabore(people, labore)
@@ -1988,7 +2027,7 @@ export function generateOneProposal(input, config = {}, seed = 1) {
 
   reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres, readerLevel: config4.studentReaderLevel });
   reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale });
-  reportes.fin = automatizarFinSemana(people, months, salidas, atencion, {
+  reportes.fin = automatizarFinSemana(people, months, salidas, atencion, midweeks, {
     permanentConductorId: config4.permanentConductorId,
     permanentConductorBackupId: config4.permanentConductorBackupId,
   });

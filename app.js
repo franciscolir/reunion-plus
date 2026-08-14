@@ -1321,7 +1321,7 @@ async function etapaFinSemana(month) {
 
   // Rellenar vacíos restantes de entre semana (ahora con acomodación/salidas en cuenta).
   const repMw = automatizarEntreSemana(state.people, mwMes, ocupados);
-  const repFin = automatizarFinSemana(state.people, mesMes, salMes, labMes);
+  const repFin = automatizarFinSemana(state.people, mesMes, salMes, labMes, mwMes);
 
   await Promise.all(mwMes.map(w => db.putMidweek(w)));
   await Promise.all(mesMes.map(m => db.putMonth(m)));

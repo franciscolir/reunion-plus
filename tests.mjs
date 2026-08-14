@@ -1013,8 +1013,12 @@ console.log('[automatización respeta género]');
   ok('acomodación solo varones con serviceRolesOnlyMale', ids1.every(id => String(id) === '1'));
 
   // Con serviceRolesOnlyMale=false sí asigna mujeres a acomodación.
+  const gente2 = [
+    { id: 1, name: 'Hugo',   labores: ['audio'], genero: 'masculino' },
+    { id: 2, name: 'Marta',  labores: ['acomodador'], genero: 'femenino' },
+  ];
   const lab2 = [{ id: '2026-09', weeks: [{ saturday: '2026-09-19', labores: {} }] }];
-  automatizarAtencion(gente, lab2, [], { serviceRolesOnlyMale: false });
+  automatizarAtencion(gente2, lab2, [], { serviceRolesOnlyMale: false });
   const ids2 = Object.values(lab2[0].weeks[0].labores).flatMap(v => Array.isArray(v) ? v : [v]).filter(Boolean);
   ok('acomodación admite mujeres si serviceRolesOnlyMale está desactivado', ids2.map(String).includes('2'));
 
@@ -1042,12 +1046,12 @@ console.log('[automatizarFinSemana · conductor permanente/suplente]');
   const w1 = weeks();
   const w2 = weeks({ date: '2026-11-14' });
   const salidas = [{ id: '2026-11', weeks: [{ saturday: '2026-11-14', outings: [{ oradorSalida: '1' }] }] }];
-  automatizarFinSemana(people, [mkMes([w1, w2])], salidas, [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
+  automatizarFinSemana(people, [mkMes([w1, w2])], salidas, [], [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
   ok('conductor permanente conduce cuando está libre', String(w1.conductor) === '1', `got=${w1.conductor}`);
   ok('conductor suplente cuando el permanente está en salidas', String(w2.conductor) === '2', `got=${w2.conductor}`);
   const w3 = weeks({ date: '2026-11-21' });
   const salidas2 = [{ id: '2026-11', weeks: [{ saturday: '2026-11-21', outings: [{ oradorSalida: '1' }, { oradorSalida: '2' }] }] }];
-  automatizarFinSemana(people, [mkMes([w3])], salidas2, [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
+  automatizarFinSemana(people, [mkMes([w3])], salidas2, [], [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
   ok('conductor no queda vacío: cae a otro disponible', String(w3.conductor) === '3', `got=${w3.conductor}`);
 }
 
@@ -1060,7 +1064,7 @@ console.log('[automatizarFinSemana · prioridad del conductor permanente]');
     { id: 3, name: 'Otro',   labores: ['presidente'] },
   ];
   const w = { type: 'normal', date: '2026-11-07', presidente: '', conductor: '', lector: '', orador: '' };
-  automatizarFinSemana(people, [{ id: '2026-11', year: 2026, month: 11, weeks: [w] }], [], [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
+  automatizarFinSemana(people, [{ id: '2026-11', year: 2026, month: 11, weeks: [w] }], [], [], [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
   ok('el permanente conduce aunque también sea candidato a presidente', String(w.conductor) === '1', `got=${w.conductor}`);
   ok('el presidente recae en otro que no es el conductor', String(w.presidente) === '2' || String(w.presidente) === '3', `got=${w.presidente}`);
 }
