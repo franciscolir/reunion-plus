@@ -2035,7 +2035,13 @@ export function scoreSolution(assignments, { people = [], config = {}, scoring =
     countsKey[k] = (countsKey[k] || 0) + 1;
   });
   Object.entries(countsKey).forEach(([k, n]) => {
-    if (n > maxSame) restriccion.superaMaximo.push(`${k} (${n})`);
+    if (n > maxSame) {
+      const [pid, role] = k.split('|');
+      const muestra = assignments.find(x => String(x.personId) === pid && String(x.roleKey) === role);
+      const nombre = (muestra && (muestra.name || pid)) || pid;
+      const labore = (muestra && (muestra.roleLabel || role)) || role;
+      restriccion.superaMaximo.push(`${nombre} — ${labore} (${n})`);
+    }
   });
 
   let valida = !restriccion.superaMaximo.length && !restriccion.mujeresEnServicio.length && !restriccion.mezclaProhibida.length;

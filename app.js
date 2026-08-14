@@ -1746,6 +1746,23 @@ function redaccionConflictosPropuesta(p, month) {
       </ul>
     </div>`);
   }
+
+  // Advertencias del motor (restricciones de repetición / roles).
+  const repo = (p && p.restricciones) || {};
+  const avisos = [];
+  if (repo.superaMaximo && repo.superaMaximo.length) avisos.push(`Se supera el máximo de repetición mensual: ${repo.superaMaximo.join('; ')}.`);
+  if (repo.mujeresEnServicio && repo.mujeresEnServicio.length) avisos.push(`Mujeres en labores no estudiantiles: ${repo.mujeresEnServicio.join('; ')}.`);
+  if (avisos.length) {
+    parts.push(`<div class="rounded-xl border border-secondary/40 bg-secondary-container/20 p-4 mb-3">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="material-symbols-outlined text-secondary">warning</span>
+        <h4 class="font-label-lg text-label-lg text-on-surface">Sugerencias del motor (${avisos.length})</h4>
+      </div>
+      <ul class="space-y-1.5 text-sm">
+        ${avisos.map(t => `<li class="flex items-start gap-2"><span class="material-symbols-outlined text-secondary text-[16px] mt-0.5">info</span><span class="text-on-surface">${escapeHtml(t)}</span></li>`).join('')}
+      </ul>
+    </div>`);
+  }
   if (!parts.length) {
     parts.push(`<div class="rounded-xl border border-tertiary/40 bg-tertiary-container/20 p-4 flex items-center gap-2 text-sm">
       <span class="material-symbols-outlined text-tertiary">verified</span>
