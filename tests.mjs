@@ -19,6 +19,7 @@ import {
   defaultAlgorithmConfig, defaultScoringConfig,
   mulberry32, rotateSeed, generateOneProposal, generateProposals, scoreSolution,
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats, scarcityIndex,
+  salidasFaltantes,
 } from './logic.js';
 
 let pass = 0, fail = 0;
@@ -1015,6 +1016,40 @@ console.log('[automatización respeta género]');
   const wFin = mesesFin[0].weeks[0];
   ok('fin de semana no asigna mujer a presidente/lector',
     !wFin.presidente && !wFin.lector);
+}
+
+// --- Automatización de fin de semana con conductor permanente/suplente ---
+console.log('[automatizarFinSemana · conductor permanente/suplente]');
+{
+  const people = [
+    { id: 1, name: 'Perm',  labores: ['conductor1'] },
+    { id: 2, name: 'Backup', labores: ['conductor1'] },
+    { id: 3, name: 'Otro',  labores: ['conductor1'] },
+  ];
+  const mkMes = (weeks) => ({ id: '2026-11', year: 2026, month: 11, weeks });
+  const weeks = (extra = {}) => ({ type: 'normal', date: '2026-11-07', presidente: '', conductor: '', lector: '', orador: '', ...extra });
+  const w1 = weeks();
+  const w2 = weeks({ date: '2026-11-14' });
+  const salidas = [{ id: '2026-11', weeks: [{ saturday: '2026-11-14', outings: [{ oradorSalida: '1' }] }] }];
+  automatizarFinSemana(people, [mkMes([w1, w2])], salidas, [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
+  ok('conductor permanente conduce cuando está libre', String(w1.conductor) === '1', `got=${w1.conductor}`);
+  ok('conductor suplente cuando el permanente está en salidas', String(w2.conductor) === '2', `got=${w2.conductor}`);
+  const w3 = weeks({ date: '2026-11-21' });
+  const salidas2 = [{ id: '2026-11', weeks: [{ saturday: '2026-11-21', outings: [{ oradorSalida: '1' }, { oradorSalida: '2' }] }] }];
+  automatizarFinSemana(people, [mkMes([w3])], salidas2, [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
+  ok('conductor no queda vacío: cae a otro disponible', String(w3.conductor) === '3', `got=${w3.conductor}`);
+}
+
+// --- salidasFaltantes ---
+console.log('[salidasFaltantes]');
+{
+  ok('salidas completas → sin faltantes',
+    salidasFaltantes([{ id: '2026-11', weeks: [{ saturday: '2026-11-07', outings: [{ oradorSalida: '3' }] }] }]).length === 0);
+  const falt = salidasFaltantes([{ id: '2026-11', weeks: [
+    { saturday: '2026-11-07', outings: [{ oradorSalida: '3' }, { oradorSalida: '' }] },
+    { saturday: '2026-11-14', outings: [{ oradorSalida: '' }] },
+  ]}]);
+  ok('detecta salidas sin orador', falt.length === 2 && falt[0].saturday === '2026-11-07' && falt[1].saturday === '2026-11-14', JSON.stringify(falt));
 }
 
 // --- automatizarFinSemana ---

@@ -161,6 +161,9 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#algoGenerate')).toBeVisible();
 
     await page.click('#algoGenerate');
+    // El programa de salidas del seed está incompleto → pregunta antes de generar.
+    await expect(page.locator('h3:has-text("Programa de salidas incompleto")')).toBeVisible();
+    await page.click('#algoSalidasGo');
     await expect(page.locator('[data-previa]').first()).toBeVisible({ timeout: 20000 });
 
     // Vista previa: vista mensual general renderizada con la propuesta.
@@ -169,6 +172,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#pvGeneral')).toContainText('Entre Semana');
     await expect(page.locator('#pvGeneral')).toContainText('Fin de Semana');
     await expect(page.locator('#pvConflictos')).toBeVisible();
+    await expect(page.locator('#pvSinAsignar')).toBeVisible();
 
     // Aceptar: persiste programas y navega a Programas (edición).
     await page.click('#pvAccept');

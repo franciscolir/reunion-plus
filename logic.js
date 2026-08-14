@@ -1680,14 +1680,27 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
   return reporte;
 }
 
+// Salidas del mes sin orador asignado (puestos vacíos del programa de salidas).
+export function salidasFaltantes(salidas) {
+  const faltantes = [];
+  (salidas || []).forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach((o, oi) => {
+    if (!o || !o.oradorSalida) faltantes.push({ saturday: String(w.saturday || ''), index: oi });
+  })));
+  return faltantes;
+}
+
 // Automatiza la reunión de fin de semana: rellena los campos editables por
 // persona (presidente, conductor, lector, estudioSinLectura según el tipo de
 // semana) sin repetir a quienes ya están en acomodación o salidas esa semana
 // (E2) ni repetir el mismo cargo en el mes (E4). Muta `months`. Devuelve reporte.
-export function automatizarFinSemana(people, months, salidas, atencion) {
+export function automatizarFinSemana(people, months, salidas, atencion, opts = {}) {
   const reporte = { asignados: 0, vacios: [] };
   const cargoMes = {}; // personaId -> Set de cargos usados en el mes (E4)
   const ocupados = {}; // saturday -> Set de personas ocupadas (acomodación + salidas)
+  const permId = opts.permanentConductorId ? String(opts.permanentConductorId) : '';
+  const backupId = (opts.permanentConductorBackupId && String(opts.permanentConductorBackupId) !== permId) ? String(opts.permanentConductorBackupId) : '';
+  const poolConductor = peopleForLabore(people, 'conductor1');
+  const poolConductorIds = new Set(poolConductor.map(x => String(x.id)));
 
   const marcarOcupado = (sat, id) => {
     if (id) (ocupados[sat] ||= new Set()).add(String(id));
@@ -1712,6 +1725,19 @@ export function automatizarFinSemana(people, months, salidas, atencion) {
     // Rellenar solo campos vacíos.
     camposFinSemana(w).forEach(({ campo, labore }) => {
       if (w[campo]) return;
+      // El conductor permanente conduce cada fin de semana; solo se usa el
+      // suplente cuando el permanente está ocupado esa semana (p. ej. en salidas).
+      if (campo === 'conductor' && (permId || backupId)) {
+        const preferido = (id) => (id && poolConductorIds.has(id) && !ocup.has(id) ? poolConductor.find(x => String(x.id) === id) : null);
+        const p = preferido(permId) || preferido(backupId);
+        if (p) {
+          w[campo] = p.id;
+          (cargoMes[String(p.id)] ||= new Set()).add(campo);
+          ocup.add(String(p.id));
+          reporte.asignados++;
+          return;
+        }
+      }
       const p = peopleForLabore(people, labore)
         .find(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)));
       if (!p) { reporte.vacios.push({ semana: sat, labore: campo }); return; }
@@ -1891,7 +1917,10 @@ export function generateOneProposal(input, config = {}, seed = 1) {
 
   reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres, readerLevel: config4.studentReaderLevel });
   reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale });
-  reportes.fin = automatizarFinSemana(people, months, salidas, atencion);
+  reportes.fin = automatizarFinSemana(people, months, salidas, atencion, {
+    permanentConductorId: config4.permanentConductorId,
+    permanentConductorBackupId: config4.permanentConductorBackupId,
+  });
 
   const assignments = extractAssignments(midweeks, months, salidas, atencion, input.people);
   return { seed, assignments, midweeks, months, salidas, atencion, reportes };

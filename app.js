@@ -18,7 +18,7 @@ import {
   automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   camposFinSemana, extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
-  generateProposals, scoreSolution,
+  generateProposals, scoreSolution, salidasFaltantes,
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats,
 } from './logic.js';
 
@@ -1539,6 +1539,26 @@ async function renderAlgoritmo() {
       const [months, salidas, atencion, logMes] = await Promise.all([
         db.listMonths(), db.listSalidas(), db.listAtencion(), db.listAssignmentLog(),
       ]);
+      const faltSalidas = salidasFaltantes(salidas.filter(p => String(p.id) === month));
+      if (faltSalidas.length) {
+        const mesTxt = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+        const seguir = await new Promise((resolve) => {
+          openModal(`
+            <div class="text-center">
+              <span class="material-symbols-outlined text-6xl text-warning mb-2">event_busy</span>
+              <h3 class="font-headline-md text-headline-md text-primary mb-1">Programa de salidas incompleto</h3>
+              <p class="text-on-surface-variant text-sm mb-2">En ${mesTxt} hay <b>${faltSalidas.length}</b> salida(s) sin orador asignado.</p>
+              <p class="text-on-surface-variant text-sm mb-6">¿Desea continuar? El conductor permanente dirigirá el fin de semana y se usará al conductor suplente solo cuando el permanente esté asignado en salidas esa misma semana.</p>
+              <div class="flex gap-3 justify-center">
+                <button id="algoSalidasCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+                <button id="algoSalidasGo" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Continuar</button>
+              </div>
+            </div>`);
+          $('#algoSalidasCancel').onclick = () => { closeModal(); resolve(false); };
+          $('#algoSalidasGo').onclick = () => { closeModal(); resolve(true); };
+        });
+        if (!seguir) return;
+      }
       const input = {
         people,
         midweeks: mwMes,
@@ -1626,6 +1646,7 @@ function abrirVistaPreviaPropuesta(p, month, i) {
         <button data-close-modal class="material-symbols-outlined p-1 rounded-lg hover:bg-surface-variant text-on-surface-variant">close</button>
       </div>
       <div id="pvConflictos" class="mb-4"></div>
+      <div id="pvSinAsignar" class="mb-4"></div>
       <div id="pvGeneral"></div>
       <div class="flex gap-3 justify-end mt-5 pt-4 border-t border-outline-variant/40">
         <button data-cancel class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
@@ -1633,6 +1654,7 @@ function abrirVistaPreviaPropuesta(p, month, i) {
       </div>
     </div>`, true);
   $('#pvConflictos').innerHTML = redaccionConflictosPropuesta(p, month);
+  $('#pvSinAsignar').innerHTML = redaccionSinAsignarPropuesta(p);
   renderGeneralMonth(month, {
     embed: $('#pvGeneral'),
     data: {
@@ -1717,6 +1739,25 @@ function redaccionConflictosPropuesta(p, month) {
     </div>`);
   }
   return parts.join('');
+}
+
+// Lista de personas sin asignación en una propuesta (los que no participan).
+function redaccionSinAsignarPropuesta(p) {
+  const asignados = new Set((p.assignments || []).map(a => String(a.personId)));
+  const sin = state.people.filter(x => x.activo !== false && !asignados.has(String(x.id)));
+  if (!sin.length) {
+    return `<div class="rounded-xl border border-tertiary/40 bg-tertiary-container/20 p-4 flex items-center gap-2 text-sm">
+      <span class="material-symbols-outlined text-tertiary">group_add</span>
+      <span class="text-on-surface">Todos los participantes tienen asignación en esta propuesta.</span>
+    </div>`;
+  }
+  return `<div class="rounded-xl border border-outline-variant bg-surface-container-low p-4">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="material-symbols-outlined text-secondary">group_off</span>
+      <h4 class="font-label-lg text-label-lg text-on-surface">Sin asignación en esta propuesta (${sin.length})</h4>
+    </div>
+    <div class="flex flex-wrap gap-1.5">${sin.map(x => `<span class="px-2.5 py-1 rounded-full bg-surface-bright border border-outline-variant text-xs text-on-surface-variant">${escapeHtml(x.name)}</span>`).join('')}</div>
+  </div>`;
 }
 
 async function renderNewBody() {
