@@ -211,7 +211,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#algoRepVeces option:checked')).toHaveCount(1);
 
     // Iconos info con tooltip en los campos del motor y la ponderación.
-    await expect(page.locator('label:has(.material-symbols-outlined[title])')).toHaveCount(13);
+    await expect(page.locator('label:has(.material-symbols-outlined[title])')).toHaveCount(14);
 
     // El nivel del lector contempla C y D (opción CD).
     await expect(page.locator('#algoLectorNivel option[value="CD"]')).toBeAttached();

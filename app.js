@@ -4306,8 +4306,12 @@ async function renderSettings() {
             </div>
           </div>
           <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor suplente ${infoTip('Alternativa que se usa cuando el conductor permanente ya está asignado o no puede participar.')}</label>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor suplente ${infoTip('Alternativa que se usa cuando el conductor permanente tiene salida ese fin de semana.')}</label>
             <select id="algoConductorBackup" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorBackupId)}</select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor 2º suplente ${infoTip('Tercera opción: solo se usa si el permanente y el suplente están en salidas ese fin de semana.')}</label>
+            <select id="algoConductorBackup2" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorBackupId2)}</select>
           </div>
           <div class="flex items-end">
             <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant cursor-pointer py-2.5" title="Restringe las labores de servicio (micrófono, sonido, acomodación) a varones.">
@@ -4457,6 +4461,7 @@ async function renderSettings() {
       studentReaderLevel: $('#algoLectorNivel').value,
       permanentConductorId: $('#algoConductor').value,
       permanentConductorBackupId: $('#algoConductorBackup').value,
+      permanentConductorBackupId2: $('#algoConductorBackup2').value,
       serviceRolesOnlyMale: $('#algoServiceMale').checked,
     };
     const s = {
@@ -4500,7 +4505,8 @@ async function renderSettings() {
     if (!candidates.length) { toast('No hay personas con labor "conductor1"', 'error'); return; }
     $('#algoConductor').value = String(candidates[0].id);
     if (candidates.length > 1) $('#algoConductorBackup').value = String(candidates[1].id);
-    toast(`Conductor: ${candidates[0].name}${candidates.length > 1 ? `, Suplente: ${candidates[1].name}` : ''}`, 'success');
+    if (candidates.length > 2) $('#algoConductorBackup2').value = String(candidates[2].id);
+    toast(`Conductor: ${candidates[0].name}${candidates.length > 1 ? `, Suplente: ${candidates[1].name}` : ''}${candidates.length > 2 ? `, 2º suplente: ${candidates[2].name}` : ''}`, 'success');
   };
 
   $('#grpAuto').onclick = async () => {

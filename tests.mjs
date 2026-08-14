@@ -1052,7 +1052,13 @@ console.log('[automatizarFinSemana · conductor permanente/suplente]');
   const w3 = weeks({ date: '2026-11-21' });
   const salidas2 = [{ id: '2026-11', weeks: [{ saturday: '2026-11-21', outings: [{ oradorSalida: '1' }, { oradorSalida: '2' }] }] }];
   automatizarFinSemana(people, [mkMes([w3])], salidas2, [], [], { permanentConductorId: '1', permanentConductorBackupId: '2' });
-  ok('conductor no queda vacío: cae a otro disponible', String(w3.conductor) === '3', `got=${w3.conductor}`);
+  ok('conductor queda vacío si los 3 (perm+2 suplentes) están en salidas', String(w3.conductor) === '', `got=${w3.conductor}`);
+
+  // Con 2º suplente: si permanente y suplente están en salidas, el 2º suplente conduce.
+  const w4 = weeks({ date: '2026-11-28' });
+  const salidas3 = [{ id: '2026-11', weeks: [{ saturday: '2026-11-28', outings: [{ oradorSalida: '1' }, { oradorSalida: '2' }] }] }];
+  automatizarFinSemana(people, [mkMes([w4])], salidas3, [], [], { permanentConductorId: '1', permanentConductorBackupId: '2', permanentConductorBackupId2: '3' });
+  ok('2º suplente conduce cuando permanente y suplente están en salidas', String(w4.conductor) === '3', `got=${w4.conductor}`);
 }
 
 // --- Prioridad del conductor permanente sobre el presidente ---

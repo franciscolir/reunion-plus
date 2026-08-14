@@ -21,6 +21,7 @@ export function defaultAlgorithmConfig() {
     numberOfProposals: 3,
     permanentConductorId: '',
     permanentConductorBackupId: '',
+    permanentConductorBackupId2: '',
     studentReaderLevel: 'CD',
     serviceRolesOnlyMale: true,
   };
@@ -1781,6 +1782,7 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
   const ocupados = {}; // saturday -> Set de personas ocupadas (acomodación + salidas)
   const permId = opts.permanentConductorId ? String(opts.permanentConductorId) : '';
   const backupId = (opts.permanentConductorBackupId && String(opts.permanentConductorBackupId) !== permId) ? String(opts.permanentConductorBackupId) : '';
+  const backupId2 = (opts.permanentConductorBackupId2 && String(opts.permanentConductorBackupId2) !== permId && String(opts.permanentConductorBackupId2) !== backupId) ? String(opts.permanentConductorBackupId2) : '';
   const poolConductor = peopleForLabore(people, 'conductor1');
   const poolConductorIds = new Set(poolConductor.map(x => String(x.id)));
 
@@ -1829,25 +1831,31 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
     });
 
     // CONDUCTOR: siempre el permanente, salvo que ÉSTE esté en SALIDAS ese sábado.
-    // El suplente SOLO se usa en ese caso excepcional.
-    if (!w.conductor && (permId || backupId)) {
-      const permOcupadoEnSalidas = permId && ocupSal.has(permId);
-      const elegirConductor = permOcupadoEnSalidas ? backupId : permId;
-      const p = (elegirConductor && poolConductorIds.has(elegirConductor) && !ocup.has(elegirConductor))
-        ? poolConductor.find(x => String(x.id) === elegirConductor)
-        : null;
-      if (p) {
-        w.conductor = p.id;
-        (cargoMes[String(p.id)] ||= new Set()).add('conductor');
-        ocup.add(String(p.id));
-        reporte.asignados++;
-      }
+  // Prioridad: permanente → suplente → 2º suplente. Solo estos 3 pueden conducir;
+  // si todos están en salidas ese fin de semana, el puesto queda vacío.
+  if (!w.conductor && (permId || backupId || backupId2)) {
+    const permOcupadoEnSalidas = permId && ocupSal.has(permId);
+    const candidatos = permOcupadoEnSalidas
+      ? [backupId, backupId2, permId].filter(Boolean)
+      : [permId, backupId, backupId2].filter(Boolean);
+    const unico = (id) => (id && poolConductorIds.has(id) && !ocup.has(id))
+      ? poolConductor.find(x => String(x.id) === id) : null;
+    const p = unico(candidatos[0]) || unico(candidatos[1]) || unico(candidatos[2]) || null;
+    if (p) {
+      w.conductor = p.id;
+      (cargoMes[String(p.id)] ||= new Set()).add('conductor');
+      ocup.add(String(p.id));
+      reporte.asignados++;
     }
+  }
 
     // Rellenar solo campos vacíos (el conductor ya se resolvió).
     // El conductor permanente queda ocupado para el resto de cargos (E2).
+    // Si se designaron conductores, el puesto conductor no se rellena genéricamente:
+    // solo el permanente/suplentes pueden ocuparlo (caso excepcional → queda vacío).
     camposFinSemana(w).forEach(({ campo, labore }) => {
       if (w[campo]) return;
+      if (campo === 'conductor' && (permId || backupId || backupId2)) return;
       const p = peopleForLabore(people, labore)
         .find(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)));
       if (!p) { reporte.vacios.push({ semana: sat, labore: campo }); return; }
@@ -2030,6 +2038,7 @@ export function generateOneProposal(input, config = {}, seed = 1) {
   reportes.fin = automatizarFinSemana(people, months, salidas, atencion, midweeks, {
     permanentConductorId: config4.permanentConductorId,
     permanentConductorBackupId: config4.permanentConductorBackupId,
+    permanentConductorBackupId2: config4.permanentConductorBackupId2,
   });
 
   const assignments = extractAssignments(midweeks, months, salidas, atencion, input.people);
