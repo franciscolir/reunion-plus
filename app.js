@@ -5987,7 +5987,7 @@ function compactWeekCard(w) {
 function compactLabores(w) {
   const l = ensureAtencion(w).labores;
   const rows = ATENCION_DEF.map(({ key, label, count }) => {
-    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido' ? l[key] : [l[key] || ''];
+    const slots = Array.isArray(l[key]) ? l[key] : [l[key] || ''];
     const names = Array.from({ length: count }, (_, si) => { const v = slots[si] || ''; return v ? personNameOf(v) : null; }).filter(Boolean);
     return `<div class="flex justify-between text-[9px] leading-tight">
       <span class="text-gray-500">${label}</span>
@@ -6004,9 +6004,7 @@ function compactLabores(w) {
 function previewLaboresBox(w) {
   const l = ensureAtencion(w).labores;
   const rows = ATENCION_DEF.map(({ key, label, count }) => {
-    const slots = Array.isArray(l[key]) && key !== 'plataforma' && key !== 'sonido'
-      ? l[key]
-      : [l[key] || ''];
+    const slots = Array.isArray(l[key]) ? l[key] : [l[key] || ''];
     const names = Array.from({ length: count }, (_, si) => {
       const v = slots[si] || '';
       return v ? personNameOf(v) : null;
