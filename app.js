@@ -4300,7 +4300,10 @@ async function renderSettings() {
           </div>
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor permanente ${infoTip('Persona fija que se asigna preferentemente como conductor de la reunión de fin de semana.')}</label>
-            <select id="algoConductor" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
+            <div class="flex items-center gap-2">
+              <select id="algoConductor" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${personasOptions('', algo.permanentConductorId)}</select>
+              <button type="button" id="algoAutoConductor" class="px-3 py-2.5 bg-secondary-container text-on-secondary-container rounded-lg font-label-md text-label-md hover:opacity-80" title="Detectar automáticamente según historial">Auto</button>
+            </div>
           </div>
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-2 flex items-center gap-1">Conductor suplente ${infoTip('Alternativa que se usa cuando el conductor permanente ya está asignado o no puede participar.')}</label>
@@ -4482,6 +4485,22 @@ async function renderSettings() {
     state.config = cfg;
     toast('Motor restaurado a valores por defecto', 'success');
     renderSettings();
+  };
+  $('#algoAutoConductor').onclick = async () => {
+    const log = await db.listAssignmentLog();
+    const conductorCounts = {};
+    (log || []).forEach(e => {
+      if (e.roleKey === 'conductor1' || e.roleKey === 'conductor') {
+        conductorCounts[e.personId] = (conductorCounts[e.personId] || 0) + 1;
+      }
+    });
+    const candidates = state.people
+      .filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes('conductor1'))
+      .sort((a, b) => (conductorCounts[String(b.id)] || 0) - (conductorCounts[String(a.id)] || 0));
+    if (!candidates.length) { toast('No hay personas con labor "conductor1"', 'error'); return; }
+    $('#algoConductor').value = String(candidates[0].id);
+    if (candidates.length > 1) $('#algoConductorBackup').value = String(candidates[1].id);
+    toast(`Conductor: ${candidates[0].name}${candidates.length > 1 ? `, Suplente: ${candidates[1].name}` : ''}`, 'success');
   };
 
   $('#grpAuto').onclick = async () => {
