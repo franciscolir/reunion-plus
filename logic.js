@@ -1381,6 +1381,7 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
   const enSemana = {};      // weekId -> Set de personas ya asignadas esa semana
   const cargaMes = {};      // personaId -> nº de asignaciones en el mes (carga)
   const ultima = {};        // personaId -> fecha ISO de la última asignación histórica
+  const totalAsig = {};     // personaId -> nº total de asignaciones en el mes (mujeres: máx. 1)
 
   // ---- Carga del historial (regla 6) ----
   historial.forEach(h => {
@@ -1395,11 +1396,13 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
     (rolPorPersona[pid] ||= new Set()).add(key);
     (enSemana[weekId] ||= new Set()).add(pid);
     cargaMes[pid] = contarCarga(pid);
+    totalAsig[pid] = (totalAsig[pid] || 0) + 1;
     reporte.asignados++;
   };
 
   // Reglas de elegibilidad (estrictas).
   const elegible = (p, key, weekId) => {
+    if (p.genero === 'femenino' && (totalAsig[String(p.id)] || 0) >= 1) return false; // mujer: máx. 1 asignación al mes
     if ((rolPorPersona[String(p.id)] || new Set()).has(key)) return false; // E3: mismo puesto en el mes
     if ((enSemana[weekId] || new Set()).has(String(p.id))) return false;   // E2: repetido en la semana
     const setOcup = ocupadosSemana ? (ocupadosSemana.get(addDays(weekId, 5)) || new Set()) : new Set();
@@ -1450,6 +1453,7 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
       return String(a.name || '').localeCompare(String(b.name || ''));
     });
     const filtro = (nivel) => (p) => {
+      if (p.genero === 'femenino' && (totalAsig[String(p.id)] || 0) >= 1) return false; // mujer: máx. 1 asignación al mes (no se flexibiliza)
       if ((enSemana[weekId] || new Set()).has(String(p.id))) return nivel >= 2;
       if ((rolPorPersona[String(p.id)] || new Set()).has(key)) return nivel >= 1;
       const setOcup = ocupadosSemana ? (ocupadosSemana.get(addDays(weekId, 5)) || new Set()) : new Set();
@@ -1500,7 +1504,10 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
   // 0. Registrar lo ya asignado para respetarlo (E2/E3).
   midweeks.forEach(week => {
     const weekId = String(week.id);
-    if (week.presidente) (enSemana[weekId] ||= new Set()).add(String(week.presidente));
+    if (week.presidente) {
+      (enSemana[weekId] ||= new Set()).add(String(week.presidente));
+      totalAsig[String(week.presidente)] = (totalAsig[String(week.presidente)] || 0) + 1;
+    }
     (week.sections || []).forEach((sec, si) => (sec.parts || []).forEach(part => {
       const slots = midweekSlotsOf(sec, part);
       slots.forEach(slot => {
@@ -1509,6 +1516,7 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
         const key = `mw_${si}_${part.num}_${slot.key}`;
         (rolPorPersona[String(id)] ||= new Set()).add(key);
         (enSemana[weekId] ||= new Set()).add(String(id));
+        totalAsig[String(id)] = (totalAsig[String(id)] || 0) + 1;
       });
     }));
   });

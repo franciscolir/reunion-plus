@@ -968,6 +968,28 @@ console.log('[automatización respeta género]');
   const apPri = wPri.sections[0].parts[0].assignments || {};
   ok('prioriza pareja con mujeres en presentación', String(apPri.estudiante) === '3' && String(apPri.ayudante) === '4', JSON.stringify(apPri));
 
+  // Restricción extra: una mujer puede recibir como máximo 1 asignación al mes.
+  const solas = [
+    { id: 1, name: 'María', labores: ['asignacion2'], genero: 'femenino', calificacion: 'B' },
+    { id: 2, name: 'Marta', labores: ['asignacion2'], genero: 'femenino', calificacion: 'B' },
+    { id: 3, name: 'Ana',  labores: ['asignacion2'], genero: 'femenino', calificacion: 'B' },
+  ];
+  const mkMuj = (d) => ({ id: d, header: d, presidente: '', reading: 'X', sections: [
+    { id: 'maestros', title: 'Maestros', parts: [
+      { num: 1, title: 'Presentación', mins: 15, assignments: {} },
+    ]},
+  ]});
+  const semanasMuj = [mkMuj('2026-10-05'), mkMuj('2026-10-12'), mkMuj('2026-10-19')];
+  automatizarEntreSemana(solas, semanasMuj);
+  const todosMuj = semanasMuj
+    .map(w => w.sections[0].parts[0].assignments || {})
+    .map(a => [a.estudiante, a.ayudante].filter(Boolean).map(String))
+    .flat();
+  const contMuj = {};
+  todosMuj.forEach(id => { contMuj[id] = (contMuj[id] || 0) + 1; });
+  ok('ninguna mujer supera 1 asignación al mes', Object.values(contMuj).every(n => n <= 1), JSON.stringify(contMuj));
+  ok('con 3 mujeres solo se completa 1 pareja al mes', todosMuj.length === 2, JSON.stringify(todosMuj));
+
   // Acomodación: con serviceRolesOnlyMale (default) no asigna mujeres.
   const gente = [
     { id: 1, name: 'Hugo',   labores: ['audio'], genero: 'masculino' },
