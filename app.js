@@ -21,6 +21,7 @@ import {
   generateProposals, scoreSolution, salidasFaltantes,
   laboresVaciasPropuesta, sinAsignarPorMotivo,
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats,
+  balanceReport, cargoNivel,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
@@ -1678,6 +1679,7 @@ function abrirVistaPreviaPropuesta(p, month, i) {
       </div>
       <div id="pvConflictos" class="mb-4"></div>
       <div id="pvVacios" class="mb-4"></div>
+      <div id="pvBalance" class="mb-4"></div>
       <div id="pvSinAsignar" class="mb-4"></div>
       <div id="pvGeneral"></div>
       <div class="flex gap-3 justify-end mt-5 pt-4 border-t border-outline-variant/40">
@@ -1689,6 +1691,7 @@ function abrirVistaPreviaPropuesta(p, month, i) {
   const pvVacios = $('#pvVacios');
   pvVacios.innerHTML = redaccionVaciosPropuesta(p);
   pvVacios.style.display = pvVacios.innerHTML ? '' : 'none';
+  $('#pvBalance').innerHTML = redaccionBalancePropuesta(p);
   $('#pvSinAsignar').innerHTML = redaccionSinAsignarPropuesta(p);
   renderGeneralMonth(month, {
     embed: $('#pvGeneral'),
@@ -1808,6 +1811,35 @@ function redaccionVaciosPropuesta(p) {
       <h4 class="font-label-lg text-label-lg text-on-surface">Puestos sin cubrir (${vac.length})</h4>
     </div>
     <ul class="space-y-1 text-sm text-on-surface-variant">${vac.map(v => `<li>${PROG[v.programa] || v.programa} · ${fmt(v.semana)}: <span class="text-on-surface">${escapeHtml(v.label)}</span></li>`).join('')}</ul>
+  </div>`;
+}
+
+// Resumen de equilibrio segmentado por cargo/género en la propuesta.
+function redaccionBalancePropuesta(p) {
+  const b = (p && p.balance) || balanceReport(p.assignments, state.people);
+  const celdas = [
+    ['Ancianos en reunión', b.ancianosEnReunion],
+    ['Ministeriales en reunión', b.ministerialesEnReunion],
+    ['Publicadores en reunión', b.publicadoresEnReunion],
+    ['Publicadores en servicio', b.publicadoresEnServicio],
+    ['Ancianos en servicio', b.ancianosEnServicio],
+    ['Ministeriales en servicio', b.ministerialesEnServicio],
+    ['Mujeres en presentaciones', b.mujeresEnPresentaciones],
+    ['Sin participación', b.sinParticipar],
+  ];
+  const total = celdas.reduce((a, [, v]) => a + (v || 0), 0);
+  return `<div class="rounded-xl border border-primary/30 bg-primary-container/10 p-4">
+    <div class="flex items-center gap-2 mb-3">
+      <span class="material-symbols-outlined text-primary">balance</span>
+      <h4 class="font-label-lg text-label-lg text-on-surface">Equilibrio de asignación</h4>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      ${celdas.map(([l, v]) => `<div class="rounded-lg bg-surface-container-lowest border border-outline-variant/50 p-2.5 text-center">
+        <div class="font-headline-md text-headline-md text-primary">${v ?? 0}</div>
+        <div class="text-[10px] text-on-surface-variant leading-tight">${escapeHtml(l)}</div>
+      </div>`).join('')}
+    </div>
+    <p class="text-[11px] text-on-surface-variant mt-2">Personas distintas por segmento (no asignaciones). ${b.sinParticipar ? 'Hay personas sin participación en el mes.' : 'Todos participan en el mes.'}</p>
   </div>`;
 }
 

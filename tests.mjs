@@ -20,6 +20,7 @@ import {
   mulberry32, rotateSeed, generateOneProposal, generateProposals, scoreSolution,
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats, scarcityIndex,
   salidasFaltantes, laboresVaciasPropuesta, sinAsignarPorMotivo,
+  cargoNivel, esPublicador, esAnciano, balanceReport,
 } from './logic.js';
 
 let pass = 0, fail = 0;
@@ -947,6 +948,42 @@ console.log('[automatizarAtencion]');
     !es1.includes('1') && !es1.includes('2') && !es2.includes('4') && !es2.includes('5'));
 }
 
+// --- Segmentación por cargo en labores de servicio ---
+console.log('[automatizarAtencion · cargo]');
+{
+  // 3 candidatos de sonido: un anciano, un ministerial y un publicador.
+  const people = [
+    { id: 1, name: 'AncianoSonido', labores: ['audio'], cargos: ['anciano'], genero: 'masculino' },
+    { id: 2, name: 'MinSonido',      labores: ['audio'], cargos: ['ministerial'], genero: 'masculino' },
+    { id: 3, name: 'PubSonido',      labores: ['audio'], cargos: ['publicador'], genero: 'masculino' },
+  ];
+  // 2 semanas: el sonido se cubre ambas veces con el publicador (los de mayor
+  // cargo no se repiten en el mes).
+  const lab = { id: '2026-08', weeks: [
+    { saturday: '2026-08-01', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
+    { saturday: '2026-08-08', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
+  ] };
+  automatizarAtencion(people, [lab], []);
+  const s1 = lab.weeks[0].labores.sonido, s2 = lab.weeks[1].labores.sonido;
+  ok('sonido prioriza al publicador', String(s1) === '3', `got=${s1}`);
+  ok('publicador se repite en sonido para completar el mes', String(s2) === '3', `got=${s2}`);
+}
+{
+  // Anciano como único candidato de sonido: cubre la 1ª semana y la 2ª queda
+  // vacía (límite 1 vez al mes para ancianos en sonido).
+  const people = [
+    { id: 1, name: 'UnicoAnciano', labores: ['audio'], cargos: ['anciano'], genero: 'masculino' },
+  ];
+  const lab = { id: '2026-08', weeks: [
+    { saturday: '2026-08-01', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
+    { saturday: '2026-08-08', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
+  ] };
+  automatizarAtencion(people, [lab], []);
+  const s1 = lab.weeks[0].labores.sonido, s2 = lab.weeks[1].labores.sonido;
+  ok('anciano cubre sonido 1 vez al mes', String(s1) === '1', `got=${s1}`);
+  ok('anciano no repite sonido en el mes (queda libre la 2ª semana)', String(s2) === '', `got=${s2}`);
+}
+
 // --- Alineación de género en la automatización ---
 console.log('[automatización respeta género]');
 {
@@ -1526,6 +1563,38 @@ console.log('[workloadByPerson / historyTimeline / distributionByLabore / pairRo
 
   const pr = pairRoleStats(entries);
   ok('pairRoleStats distingue encargado/ayudante', pr.find(x => x.personId === '2')?.encargado === 1 && pr.find(x => x.personId === '2')?.ayudante === 1);
+}
+
+// --- cargoNivel / esPublicador / esAnciano / balanceReport ---
+console.log('[cargoNivel / balanceReport]');
+{
+  ok('cargo por defecto es publicador', cargoNivel({}) === 1 && esPublicador({}) === true);
+  ok('cargo publicador explícito', cargoNivel({ cargos: ['publicador'] }) === 1);
+  ok('cargo ministerial', cargoNivel({ cargos: ['ministerial'] }) === 2 && esPublicador({ cargos: ['ministerial'] }) === false);
+  ok('cargo anciano', cargoNivel({ cargos: ['anciano'] }) === 3 && esAnciano({ cargos: ['anciano'] }) === true);
+
+  const people = [
+    { id: 1, name: 'A', cargos: ['anciano'], genero: 'masculino' },
+    { id: 2, name: 'B', cargos: ['ministerial'], genero: 'masculino' },
+    { id: 3, name: 'C', cargos: ['publicador'], genero: 'masculino' },
+    { id: 4, name: 'D', cargos: ['publicador'], genero: 'femenino' },
+    { id: 5, name: 'E', cargos: ['publicador'], genero: 'femenino' },
+  ];
+  const asign = [
+    { personId: '1', program: 'entre', roleKey: 'presidente' },
+    { personId: '1', program: 'fin', roleKey: 'conductor1' },
+    { personId: '2', program: 'fin', roleKey: 'lector1' },
+    { personId: '3', program: 'atencion', roleKey: 'atencion_sonido_0' },
+    { personId: '4', program: 'entre', roleKey: 'asignacion2' },
+    { personId: '4', program: 'atencion', roleKey: 'atencion_microfono_0' },
+  ];
+  const b = balanceReport(asign, people);
+  ok('anciano en reunión', b.ancianosEnReunion === 1, JSON.stringify(b));
+  ok('ministerial en reunión', b.ministerialesEnReunion === 1);
+  ok('publicador en reunión (solo D)', b.publicadoresEnReunion === 1);
+  ok('publicador en servicio (C y D)', b.publicadoresEnServicio === 2);
+  ok('mujeres en presentaciones (D)', b.mujeresEnPresentaciones === 1);
+  ok('sin participación (E)', b.sinParticipar === 1);
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);

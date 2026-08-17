@@ -208,6 +208,15 @@ export const ATENCION_ROLES = [
   'audio', 'sonido', 'microf', 'plataforma', 'acomodador',
 ];
 
+// Cargos de congregación: todos son publicadores por defecto.
+const CARGO_NIVEL = { publicador: 1, ministerial: 2, anciano: 3 };
+export function cargoNivel(p) {
+  const c = Array.isArray(p && p.cargos) && p.cargos.length ? p.cargos[0] : 'publicador';
+  return CARGO_NIVEL[c] || 1;
+}
+export function esPublicador(p) { return cargoNivel(p) === 1; }
+export function esAnciano(p) { return cargoNivel(p) >= 3; }
+
 // ¿La persona puede asignarse a atencion? Sin labores (datos antiguos) se incluye,
 // igual que hacen el resto de selectores filtrados por labor.
 export function isAtencionPerson(p) {
@@ -1628,6 +1637,10 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
   const laboreMes = new Map(); // personaId -> Set de claves labore usadas en el mes
   const cargaMes = new Map(); // personaId -> nº total de atenciones en el mes (reparto)
 
+  // Sonido (audio) es una labor con pocos asignados: se rellena PRIMERO para que
+  // nunca quede sin asignado. El resto se completa después.
+  const ordenDef = [...ATENCION_DEF].sort((a, b) => (a.key === 'sonido' ? -1 : b.key === 'sonido' ? 1 : 0));
+
   // Rellena los puestos vacíos de un objeto atencion `l` para una semana `sat`.
   // `prefijo` separa las claves de FS y ES para que no se bloqueen entre sí en
   // el mes (una persona puede hacer el mismo labore en una reunión distinta).
@@ -1649,25 +1662,45 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
       (Array.isArray(v) ? v : [v]).forEach((id, si) => {
         if (!id) return;
         ocup.add(String(id));
-        (laboreMes[String(id)] ||= new Set()).add(`${prefijo}${d.key}_${si}`);
+        const k = `${prefijo}${d.key}_${si}`;
+        if (!laboreMes.has(String(id))) laboreMes.set(String(id), new Set());
+        laboreMes.get(String(id)).add(k);
         cargaMes.set(String(id), (cargaMes.get(String(id)) || 0) + 1);
       });
     });
-    ATENCION_DEF.forEach(d => {
+    ordenDef.forEach(d => {
       const v = l[d.key];
       const laboresRequeridas = ATENCION_REQUIERE[d.key] || [];
+      const esSonido = d.key === 'sonido';
       for (let si = 0; si < d.count; si++) {
         const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
         if (cur) continue;
+        const claveLabore = `${prefijo}${d.key}_${si}`;
         const cand = people
           .filter(p => laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
-          .filter(x => !ocup.has(String(x.id)) && !((laboreMes[String(x.id)] || new Set()).has(`${prefijo}${d.key}_${si}`)))
-          .sort((a, b) => (cargaMes.get(String(a.id)) || 0) - (cargaMes.get(String(b.id)) || 0))[0];
+          .filter(x => !ocup.has(String(x.id)))
+          // En labores de servicio, los publicadores pueden repetirse todo lo
+          // necesario; los ministeriales/ancianos no repiten el mismo puesto en
+          // el mes (para que no acaparen). En sonido, el anciano además se limita
+          // a 1 vez al mes.
+          .filter(x => {
+            if (esSonido && esAnciano(x)) return !((laboreMes.get(String(x.id)) || new Set()).has(`${prefijo}sonido_0`));
+            if (esPublicador(x)) return true;
+            return !((laboreMes.get(String(x.id)) || new Set()).has(claveLabore));
+          })
+          .sort((a, b) => {
+            // Prioridad: publicadores primero → luego ministerial → por último anciano.
+            const na = cargoNivel(a), nb = cargoNivel(b);
+            if (na !== nb) return na - nb;
+            // Equilibrio: quien menos atenciones tiene en el mes, primero.
+            return (cargaMes.get(String(a.id)) || 0) - (cargaMes.get(String(b.id)) || 0);
+          })[0];
         if (!cand) { reporte.vacios.push({ semana: sat, labore: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
         else l[d.key] = cand.id;
         ocup.add(String(cand.id));
-        (laboreMes[String(cand.id)] ||= new Set()).add(`${prefijo}${d.key}_${si}`);
+        if (!laboreMes.has(String(cand.id))) laboreMes.set(String(cand.id), new Set());
+        laboreMes.get(String(cand.id)).add(claveLabore);
         cargaMes.set(String(cand.id), (cargaMes.get(String(cand.id)) || 0) + 1);
         reporte.asignados++;
       }
@@ -2050,15 +2083,19 @@ export function generateOneProposal(input, config = {}, seed = 1) {
   const reportes = {};
 
   reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres, readerLevel: config4.studentReaderLevel });
-  reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale });
+  // Las reuniones (fin de semana) tienen prioridad sobre las labores de servicio:
+  // se completan primero para asegurar la participación de todos en la reunión,
+  // y las labores de servicio se completan después con quien quede libre.
   reportes.fin = automatizarFinSemana(people, months, salidas, atencion, midweeks, {
     permanentConductorId: config4.permanentConductorId,
     permanentConductorBackupId: config4.permanentConductorBackupId,
     permanentConductorBackupId2: config4.permanentConductorBackupId2,
   });
+  reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale });
 
   const assignments = extractAssignments(midweeks, months, salidas, atencion, input.people);
-  return { seed, assignments, midweeks, months, salidas, atencion, reportes };
+  const balance = balanceReport(assignments, input.people);
+  return { seed, assignments, midweeks, months, salidas, atencion, reportes, balance };
 }
 
 // Puntúa una solución 0-100 según assignmentScoringConfig y la configuración del
@@ -2216,7 +2253,7 @@ export function generateProposals(input, config = {}, scoring = null, n = null) 
     if (vistos.has(fp)) continue;
     vistos.add(fp);
     const scored = scoreSolution(sol.assignments, { people: input.people, config: cfg, scoring });
-    sols.push({ seed, score: scored.score, breakdown: scored.breakdown, warnings: scored.warnings, valida: scored.valida, restricciones: scored.restricciones, assignments: sol.assignments, midweeks: sol.midweeks, months: sol.months, salidas: sol.salidas, atencion: sol.atencion, reportes: sol.reportes });
+    sols.push({ seed, score: scored.score, breakdown: scored.breakdown, warnings: scored.warnings, valida: scored.valida, restricciones: scored.restricciones, assignments: sol.assignments, midweeks: sol.midweeks, months: sol.months, salidas: sol.salidas, atencion: sol.atencion, reportes: sol.reportes, balance: sol.balance });
     if (sols.length >= Math.max(4, cant)) break;
   }
   sols.sort((a, b) => b.score - a.score);
@@ -2268,4 +2305,35 @@ export function pairRoleStats(entries) {
     else mapa[e.personId].encargado++;
   });
   return Object.values(mapa).sort((a, b) => (b.encargado + b.ayudante) - (a.encargado + a.ayudante));
+}
+
+// Registro de equilibrio segmentado por cargo y género. Devuelve los contadores
+// que permiten balancear las asignaciones del mes:
+//  · ancianosEnReunion:  nº de asignaciones de ancianos en las reuniones (entre+fin)
+//  · ministerialesEnReunion
+//  · publicadoresEnReunion
+//  · publicadoresEnServicio
+//  · ancianosEnServicio / ministerialesEnServicio
+//  · mujeresEnPresentaciones
+//  · sinParticipar: personas activas sin ninguna asignación en el mes.
+// Cada contador acumula el nº de personas DISTINTAS (no de asignaciones) para
+// ver cuánta gente de cada segmento participó.
+export function balanceReport(assignments, people = []) {
+  const r = { ancianosEnReunion: 0, ministerialesEnReunion: 0, publicadoresEnReunion: 0, publicadoresEnServicio: 0, ancianosEnServicio: 0, ministerialesEnServicio: 0, mujeresEnPresentaciones: 0, sinParticipar: 0 };
+  const byPerson = {};
+  (assignments || []).forEach(a => { (byPerson[String(a.personId)] ||= []).push(a); });
+  const idOf = (p) => String(p.id);
+  people.forEach(p => {
+    const lista = byPerson[idOf(p)] || [];
+    if (!lista.length) { r.sinParticipar++; return; }
+    const nivel = cargoNivel(p);
+    const enReunion = lista.some(a => a.program === 'entre' || a.program === 'fin');
+    const enServicio = lista.some(a => a.program === 'atencion');
+    const enPresentacion = lista.some(a => a.roleKey === 'asignacion2');
+    if (nivel === 1) { if (enReunion) r.publicadoresEnReunion++; if (enServicio) r.publicadoresEnServicio++; }
+    else if (nivel === 2) { if (enReunion) r.ministerialesEnReunion++; if (enServicio) r.ministerialesEnServicio++; }
+    else { if (enReunion) r.ancianosEnReunion++; if (enServicio) r.ancianosEnServicio++; }
+    if (p.genero === 'femenino' && enPresentacion) r.mujeresEnPresentaciones++;
+  });
+  return r;
 }
