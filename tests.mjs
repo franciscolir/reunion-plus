@@ -1540,6 +1540,20 @@ console.log('[scoreSolution]');
   ];
   const s3 = scoreSolution(mujer, { people: [{ ...people[0], genero: 'femenino' }], config: { serviceRolesOnlyMale: true } });
   ok('marca mujer en labor de servicio', !s3.valida && s3.restricciones.mujeresEnServicio.length > 0);
+
+  // Los publicadores pueden repetir labores de servicio (acomodación) en el mes
+  // sin generar alerta ni penalizar el puntaje.
+  const publServicio = [
+    { personId: '1', date: '2026-07-06', roleKey: 'atencion_sonido_0', roleLabel: 'Sonido' },
+    { personId: '1', date: '2026-07-13', roleKey: 'atencion_sonido_0', roleLabel: 'Sonido' },
+    { personId: '1', date: '2026-07-20', roleKey: 'atencion_sonido_0', roleLabel: 'Sonido' },
+  ];
+  const sp = scoreSolution(publServicio, { people: [{ ...people[0], cargos: ['publicador'] }], config: { maxSameAssignmentPerMonth: 1 } });
+  ok('publicador repite acomodación sin alerta', sp.valida === true && sp.restricciones.superaMaximo.length === 0);
+
+  // Un ministerial/anciano repitiendo el mismo puesto de acomodación sí se marca.
+  const sm = scoreSolution(publServicio, { people: [{ ...people[0], cargos: ['ministerial'] }], config: { maxSameAssignmentPerMonth: 1 } });
+  ok('ministerial repite acomodación y sí se marca', sm.restricciones.superaMaximo.length > 0);
 }
 
 // --- helpers de gráficos ---

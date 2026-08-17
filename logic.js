@@ -2130,14 +2130,19 @@ export function scoreSolution(assignments, { people = [], config = {}, scoring =
   });
 
   // Repetición de la misma labor en el mes por persona.
-  // Excepción: el conductor designado (permanente/suplentes) repite el cargo de
+  // Excepción 1: el conductor designado (permanente/suplentes) repite el cargo de
   // fin de semana de forma intencional → se excluye del conteo de repeticiones.
+  // Excepción 2: los publicadores pueden repetir labores de servicio
+  // (acomodación: audio/micrófono/plataforma) durante el mes → no cuentan como
+  // repetición (sin alerta ni penalización en el puntaje).
   const conductoresDesignados = [cfg.permanentConductorId, cfg.permanentConductorBackupId, cfg.permanentConductorBackupId2]
     .filter(Boolean).map(String);
   const countsKey = {};
   (assignments || []).forEach(a => {
     const k = `${a.personId}|${a.roleKey}`;
     if (a.roleKey === 'conductor1' && conductoresDesignados.includes(String(a.personId))) return;
+    const p = people.find(x => String(x.id) === String(a.personId));
+    if (p && esPublicador(p) && String(a.roleKey).startsWith('atencion_')) return;
     countsKey[k] = (countsKey[k] || 0) + 1;
   });
   Object.entries(countsKey).forEach(([k, n]) => {
