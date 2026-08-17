@@ -2877,8 +2877,8 @@ async function renderLists() {
     </div>
 
     <div id="quickLaboresWrap" class="${state.listsTab === 'historial' ? 'hidden' : ''} flex flex-wrap items-center gap-2 mb-4">
-      <span class="font-label-md text-label-md text-on-surface-variant">Marcar labor en todos:</span>
-      ${state.labores.map(r => `<button type="button" data-quicklabore="${r.id}" class="quick-chip" title="Marcar/desmarcar ${escapeAttr(r.label)} en las visibles">${escapeHtml(r.label)}</button>`).join('')}
+      <span class="font-label-md text-label-md text-on-surface-variant">Filtrar por labor:</span>
+      ${state.labores.map(r => `<button type="button" data-quicklabore="${r.id}" class="quick-chip" title="Mostrar solo quienes tienen ${escapeAttr(r.label)}">${escapeHtml(r.label)}</button>`).join('')}
     </div>
 
     <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant overflow-hidden">
@@ -2904,8 +2904,12 @@ async function renderLists() {
     return;
   }
 
-  app.querySelectorAll('[data-quicklabore]').forEach(btn => btn.onclick = async () => {
-    await applyLaboreToVisible(btn.dataset.quicklabore);
+  const filterLabores = new Set();
+  app.querySelectorAll('[data-quicklabore]').forEach(btn => btn.onclick = () => {
+    const labore = btn.dataset.quicklabore;
+    if (filterLabores.has(labore)) { filterLabores.delete(labore); btn.classList.remove('is-on'); }
+    else { filterLabores.add(labore); btn.classList.add('is-on'); }
+    applyFilter();
   });
 
   let editMode = false;
@@ -2936,12 +2940,21 @@ async function renderLists() {
     const q = normalizeStr(search.value);
     const gen = genderFilter.value;
     const cargo = cargoFilter.value;
+    const laboresSel = [...filterLabores];
+    let anyVisible = false;
     document.querySelectorAll('#pList .person-card').forEach(card => {
       const matchName = card.dataset.norm.includes(q);
       const matchGen = !gen || card.dataset.genero === gen;
       const matchCargo = !cargo || card.dataset.cargo === cargo;
-      card.classList.toggle('is-hidden', !(matchName && matchGen && matchCargo));
+      const personaLabores = (card.dataset.labores || '').split('|').filter(Boolean);
+      const matchLab = laboresSel.every(l => personaLabores.includes(l));
+      const show = matchName && matchGen && matchCargo && matchLab;
+      card.classList.toggle('is-hidden', !show);
+      if (show) anyVisible = true;
     });
+    const hasCards = document.querySelectorAll('#pList .person-card').length > 0;
+    const empty = $('#pEmpty');
+    if (empty) empty.classList.toggle('hidden', !hasCards || anyVisible);
   };
   search.addEventListener('input', applyFilter);
   genderFilter.addEventListener('change', applyFilter);
@@ -2953,31 +2966,11 @@ async function renderLists() {
     ...state.people.map(p => renderPersonCard(p, editMode, false)),
     ...inactivos.map(p => renderPersonCard(p, false, true)),
   ];
-  pList.innerHTML = cards.length
+  pList.innerHTML = (cards.length
     ? cards.join('')
-    : `<div class="col-span-full p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</div>`;
+    : `<div class="col-span-full p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</div>`) +
+    `<div id="pEmpty" class="col-span-full p-6 text-center text-on-surface-variant text-sm hidden">Sin resultados para el filtro actual.</div>`;
   renderPersonCardBindings(editMode);
-}
-
-// Marca o desmarca una labor en todas las personas visibles (respeta el filtro
-// de búsqueda/género y la regla de género por labor).
-async function applyLaboreToVisible(labore) {
-  const visibleCards = [...document.querySelectorAll('#pList .person-card')].filter(c => !c.classList.contains('is-hidden'));
-  const ids = new Set(visibleCards.map(c => c.dataset.pid).filter(Boolean));
-  const visible = state.people.filter(p => ids.has(String(p.id)) && laboreAllowedForPerson(p, labore));
-  if (!visible.length) { toast('No hay personas visibles para esa labor', 'info'); return; }
-  const add = visible.some(p => !(Array.isArray(p.labores) && p.labores.includes(labore)));
-  for (const p of visible) {
-    const labores = Array.isArray(p.labores) ? [...p.labores] : [];
-    if (add) { if (!labores.includes(labore)) labores.push(labore); }
-    else { const i = labores.indexOf(labore); if (i !== -1) labores.splice(i, 1); }
-    await db.setPersonLabores(p.id, labores);
-    p.labores = labores;
-    const chip = document.querySelector(`#pList .labor-chip[data-pid="${p.id}"][data-plabore="${labore}"]`);
-    if (chip) setChipOn(chip, add);
-  }
-  const lbl = (state.labores.find(r => r.id === labore) || {}).label || labore;
-  toast(add ? `"${lbl}" marcado en ${visible.length} visible(s)` : `"${lbl}" desmarcado en ${visible.length} visible(s)`, 'success');
 }
 
 // Refleja el estado "asignado" de un chip de labor en sus clases CSS.
@@ -3114,7 +3107,7 @@ function renderPersonCard(p, editMode, isInactive = false) {
       <button data-profile="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Ver perfil"><span class="material-symbols-outlined text-[18px]">account_circle</span></button>
       <button data-markall="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Marcar/desmarcar todas las labores"><span class="material-symbols-outlined text-[18px]">select_all</span></button>
       <button data-pdel="${p.id}" data-admin class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
-  return `<div class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-pid="${p.id}">
+  return `<div class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-labores="${escapeAttr((Array.isArray(p.labores) ? p.labores : []).slice().sort().join('|'))}" data-pid="${p.id}">
     <div class="flex items-center gap-3">
       <div class="w-10 h-10 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(p.name)}</div>
       <div class="min-w-0 flex-1">

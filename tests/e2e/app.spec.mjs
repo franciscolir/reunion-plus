@@ -109,19 +109,40 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#pList tbody')).toContainText('Sin asignaciones registradas');
   });
 
-  test('marcar labor en todos los visibles (quick chip)', async ({ page }) => {
+  test('filtrar por labor muestra solo quienes tienen esa labor (quick chip)', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);
 
+    // Persona Uno tiene "audio" (Sonido); Persona Dos no tiene labores.
     await page.click('#addMemberBtn');
     await page.fill('#mdName', 'Persona Uno');
+    await page.check('[data-mr="audio"]');
     await page.click('#mdForm button[type="submit"]');
     await expect(page.locator('.person-card')).toHaveCount(1);
 
-    await page.click('#toggleEditMode');
+    await page.click('#addMemberBtn');
+    await page.fill('#mdName', 'Persona Dos');
+    await page.click('#mdForm button[type="submit"]');
+    await expect(page.locator('.person-card')).toHaveCount(2);
+
+    // Activar filtro Sonido → solo se ve la persona con audio.
+    await page.click('[data-quicklabore="audio"]');
+    await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(1);
+    await expect(page.locator('.person-card:not(.is-hidden)', { hasText: 'Persona Uno' })).toHaveCount(1);
+    await expect(page.locator('.person-card.is-hidden', { hasText: 'Persona Dos' })).toHaveCount(1);
+
+    // Filtrar por una labor que nadie tiene → aviso de sin resultados.
     await page.click('[data-quicklabore="presidente"]');
-    await expect(page.locator('.person-card .labor-chip.is-on[data-plabore="presidente"]')).toHaveCount(1);
-    await expect(page.locator('#toastRoot')).toContainText('"Presidente" marcado');
+    await expect(page.locator('#pEmpty')).toBeVisible();
+    await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(0);
+
+    // Desactivar el filtro de presidente → vuelve a verse la persona con audio.
+    await page.click('[data-quicklabore="presidente"]');
+    await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(1);
+
+    // Desactivar el filtro de sonido → se ven todas.
+    await page.click('[data-quicklabore="audio"]');
+    await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(2);
   });
 
   test('quitar persona la oculta y se puede restaurar (borrado lógico)', async ({ page }) => {

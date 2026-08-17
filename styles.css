@@ -237,7 +237,7 @@ body.is-reader [data-admin-input] { pointer-events: none; opacity: .55; }
   color: #8b9694;
 }
 
-/* Chip de acción rápida (marcar labor en todos) */
+/* Chip de filtro por labor (vista Personas · Labores) */
 .quick-chip {
   display: inline-flex;
   align-items: center;
@@ -252,6 +252,12 @@ body.is-reader [data-admin-input] { pointer-events: none; opacity: .55; }
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 .quick-chip:hover { background: #032121; border-color: #032121; color: #e8f5f0; }
+.quick-chip.is-on {
+  background: #006a60;
+  border-color: #006a60;
+  color: #e8f5f0;
+  border-style: solid;
+}
 
 /* Historial dentro del perfil de persona */
 .hist-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #ecefee; }
