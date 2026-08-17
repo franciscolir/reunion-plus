@@ -200,3 +200,16 @@ export async function borrarParticipantesReunionesProgramas() {
   total += await borrarColeccionExcepto('asignaciones'); // historial ligado a participantes/programas
   return total;
 }
+
+// Borra SOLO los programas (reuniones de entre semana, programas mensuales y su
+// historial), conservando participantes, grupos y configuración. Para volver a
+// crearlos desde cero sin perder el catálogo de personas.
+export async function borrarSoloProgramas() {
+  const f = await initFirebase();
+  if (!f) return 0;
+  let total = 0;
+  total += await borrarColeccionExcepto('reuniones');
+  total += await borrarColeccionExcepto('programas');
+  total += await borrarColeccionExcepto('asignaciones'); // historial ligado a los programas
+  return total;
+}

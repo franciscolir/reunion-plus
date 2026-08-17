@@ -162,6 +162,30 @@ test('months / aseos / salidas / atencion CRUD por id de mes', async () => {
   assert.equal((await db.listMonths()).length, 0);
 });
 
+// borrarSoloProgramasLocal conserva participantes/grupos/config y borra programas.
+test('integr: borrar solo programas conserva personas y borra programas', async () => {
+  await db.addPerson({ name: 'Ana' });
+  await db.addPerson({ name: 'Juan' });
+  await db.putMidweek({ id: '2026-08-03', presidente: 1, sections: [] });
+  await db.putMonth({ id: '2026-08', weeks: [] });
+  await db.putSalidas({ id: '2026-08', weeks: [] });
+  await db.putAtencion({ id: '2026-08', weeks: [] });
+  await db.putAseo({ id: '2026-08', weeks: [] });
+  await db.putAssignmentLog({ id: 'x_1', personId: '1' });
+  assert.equal((await db.listMidweeks()).length, 1);
+  assert.equal((await db.listMonths()).length, 1);
+
+  await db.borrarSoloProgramasLocal();
+
+  assert.equal((await db.listPeople()).length, 2, 'personas se conservan');
+  assert.equal((await db.listMidweeks()).length, 0, 'reuniones borradas');
+  assert.equal((await db.listMonths()).length, 0, 'programas mensuales borrados');
+  assert.equal((await db.listSalidas()).length, 0, 'salidas borradas');
+  assert.equal((await db.listAtencion()).length, 0, 'acomodación borrada');
+  assert.equal((await db.listAseos()).length, 0, 'aseos borrados');
+  assert.equal((await db.listAssignmentLog()).length, 0, 'historial borrado');
+});
+
 // --- Flujos cruzados (integración real) ---
 test('integr: importar personas desde PDF y persistirlas', async () => {
   const txt = [

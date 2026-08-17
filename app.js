@@ -1,7 +1,7 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
 import { isFirebaseConfigured } from './firebase-config.js';
-import { isFirebaseReady, borrarParticipantesReunionesProgramas, limpiarTodasLasColecciones } from './firestore.js';
+import { isFirebaseReady, borrarParticipantesReunionesProgramas, borrarSoloProgramas, limpiarTodasLasColecciones } from './firestore.js';
 import { iniciarSync, pullSiVacio, reconciliar, syncStatus } from './sync.js';
 import { login, loginWithGoogle, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
@@ -4451,10 +4451,11 @@ async function renderSettings() {
           <p class="text-on-surface-variant text-sm mb-3">Los datos viven en Firebase y se sincronizan automáticamente. Aquí puedes restaurar los valores de fábrica o borrar solo reuniones y programas. Las acciones destructivas requieren tu contraseña de admin.</p>
           <div class="flex gap-3 flex-wrap">
             <button id="setBorrarProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar participantes, reuniones y programas</button>
+            <button id="setBorrarSoloProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar solo programas (recrear desde cero)</button>
             <button id="setResetFabrica" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Restaurar valores de fábrica</button>
           </div>
           <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
-          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Firebase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar participantes, reuniones y programas" elimina solo esas colecciones (conserva usuarios, grupos y configuración).</p>
+          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Firebase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar participantes, reuniones y programas" elimina esas colecciones (conserva usuarios, grupos y configuración). "Borrar solo programas" elimina reuniones, programas, salidas y acomodación conservando los participantes para regenerarlos desde cero.</p>
         </div>
       </div>
     </div>
@@ -4665,6 +4666,28 @@ async function renderSettings() {
       toast('Error al borrar: ' + (err.message || err), 'error');
     } finally {
       btn.disabled = false;
+    }
+  };
+
+  // Borrar solo programas: elimina reuniones, meses, salidas, atencion y su
+  // historial, conservando participantes, grupos y configuración. Para volver a
+  // generar todos los programas desde cero.
+  $('#setBorrarSoloProgramas').onclick = async () => {
+    if (!await confirmarAdmin()) return;
+    if (!await confirmDialog('Se borrarán TODOS los programas (reuniones de entre semana, programas mensuales, salidas, acomodación y su historial de asignaciones). Los PARTICIPANTES, grupos y configuración se conservan, para poder generar los programas de nuevo desde cero. ¿Continuar?', 'Borrar solo programas')) return;
+    const btn = $('#setBorrarSoloProgramas');
+    btn.disabled = true;
+    btn.textContent = 'Borrando…';
+    try {
+      const borrados = await borrarSoloProgramas();
+      await db.borrarSoloProgramasLocal();
+      await refreshCatalogs();
+      toast(`Programas borrados · ${borrados} documentos en Firebase`, 'success');
+    } catch (err) {
+      toast('Error al borrar programas: ' + (err.message || err), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Borrar solo programas (recrear desde cero)';
     }
   };
 

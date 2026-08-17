@@ -868,3 +868,16 @@ export async function borrarParticipantesReunionesProgramasLocal() {
     }
   }
 }
+
+// Borra SOLO los programas locales (reuniones, meses, salidas, atencion, aseos e
+// historial), conservando participantes, grupos, discursos y configuración.
+// Sin disparar sync.
+export async function borrarSoloProgramasLocal() {
+  const db = await openDB();
+  const stores = [STORE_MIDWEEKS, STORE_MONTHS, STORE_SALIDAS, STORE_ATENCION, STORE_ASEOS, STORE_ASSIGNMENT_LOG];
+  for (const s of stores) {
+    if (db.objectStoreNames.contains(s)) {
+      await commitSilent(s, (store) => reqToPromise(store.clear()));
+    }
+  }
+}
