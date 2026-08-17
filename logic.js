@@ -1226,7 +1226,13 @@ export function computeCrossConflicts(context) {
     }
     // E3: mismo mes, entre, mismo rol (2 semanas distintas)
     if (items.every(i => i.value + '|' + i.mes + '|' + i.programa + '|' + i.rol === key1) && items[0].programa === 'entre') {
-      push(first, 'E3', items.slice(1).map(i => i.detalle));
+      // Los publicadores pueden repetir labores de servicio (atencion_*) de entre
+      // semana durante el mes → no se avisa; ministerial/anciano sí se marca.
+      const persona = (context.people || []).find(q => String(q.id) === String(items[0].value));
+      const esServicio = String(items[0].rol).startsWith('atencion_');
+      if (!(persona && esPublicador(persona) && esServicio)) {
+        push(first, 'E3', items.slice(1).map(i => i.detalle));
+      }
       return;
     }
     // E4: mismo mes, fin, mismo campo (2 semanas distintas)
@@ -1634,7 +1640,21 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
     ATENCION_DEF.forEach(d => { const v = l[d.key]; (Array.isArray(v) ? v : [v]).forEach(id => { if (id) set.add(String(id)); }); });
     ocupMw.set(sat, set);
   });
+  // Cargos de la reunión de fin de semana (presidente/conductor/lector) según el
+  // sábado: la acomodación del fin de semana no debe solaparse con ellos (E2).
+  // `months` llega por opts desde quienes lo ejecutan después de automatizar fin.
+  const ocupFin = new Map(); // saturday -> Set de personas con cargo de fin de semana
+  (opts.months || []).forEach(m => (m.weeks || []).forEach(w => {
+    ['presidente', 'conductor', 'lector', 'estudioSinLectura'].forEach(c => {
+      if (w[c]) {
+        const set = new Set(ocupFin.get(String(w.date)) || []);
+        set.add(String(w[c]));
+        ocupFin.set(String(w.date), set);
+      }
+    });
+  }));
   const laboreMes = new Map(); // personaId -> Set de claves labore usadas en el mes
+  const sonidoMes = new Map(); // personaId -> nº de veces en sonido en el mes
   const cargaMes = new Map(); // personaId -> nº total de atenciones en el mes (reparto)
 
   // Sonido (audio) es una labor con pocos asignados: se rellena PRIMERO para que
@@ -1665,6 +1685,7 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
         const k = `${prefijo}${d.key}_${si}`;
         if (!laboreMes.has(String(id))) laboreMes.set(String(id), new Set());
         laboreMes.get(String(id)).add(k);
+        if (d.key === 'sonido') sonidoMes.set(String(id), (sonidoMes.get(String(id)) || 0) + 1);
         cargaMes.set(String(id), (cargaMes.get(String(id)) || 0) + 1);
       });
     });
@@ -1676,17 +1697,20 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
         const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
         if (cur) continue;
         const claveLabore = `${prefijo}${d.key}_${si}`;
-        const cand = people
-          .filter(p => laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
-          .filter(x => !ocup.has(String(x.id)))
-          // En labores de servicio, los publicadores pueden repetirse todo lo
-          // necesario; los ministeriales/ancianos no repiten el mismo puesto en
-          // el mes (para que no acaparen). En sonido, el anciano además se limita
-          // a 1 vez al mes.
+        // Sonido: si no hay candidato perfecto se relajan progresivamente las
+        // restricciones (ocupados de la semana, repetición en el mes y, en último
+        // caso, sin exigir la labor) para que el puesto nunca quede vacío.
+        const elegir = (relajaOcup, ultimoRecurso) => people
+          .filter(p => ultimoRecurso || laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
+          .filter(x => relajaOcup ? (ultimoRecurso ? (!serviceRolesOnlyMale || x.genero !== 'femenino') : true) : !ocup.has(String(x.id)))
           .filter(x => {
-            if (esSonido && esAnciano(x)) return !((laboreMes.get(String(x.id)) || new Set()).has(`${prefijo}sonido_0`));
+            // En labores de servicio, los publicadores pueden repetirse todo lo
+            // necesario; los ministeriales/ancianos no repiten el mismo puesto en
+            // el mes (para que no acaparen). En sonido, el anciano además se limita
+            // a 2 veces al mes.
+            if (esSonido && esAnciano(x)) return ultimoRecurso || (sonidoMes.get(String(x.id)) || 0) < 2;
             if (esPublicador(x)) return true;
-            return !((laboreMes.get(String(x.id)) || new Set()).has(claveLabore));
+            return ultimoRecurso || !((laboreMes.get(String(x.id)) || new Set()).has(claveLabore));
           })
           .sort((a, b) => {
             // Prioridad: publicadores primero → luego ministerial → por último anciano.
@@ -1695,21 +1719,29 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
             // Equilibrio: quien menos atenciones tiene en el mes, primero.
             return (cargaMes.get(String(a.id)) || 0) - (cargaMes.get(String(b.id)) || 0);
           })[0];
+        const cand = esSonido
+          ? (elegir(false, false) || elegir(true, false) || elegir(true, true))
+          : elegir(false, false);
         if (!cand) { reporte.vacios.push({ semana: sat, labore: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
         else l[d.key] = cand.id;
         ocup.add(String(cand.id));
         if (!laboreMes.has(String(cand.id))) laboreMes.set(String(cand.id), new Set());
         laboreMes.get(String(cand.id)).add(claveLabore);
+        if (d.key === 'sonido') sonidoMes.set(String(cand.id), (sonidoMes.get(String(cand.id)) || 0) + 1);
         cargaMes.set(String(cand.id), (cargaMes.get(String(cand.id)) || 0) + 1);
         reporte.asignados++;
       }
     });
   };
 
-  // Labores del fin de semana (programa de acomodación).
+  // Labores del fin de semana (programa de acomodación). Además de la reunión de
+  // entre semana (E1), se evita a quien ya tiene cargo de fin de semana ese sábado
+  // (presidente/conductor/lector) para no generar E2.
   atencion.forEach(rec => (rec.weeks || []).forEach(w => {
-    rellenar(w.labores || {}, String(w.saturday), ocupMw.get(String(w.saturday)) || [], 'atencion_');
+    const ocup = new Set(ocupMw.get(String(w.saturday)) || []);
+    (ocupFin.get(String(w.saturday)) || []).forEach(id => ocup.add(String(id)));
+    rellenar(w.labores || {}, String(w.saturday), ocup, 'atencion_');
   }));
 
   // Labores de entre semana (se guardan en cada week.labores del midweek).
@@ -2091,7 +2123,7 @@ export function generateOneProposal(input, config = {}, seed = 1) {
     permanentConductorBackupId: config4.permanentConductorBackupId,
     permanentConductorBackupId2: config4.permanentConductorBackupId2,
   });
-  reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale });
+  reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale, months });
 
   const assignments = extractAssignments(midweeks, months, salidas, atencion, input.people);
   const balance = balanceReport(assignments, input.people);
@@ -2135,11 +2167,13 @@ export function scoreSolution(assignments, { people = [], config = {}, scoring =
   // Excepción 2: los publicadores pueden repetir labores de servicio
   // (acomodación: audio/micrófono/plataforma) durante el mes → no cuentan como
   // repetición (sin alerta ni penalización en el puntaje).
+  // Excepción 3: la misma labor en programas distintos (entre semana vs fin de
+  // semana) son labores diferentes → no se consideran repetición entre sí.
   const conductoresDesignados = [cfg.permanentConductorId, cfg.permanentConductorBackupId, cfg.permanentConductorBackupId2]
     .filter(Boolean).map(String);
   const countsKey = {};
   (assignments || []).forEach(a => {
-    const k = `${a.personId}|${a.roleKey}`;
+    const k = `${a.personId}|${a.program || ''}|${a.roleKey}`;
     if (a.roleKey === 'conductor1' && conductoresDesignados.includes(String(a.personId))) return;
     const p = people.find(x => String(x.id) === String(a.personId));
     if (p && esPublicador(p) && String(a.roleKey).startsWith('atencion_')) return;

@@ -585,6 +585,19 @@ console.log('[computeCrossConflicts]');
   const c = computeCrossConflicts(ctx);
   ok('E3: misma asignación entre semana repetida en el mes', c.some(x => x.regla === 'E3' && x.value === '3'));
 }
+// E3 exento para el publicador que repite labores de servicio (atencion_*) entre semana.
+{
+  const mkMw = (id, person) => ({ id, sections: [{ title: 'T', parts: [{ num: 1, assignments: { conductor: '99' } }] }], labores: { acomodacion: [person, ''], microfono: ['', ''], plataforma: '', sonido: '' } });
+  const ctx = {
+    midweeks: [mkMw('2026-09-07', '7'), mkMw('2026-09-14', '7')],
+    months: [], labores: [], salidas: [],
+    people: [{ id: 7, name: 'Publ', cargos: ['publicador'] }, { id: 8, name: 'Min', cargos: ['ministerial'] }],
+  };
+  const c = computeCrossConflicts(ctx);
+  ok('E3 no marca al publicador que repite labores de servicio entre semana', !c.some(x => x.regla === 'E3' && x.value === '7'));
+  const ctxMin = { ...ctx, midweeks: [mkMw('2026-09-07', '8'), mkMw('2026-09-14', '8')] };
+  ok('E3 sí marca al ministerial que repite labores de servicio entre semana', computeCrossConflicts(ctxMin).some(x => x.regla === 'E3' && x.value === '8'));
+}
 // E4: mismo mes, fin de semana, mismo campo en 2 semanas.
 {
   const ctx = {
@@ -969,19 +982,48 @@ console.log('[automatizarAtencion · cargo]');
   ok('publicador se repite en sonido para completar el mes', String(s2) === '3', `got=${s2}`);
 }
 {
-  // Anciano como único candidato de sonido: cubre la 1ª semana y la 2ª queda
-  // vacía (límite 1 vez al mes para ancianos en sonido).
+  // Anciano como único candidato de sonido: cubre hasta 2 veces al mes y, si
+  // quedan semanas, sonido nunca queda vacío (último recurso).
   const people = [
     { id: 1, name: 'UnicoAnciano', labores: ['audio'], cargos: ['anciano'], genero: 'masculino' },
   ];
   const lab = { id: '2026-08', weeks: [
     { saturday: '2026-08-01', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
     { saturday: '2026-08-08', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
+    { saturday: '2026-08-15', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
   ] };
-  automatizarAtencion(people, [lab], []);
-  const s1 = lab.weeks[0].labores.sonido, s2 = lab.weeks[1].labores.sonido;
-  ok('anciano cubre sonido 1 vez al mes', String(s1) === '1', `got=${s1}`);
-  ok('anciano no repite sonido en el mes (queda libre la 2ª semana)', String(s2) === '', `got=${s2}`);
+  const rep = automatizarAtencion(people, [lab], []);
+  const ss = lab.weeks.map(w => String(w.labores.sonido));
+  ok('anciano cubre sonido hasta 2 veces al mes', ss[0] === '1' && ss[1] === '1', `got=${ss.join(',')}`);
+  ok('sonido nunca queda vacío si el anciano es el único candidato', ss[2] === '1' && !rep.vacios.some(v => v.labore === 'sonido_0'), `got=${ss.join(',')} vacios=${rep.vacios.length}`);
+}
+{
+  // Sonido siempre se asigna: si el único candidato está ocupado esa semana en la
+  // reunión de entre semana, se relaja la restricción y se le asigna igualmente.
+  const people = [
+    { id: 1, name: 'PubAudio', labores: ['audio'], cargos: ['publicador'], genero: 'masculino' },
+  ];
+  const mw = [{ id: '2026-08-03', presidente: '1', sections: [] }];
+  const lab = { id: '2026-08', weeks: [
+    { saturday: '2026-08-08', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
+  ] };
+  const rep = automatizarAtencion(people, [lab], mw);
+  ok('sonido se asigna aunque el candidato esté ocupado en la semana', String(lab.weeks[0].labores.sonido) === '1' && !rep.vacios.some(v => v.labore === 'sonido_0'), `got=${lab.weeks[0].labores.sonido} vacios=${rep.vacios.length}`);
+}
+{
+  // La acomodación del fin de semana evita asignar a quien ya tiene cargo de fin
+  // de semana ese sábado (presidente/conductor/lector) para no generar E2.
+  const people = [
+    { id: 1, name: 'P1', labores: ['acomodador'], cargos: ['publicador'], genero: 'masculino' },
+    { id: 2, name: 'P2', labores: ['acomodador'], cargos: ['publicador'], genero: 'masculino' },
+    { id: 3, name: 'Preside', labores: ['presidente', 'acomodador'], cargos: ['anciano'], genero: 'masculino' },
+  ];
+  const months = [{ id: '2026-09', year: 2026, month: 9, weeks: [{ type: 'normal', date: '2026-09-12', presidente: '3', conductor: '', lector: '' }] }];
+  const lab = { id: '2026-09', weeks: [{ saturday: '2026-09-12', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } }] };
+  automatizarAtencion(people, [lab], [], { months });
+  const vals = [];
+  lab.weeks.forEach(w => Object.values(w.labores || {}).forEach(v => (Array.isArray(v) ? v : [v]).forEach(id => { if (id) vals.push(String(id)); })));
+  ok('acomodación del FS evita a quien preside ese sábado (E2)', !vals.includes('3'), `got=${vals.join(',')}`);
 }
 
 // --- Alineación de género en la automatización ---
@@ -1554,6 +1596,23 @@ console.log('[scoreSolution]');
   // Un ministerial/anciano repitiendo el mismo puesto de acomodación sí se marca.
   const sm = scoreSolution(publServicio, { people: [{ ...people[0], cargos: ['ministerial'] }], config: { maxSameAssignmentPerMonth: 1 } });
   ok('ministerial repite acomodación y sí se marca', sm.restricciones.superaMaximo.length > 0);
+
+  // Presidir la reunión de entre semana y la del fin de semana son labores
+  // diferentes: no se consideran repetición entre sí.
+  const presEntreFin = [
+    { personId: '1', date: '2026-07-06', program: 'entre', roleKey: 'presidente', roleLabel: 'Presidente' },
+    { personId: '1', date: '2026-07-11', program: 'fin', roleKey: 'presidente', roleLabel: 'Presidente' },
+  ];
+  const spv = scoreSolution(presEntreFin, { people, config: { maxSameAssignmentPerMonth: 1 } });
+  ok('presidente de entre semana y fin de semana no cuentan como repetición', spv.valida === true && spv.restricciones.superaMaximo.length === 0);
+
+  // Repetir la presidencia solo dentro de entre semana sí se marca.
+  const presEntreRep = [
+    { personId: '1', date: '2026-07-06', program: 'entre', roleKey: 'presidente', roleLabel: 'Presidente' },
+    { personId: '1', date: '2026-07-13', program: 'entre', roleKey: 'presidente', roleLabel: 'Presidente' },
+  ];
+  const spr = scoreSolution(presEntreRep, { people, config: { maxSameAssignmentPerMonth: 1 } });
+  ok('repetir presidente de entre semana sí se marca', spr.restricciones.superaMaximo.length > 0);
 }
 
 // --- helpers de gráficos ---

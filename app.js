@@ -1259,10 +1259,11 @@ async function etapaEntreSemana(month) {
 }
 
 async function etapaAtencion(month) {
-  const [midweeks, labores] = await Promise.all([db.listMidweeks(), db.listAtencion()]);
+  const [midweeks, labores, months] = await Promise.all([db.listMidweeks(), db.listAtencion(), db.listMonths()]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const labMes = labores.filter(p => p.id === month);
-  const repLab = automatizarAtencion(state.people, labMes, mwMes, { serviceRolesOnlyMale: (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false });
+  const mesMes = months.filter(m => m.id === month);
+  const repLab = automatizarAtencion(state.people, labMes, mwMes, { serviceRolesOnlyMale: (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false, months: mesMes });
   // Las labores de entre semana se guardan en cada week.labores del midweek.
   await Promise.all(labMes.map(p => db.putAtencion(p)));
   await Promise.all(mwMes.map(w => db.putMidweek(w)));
@@ -1734,6 +1735,7 @@ function redaccionConflictosPropuesta(p, month) {
     midweeks: (p.midweeks || []).filter(m => String(m.id).startsWith(month)),
     atencion: (p.atencion || []).filter(x => String(x.id) === month),
     salidas: (p.salidas || []).filter(x => String(x.id) === month),
+    people: state.people,
     permanentConductorId: state.config && state.config.algorithm && state.config.algorithm.permanentConductorId,
     permanentConductorBackupId: state.config && state.config.algorithm && state.config.algorithm.permanentConductorBackupId,
     permanentConductorBackupId2: state.config && state.config.algorithm && state.config.algorithm.permanentConductorBackupId2,
@@ -6527,6 +6529,7 @@ async function renderCrossAlerts(container, cur) {
     midweeks: midweeks.filter(m => String(m.id).startsWith(cur)),
     atencion: labores.filter(p => String(p.id) === cur),
     salidas: salidas.filter(p => String(p.id) === cur),
+    people: state.people,
   };
   const conflicts = computeCrossConflicts(ctx);
   if (!conflicts.length) { container.innerHTML = ''; return; }
