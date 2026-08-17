@@ -206,7 +206,7 @@ export async function addPerson(payload) {
     record = {
       name,
       labores: Array.isArray(payload.labores) ? payload.labores : (Array.isArray(payload.roles) ? payload.roles : []),
-      cargos: Array.isArray(payload.cargos) ? payload.cargos : (typeof payload.cargos === 'string' && payload.cargos ? payload.cargos.split(',').map(s => s.trim()).filter(Boolean) : []),
+      cargos: payload.cargo ? [payload.cargo] : (Array.isArray(payload.cargos) ? payload.cargos : (typeof payload.cargos === 'string' && payload.cargos ? payload.cargos.split(',').map(s => s.trim()).filter(Boolean) : [])),
       genero: payload.genero || '',
       calificacion: payload.calificacion || '',
       enlace: payload.enlace || '',

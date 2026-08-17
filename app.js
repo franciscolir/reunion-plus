@@ -2765,6 +2765,20 @@ async function imageOutings() {
 }
 
 /* ---------- LISTAS: personas y grupos ---------- */
+// Cargos de congregación (nivel del participante). Todos son publicadores por defecto.
+const CARGOS = [
+  { id: 'publicador',  label: 'Publicador',  nivel: 1 },
+  { id: 'ministerial', label: 'Siervo Ministerial', nivel: 2 },
+  { id: 'anciano',     label: 'Anciano',     nivel: 3 },
+];
+function cargoOf(p) {
+  const c = Array.isArray(p.cargos) && p.cargos.length ? p.cargos[0] : 'publicador';
+  return CARGOS.find(x => x.id === c) || CARGOS[0];
+}
+function cargosOpts(cur) {
+  return CARGOS.map(c => `<option value="${c.id}" ${String(cur || 'publicador') === c.id ? 'selected' : ''}>${c.label}</option>`).join('');
+}
+
 const DEFAULT_LABORES = [
   { id: 'presidente',   label: 'Presidente' },
   { id: 'conductor1',   label: 'Cond. Atalaya' },
@@ -2808,6 +2822,13 @@ async function renderLists() {
             <option value="">Todos</option>
             <option value="masculino">Hombre</option>
             <option value="femenino">Mujer</option>
+          </select>
+        </div>
+        <div class="relative w-full sm:w-44">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="badge">badge</span>
+          <select id="pCargoFilter" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md ${state.listsTab === 'historial' ? 'hidden' : ''}">
+            <option value="">Todos los cargos</option>
+            ${CARGOS.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}
           </select>
         </div>
         <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleEditMode">
@@ -2876,17 +2897,21 @@ async function renderLists() {
 
   const search = $('#pSearch');
   const genderFilter = $('#pGenderFilter');
+  const cargoFilter = $('#pCargoFilter');
   const applyFilter = () => {
     const q = normalizeStr(search.value);
     const gen = genderFilter.value;
+    const cargo = cargoFilter.value;
     document.querySelectorAll('#pList .person-card').forEach(card => {
       const matchName = card.dataset.norm.includes(q);
       const matchGen = !gen || card.dataset.genero === gen;
-      card.classList.toggle('is-hidden', !(matchName && matchGen));
+      const matchCargo = !cargo || card.dataset.cargo === cargo;
+      card.classList.toggle('is-hidden', !(matchName && matchGen && matchCargo));
     });
   };
   search.addEventListener('input', applyFilter);
   genderFilter.addEventListener('change', applyFilter);
+  cargoFilter.addEventListener('change', applyFilter);
 
   const pList = $('#pList');
   const inactivos = state.listsShowInactive ? await db.listPeopleInactive() : [];
@@ -3041,7 +3066,9 @@ function renderLaborColumns(p, editMode) {
 function renderPersonCard(p, editMode, isInactive = false) {
   const gen = p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : '—';
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '';
+  const cargo = cargoOf(p);
   const badges = [];
+  if (cargo.id !== 'publicador') badges.push(`<span class="px-2 py-0.5 rounded-full bg-primary-fixed text-primary text-[11px] font-label-md">${cargo.label}</span>`);
   if (p.genero) badges.push(`<span class="px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant text-[11px] font-label-md">${gen}</span>`);
   if (cal) badges.push(`<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-label-md">Cal. ${cal}</span>`);
   if (p.enlace) badges.push(`<span class="px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container text-[11px] font-label-md">Enlazado</span>`);
@@ -3053,7 +3080,7 @@ function renderPersonCard(p, editMode, isInactive = false) {
       <button data-profile="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Ver perfil"><span class="material-symbols-outlined text-[18px]">account_circle</span></button>
       <button data-markall="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Marcar/desmarcar todas las labores"><span class="material-symbols-outlined text-[18px]">select_all</span></button>
       <button data-pdel="${p.id}" data-admin class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
-  return `<div class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-pid="${p.id}">
+  return `<div class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-pid="${p.id}">
     <div class="flex items-center gap-3">
       <div class="w-10 h-10 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(p.name)}</div>
       <div class="min-w-0 flex-1">
@@ -3194,6 +3221,12 @@ function personAttrsFields() {
           ${CALIFICACIONES.map(c => `<option value="${c}">${c}</option>`).join('')}
         </select>
       </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargo</label>
+        <select data-attr="cargo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          ${cargosOpts('publicador')}
+        </select>
+      </div>
     </div>
     <div class="text-left">
       <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
@@ -3210,7 +3243,8 @@ function readPersonAttrs() {
   const genero = (document.querySelector('[data-attr="genero"]') || {}).value || '';
   const calificacion = (document.querySelector('[data-attr="calificacion"]') || {}).value || '';
   const enlace = (document.querySelector('[data-attr="enlace"]') || {}).value || '';
-  return { genero, calificacion, enlace };
+  const cargo = (document.querySelector('[data-attr="cargo"]') || {}).value || 'publicador';
+  return { genero, calificacion, enlace, cargo };
 }
 
 // Aplica el enlace de pareja con la regla de direccionalidad:
@@ -3274,11 +3308,11 @@ async function openPersonProfile(person) {
         <div class="w-12 h-12 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-headline-md text-headline-md font-bold shrink-0">${initialsOf(p.name)}</div>
         <div class="flex-1 min-w-0">
           <input id="pfName" type="text" value="${escapeAttr(p.name)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-headline-md text-headline-md text-primary focus:border-primary" autocomplete="off">
-          <p class="text-on-surface-variant text-sm mt-1">${p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador'} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
+          <p class="text-on-surface-variant text-sm mt-1">${p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador'} · ${cargoOf(p).label} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
         </div>
       </div>
       <div class="space-y-4">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Género</label>
             <select id="pfGenero" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${genOpts}</select>
@@ -3286,6 +3320,10 @@ async function openPersonProfile(person) {
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Calificación</label>
             <select id="pfCalif" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${calOpts}</select>
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargo</label>
+            <select id="pfCargo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${cargosOpts(cargoOf(p).id)}</select>
           </div>
         </div>
         <div>
@@ -3320,6 +3358,8 @@ async function openPersonProfile(person) {
     p.name = ($('#pfName').value || '').trim() || p.name;
     p.genero = $('#pfGenero').value;
     p.calificacion = $('#pfCalif').value;
+    p.cargo = $('#pfCargo').value;
+    p.cargos = [p.cargo];
     p.labores = [...$('#pfLabores').querySelectorAll('.labor-chip.is-on')].map(c => c.dataset.plabore);
     await applyEnlace(p, $('#pfEnlace').value);
     const orig = state.people.find(x => String(x.id) === String(p.id));
