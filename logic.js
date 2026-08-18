@@ -180,7 +180,7 @@ export function collectWeekPersons(w) {
     const v = w[f];
     if (v) out.push({ value: String(v), key: f });
   }
-  if (Array.isArray(w.outings)) {
+  if (Array.isArray(w.outings) && !w.sinSalida) {
     w.outings.forEach((o, j) => {
       const v = o.oradorSalida;
       if (v) out.push({ value: String(v), key: `salida_${j}` });
@@ -1170,9 +1170,12 @@ export function collectPersonAssignments(context) {
   }));
 
   // Salidas
-  (context.salidas || []).forEach(p => (p.weeks || []).forEach((w, wi) => (w.outings || []).forEach((o, oi) => {
-    if (o.oradorSalida) add(o.oradorSalida, p.id, weekSundayOf(w.saturday), 'salida', `salida_${wi}_${oi}`, `Orador de salida · semana ${wi + 1}`);
-  })));
+  (context.salidas || []).forEach(p => (p.weeks || []).forEach((w, wi) => {
+    if (w.sinSalida) return;
+    (w.outings || []).forEach((o, oi) => {
+      if (o.oradorSalida) add(o.oradorSalida, p.id, weekSundayOf(w.saturday), 'salida', `salida_${wi}_${oi}`, `Orador de salida · semana ${wi + 1}`);
+    });
+  }));
 
   return out;
 }
@@ -1766,11 +1769,15 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
 }
 
 // Salidas del mes sin orador asignado (puestos vacíos del programa de salidas).
+// Las semanas marcadas sin salida (sinSalida) no cuentan como faltantes.
 export function salidasFaltantes(salidas) {
   const faltantes = [];
-  (salidas || []).forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach((o, oi) => {
-    if (!o || !o.oradorSalida) faltantes.push({ saturday: String(w.saturday || ''), index: oi });
-  })));
+  (salidas || []).forEach(p => (p.weeks || []).forEach(w => {
+    if (w.sinSalida) return;
+    (w.outings || []).forEach((o, oi) => {
+      if (!o || !o.oradorSalida) faltantes.push({ saturday: String(w.saturday || ''), index: oi });
+    });
+  }));
   return faltantes;
 }
 
@@ -1863,7 +1870,10 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
   const marcarOcupadoSalida = (sat, id) => {
     if (id) (ocupadosSalidas[sat] ||= new Set()).add(String(id));
   };
-  salidas.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcarOcupadoSalida(String(w.saturday), o.oradorSalida))));
+  salidas.forEach(p => (p.weeks || []).forEach(w => {
+    if (w.sinSalida) return;
+    (w.outings || []).forEach(o => marcarOcupadoSalida(String(w.saturday), o.oradorSalida));
+  }));
 
   // Ocupados por ATENCION (acomodación FS + ES) — para E2 general.
   const ocupadosAtencion = {};
@@ -1989,9 +1999,12 @@ export function extractAssignments(midweeks, months, salidas, atencion, people =
       if (w[campo]) push(w[campo], date, 'fin', labore, labelOf(campo));
     });
   }));
-  (salidas || []).forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => {
-    if (o.oradorSalida) push(o.oradorSalida, String(w.saturday), 'salidas', 'orador', 'Orador de salida');
-  })));
+  (salidas || []).forEach(p => (p.weeks || []).forEach(w => {
+    if (w.sinSalida) return;
+    (w.outings || []).forEach(o => {
+      if (o.oradorSalida) push(o.oradorSalida, String(w.saturday), 'salidas', 'orador', 'Orador de salida');
+    });
+  }));
   (atencion || []).forEach(p => (p.weeks || []).forEach(w => {
     const l = w.labores || {};
     ATENCION_DEF.forEach(d => {

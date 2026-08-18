@@ -225,6 +225,48 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     expect(primerSlot).not.toBe('');
   });
 
+  test('generar: cancelar el aviso de salidas deja el botón habilitado', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/algoritmo'; });
+    await expect(page.locator('#algoGenerate')).toBeVisible();
+
+    await page.click('#algoGenerate');
+    await expect(page.locator('h3:has-text("Programa de salidas incompleto")')).toBeVisible();
+
+    // Cancelar: el botón debe volver a estar habilitado y listo para generar.
+    await page.click('#algoSalidasCancel');
+    await expect(page.locator('#algoGenerate')).toBeEnabled();
+    await expect(page.locator('#algoGenerate')).not.toContainText('Generando');
+
+    // Se puede volver a generar.
+    await page.click('#algoGenerate');
+    await expect(page.locator('h3:has-text("Programa de salidas incompleto")')).toBeVisible();
+  });
+
+  test('salidas: marcar semanas sin salida evita el aviso de faltantes', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await expect(page.locator('[data-tab="salidas"]')).toBeVisible();
+    await page.click('[data-tab="salidas"]');
+    await expect(page.locator('[data-sinsalida="0"]')).toBeVisible();
+
+    for (let i = 0; i < 4; i++) {
+      await page.check(`[data-sinsalida="${i}"]`);
+    }
+    await page.click('#salidasSave');
+    await expect(page.locator('#toastRoot')).toContainText('Salidas guardadas');
+
+    // Al generar, ya no aparece el aviso de salidas incompletas.
+    await page.evaluate(() => { location.hash = '#/algoritmo'; });
+    await expect(page.locator('#algoGenerate')).toBeVisible();
+    await page.click('#algoGenerate');
+    await expect(page.locator('[data-previa]').first()).toBeVisible({ timeout: 20000 });
+  });
+
   test('atención: el select de cada labor solo muestra a quienes la tienen habilitada', async ({ page }) => {
     await seedAtencionSelects(page);
     await openApp(page);

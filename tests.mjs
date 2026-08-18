@@ -147,6 +147,9 @@ ok('outing 0 duplicada con presidente', oc1.duplicates.includes(0));
 const w2 = { type: 'normal', presidente: 1, outings: [{ oradorSalida: 2 }, { oradorSalida: 3 }] };
 const oc2 = computeOutingConflicts({ weeks: [w2] }, 0);
 ok('sin duplicados en salidas', oc2.duplicates.length === 0);
+const wSin = { type: 'normal', sinSalida: true, presidente: 1, outings: [{ oradorSalida: 1 }, { oradorSalida: 1 }] };
+const ocSin = computeOutingConflicts({ weeks: [wSin] }, 0);
+ok('semana sin salida no arroja conflictos de salidas', ocSin.duplicates.length === 0);
 
 // --- weekComplete ---
 console.log('[weekComplete]');
@@ -637,6 +640,19 @@ console.log('[computeCrossConflicts]');
   };
   const c = computeCrossConflicts(ctx);
   ok('E5: más de una salida en el mes', c.some(x => x.regla === 'E5' && x.value === '5'));
+}
+// Semana sin salida: su orador no cuenta para E5 ni E2.
+{
+  const ctx = {
+    midweeks: [], months: [],
+    labores: [],
+    salidas: [{ id: '2026-09', weeks: [
+      { saturday: '2026-09-05', sinSalida: true, outings: [{ oradorSalida: '5' }] },
+      { saturday: '2026-09-12', outings: [{ oradorSalida: '5' }] },
+    ] }],
+  };
+  const c = computeCrossConflicts(ctx);
+  ok('sin salida no cuenta como repetición E5', !c.some(x => x.regla === 'E5' && x.value === '5'), JSON.stringify(c));
 }
 // Sin conflictos.
 {
@@ -1178,6 +1194,11 @@ console.log('[salidasFaltantes]');
     { saturday: '2026-11-14', outings: [{ oradorSalida: '' }] },
   ]}]);
   ok('detecta salidas sin orador', falt.length === 2 && falt[0].saturday === '2026-11-07' && falt[1].saturday === '2026-11-14', JSON.stringify(falt));
+  const faltSin = salidasFaltantes([{ id: '2026-11', weeks: [
+    { saturday: '2026-11-07', outings: [{ oradorSalida: '' }] },
+    { saturday: '2026-11-14', sinSalida: true, outings: [{ oradorSalida: '' }] },
+  ]}]);
+  ok('semana marcada sin salida no cuenta como faltante', faltSin.length === 1 && faltSin[0].saturday === '2026-11-07', JSON.stringify(faltSin));
 }
 
 // --- laboresVaciasPropuesta y sinAsignarPorMotivo ---
@@ -1281,6 +1302,14 @@ console.log('[extractAssignments]');
   ok('no incluye el orador de texto libre', !entries.some(e => e.roleKey === 'orador' && e.program === 'fin'));
   const ana = entries.filter(e => e.personId === '1');
   ok('nombre de la persona se resuelve', ana.length > 0 && ana.every(e => e.name === 'Ana'));
+  // Semana marcada sin salida: su orador no se extrae al historial.
+  const salidasSin = [{ id: '2026-08', weeks: [
+    { saturday: '2026-08-15', sinSalida: true, outings: [{ oradorSalida: 4 }] },
+    { saturday: '2026-08-22', outings: [{ oradorSalida: 4 }] },
+  ] }];
+  const salSin = extractAssignments(midweeks, months, salidasSin, labores, people).filter(e => e.program === 'salidas');
+  ok('no extrae salidas de la semana sin salida',
+    salSin.length === 1 && salSin[0].date === '2026-08-22', JSON.stringify(salSin));
   // Idempotencia: re-extraer no cambia los ids.
   const ids1 = entries.map(e => e.id).sort();
   const ids2 = extractAssignments(midweeks, months, salidas, labores, people).map(e => e.id).sort();

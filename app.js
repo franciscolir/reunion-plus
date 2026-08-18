@@ -861,9 +861,12 @@ async function renderAutoAsignacion() {
   };
   const salidasMissing = (program) => {
     const out = [];
-    (program && program.weeks || []).forEach((w, wi) => (w.outings || []).forEach((o, oi) => {
-      if (!o.oradorSalida) out.push({ key: `sal_${wi}_${oi}`, label: `Orador de salida ${oi + 1}` });
-    }));
+    (program && program.weeks || []).forEach((w, wi) => {
+      if (w.sinSalida) return;
+      (w.outings || []).forEach((o, oi) => {
+        if (!o.oradorSalida) out.push({ key: `sal_${wi}_${oi}`, label: `Orador de salida ${oi + 1}` });
+      });
+    });
     return out;
   };
   const finMissing = (program) => {
@@ -970,7 +973,7 @@ async function renderAutoAsignacion() {
     const mwDone = d.mws.reduce((a, w) => a + (w.presidente ? 1 : 0) + (w.sections || []).reduce((aa, sec) => aa + (sec.parts || []).reduce((aaa, p) => aaa + Object.values(p.assignments || {}).filter(Boolean).length, 0), 0), 0);
     const labTotal = (d.lab?.weeks || []).reduce((a, w) => a + ATENCION_DEF.reduce((aa, dd) => aa + dd.count, 0), 0);
     const labDone = labTotal - labMissing.length;
-    const salTotal = (d.sal?.weeks || []).reduce((a, w) => a + (w.outings || []).length, 0);
+    const salTotal = (d.sal?.weeks || []).reduce((a, w) => a + (w.sinSalida ? 0 : (w.outings || []).length), 0);
     const salDone = salTotal - salMissing.length;
     const finTotal = (d.fin?.weeks || []).reduce((a, w) => a + camposFinSemana(w).length, 0);
     const finDone = finTotal - finFaltan.length;
@@ -1008,7 +1011,7 @@ async function renderAutoAsignacion() {
     // Card 3: Salidas
     cards.push(card({
       id: 'salidas', icono: 'campaign', titulo: 'Salidas', desc: 'Oradores para las salidas a congregaciones',
-      faltan: salMissing, pct: pct(salDone, salTotal), done: salTotal > 0 && salMissing.length === 0,
+      faltan: salMissing, pct: pct(salDone, salTotal), done: salMissing.length === 0 && !!d.sal && (d.sal.weeks || []).length > 0,
       resumen: sesion.reportes.salidas ? `${sesion.reportes.salidas.asignados} asignaciones hechas` : '',
       accion: `<button data-ver="salidas" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
                ${botonAsignar('salidas', 'Asignar')}`,
@@ -1302,6 +1305,7 @@ async function etapaSalidas(month) {
   let asignados = 0;
   const vacios = [];
   salMes.forEach(p => (p.weeks || []).forEach(w => {
+    if (w.sinSalida) return;
     const sat = String(w.saturday);
     const ocup = new Set(ocupados.get(sat) || []);
     (w.outings || []).forEach(o => {
@@ -1645,9 +1649,10 @@ async function renderAlgoritmo() {
     } catch (e) {
       console.error(e);
       $('#algoResults').innerHTML = `<p class="text-sm text-error">Error al generar: ${escapeHtml(e.message || e)}</p>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">play_arrow</span> Generar';
     }
-    btn.disabled = false;
-    btn.innerHTML = '<span class="material-symbols-outlined text-[20px]">play_arrow</span> Generar';
   };
   $('#algoGenerate').onclick = generar;
 }
@@ -2728,7 +2733,9 @@ function outingWeekRow(w, i) {
   const date = new Date(w.saturday + 'T00:00:00');
   const dateStr = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
   const outs = Array.isArray(w.outings) ? w.outings : [];
-  const cells = outs.map((o, j) => {
+  const cells = w.sinSalida
+    ? '<span class="text-on-surface-variant text-sm">Sin salida esta semana</span>'
+    : outs.map((o, j) => {
     const orador = personNameOf(o.oradorSalida);
     const sep = j > 0 ? `<hr class="my-3 border-outline-variant/40">` : '';
     return `${sep}<div class="flex gap-3">
@@ -2768,6 +2775,7 @@ function buildOutingsText() {
     const date = new Date(w.saturday + 'T00:00:00');
     const dateStr = date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
     lines.push(`\n*Semana ${i + 1} — ${dateStr}*`);
+    if (w.sinSalida) { lines.push('Sin salida esta semana'); return; }
     const ws = (w.outings || []);
     if (!ws.length) { lines.push('Sin oradores asignados'); return; }
     ws.forEach((o, j) => {
@@ -5291,17 +5299,27 @@ async function renderSalidas(monthId, opts = {}) {
       const dateStr = capitalize(date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }));
       const occ = computeOutingConflicts({ weeks: program.weeks }, i);
       const rows = (w.outings || []).map((o, j) => outingRow(o, i, j, occ)).join('');
+      const sinSalida = w.sinSalida === true;
       return `<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
         <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-          <h3 class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</h3>
-          <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(dateStr)}</span>
+          <div class="flex items-center gap-3 flex-wrap">
+            <h3 class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</h3>
+            <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(dateStr)}</span>
+            ${sinSalida ? `<span class="px-3 py-1 bg-tertiary-container text-on-tertiary-container font-label-md text-label-md rounded-full">Sin salida esta semana</span>` : ''}
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer select-none" title="Marcar esta semana como sin salida a congregación">
+            <input type="checkbox" data-sinsalida="${i}" ${sinSalida ? 'checked' : ''} class="accent-primary w-4 h-4">
+            <span class="font-label-md text-label-md text-on-surface-variant">Sin salida</span>
+          </label>
         </div>
-        <div class="grid grid-cols-1 gap-4" data-outing-list="${i}">${rows}</div>
-        <div class="mt-4 flex justify-end">
-          <button data-outing-add="${i}" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:bg-secondary-container transition-colors">
-            <span class="material-symbols-outlined text-[18px]">person_add</span> Agregar orador
-          </button>
-        </div>
+        ${sinSalida
+          ? `<div class="rounded-lg bg-surface-variant/40 border border-dashed border-outline-variant p-4 text-sm text-on-surface-variant">No hay salida a congregación esta semana.</div>`
+          : `<div class="grid grid-cols-1 gap-4" data-outing-list="${i}">${rows}</div>
+             <div class="mt-4 flex justify-end">
+               <button data-outing-add="${i}" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:bg-secondary-container transition-colors">
+                 <span class="material-symbols-outlined text-[18px]">person_add</span> Agregar orador
+               </button>
+             </div>`}
       </section>`;
     }).join('') : '';
 
@@ -5379,6 +5397,11 @@ async function renderSalidas(monthId, opts = {}) {
         program.weeks[wi].outings.splice(oi, 1);
         render();
       }
+    });
+    list.querySelectorAll('[data-sinsalida]').forEach(cb => cb.onchange = () => {
+      const wi = parseInt(cb.dataset.sinsalida, 10);
+      program.weeks[wi].sinSalida = cb.checked === true;
+      render();
     });
 
     const programBtn = embed ? embed.querySelector('#salidasProgram') : $('#salidasProgram');
@@ -5462,6 +5485,7 @@ async function renderGeneralMonth(monthId, opts = {}) {
       i,
       aseoGroup: aseoWeek && aseoWeek.group ? aseoWeek.group : null,
       outings: salidasWeek ? (salidasWeek.outings || []) : null,
+      sinSalida: salidasWeek ? salidasWeek.sinSalida === true : false,
       finLabores: laboresWeek || null,
       sunday,
       saturday,
@@ -5497,7 +5521,7 @@ async function renderGeneralMonth(monthId, opts = {}) {
 }
 
 // Cuadro de una semana en la vista mensual general.
-function generalWeekBox({ fin, mw, i, aseoGroup, outings, finLabores, sunday, saturday }) {
+function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores, sunday, saturday }) {
   const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
   const header = mw ? mw.header : (fin ? fmt(fin.date) : (saturday ? fmt(saturday) : (sunday ? fmt(sunday) : '')));
   return `
@@ -5517,7 +5541,7 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, finLabores, sunday, sa
         <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
           <span class="material-symbols-outlined text-[18px]">record_voice_over</span> Fin de Semana
         </p>
-        ${fin ? generalFsContent(fin, outings) : '<p class="text-sm text-on-surface-variant">Sin programa de fin de semana.</p>'}
+        ${fin ? generalFsContent(fin, outings, sinSalida) : '<p class="text-sm text-on-surface-variant">Sin programa de fin de semana.</p>'}
       </div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -5561,7 +5585,7 @@ function generalEsContent(w) {
 }
 
 // Reunión de fin de semana compacta para el cuadro semanal.
-function generalFsContent(w, outings) {
+function generalFsContent(w, outings, sinSalida) {
   if (w.type === 'assembly') return `<div class="flex flex-col items-center justify-center py-6 text-center">
     <span class="material-symbols-outlined text-primary text-4xl mb-2">event_busy</span>
     <p class="text-on-surface-variant text-sm">Asamblea · sin reunión local.</p>
@@ -5573,8 +5597,12 @@ function generalFsContent(w, outings) {
     rows.push(['Orador', w.orador || '—']);
     rows.push(['Conductor', personNameOf(w.conductor)]);
     rows.push(['Lector', personNameOf(w.lector)]);
-    const salidas = outings != null ? outings : (w.outings || []);
-    salidas.forEach((o, j) => rows.push([`Salida ${j + 1}`, `${personNameOf(o.oradorSalida)}${o.tituloDiscurso ? ' · ' + o.tituloDiscurso : ''}`]));
+    if (sinSalida) {
+      rows.push(['Salida', 'Sin salida esta semana']);
+    } else {
+      const salidas = outings != null ? outings : (w.outings || []);
+      salidas.forEach((o, j) => rows.push([`Salida ${j + 1}`, `${personNameOf(o.oradorSalida)}${o.tituloDiscurso ? ' · ' + o.tituloDiscurso : ''}`]));
+    }
   } else if (w.type === 'supervisor') {
     rows.push(['Presidente', personNameOf(w.presidente)]);
     rows.push(['Superintendente', w.nombreSupervisor || '—']);
