@@ -23,7 +23,7 @@ import {
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats,
   balanceReport, cargoNivel,
   asId, asStr, slotOf, runEngine, changedManualKeys, wrapManualPrograms,
-  clearAutoSlots, manualSlotKeys,
+  clearAutoSlots, manualSlotKeys, estadoProgramas,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
@@ -869,6 +869,7 @@ async function renderNew() {
     <div class="flex gap-2 mb-8 border-b border-outline-variant flex-wrap">
       ${tabs.map(t => `<button data-tab="${t.id}" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">${t.label}</button>`).join('')}
     </div>
+    <div id="newEstados" class="flex flex-wrap gap-2 mb-4"></div>
     <div id="newBody"></div>
   `;
 
@@ -913,6 +914,25 @@ async function renderNew() {
   });
   setActive();
   renderNewBody();
+
+  // Estados calculados por programa (BORRADOR/PARCIAL/GENERADO).
+  (async () => {
+    const [midweeks, months, salidas, atencion] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listSalidas(), db.listAtencion()]);
+    const m = state.progMonth;
+    const est = estadoProgramas({
+      midweeks: midweeks.filter(x => String(x.id).slice(0, 7) === m),
+      months: months.filter(x => x.id === m),
+      salidas: salidas.filter(p => p.id === m),
+      atencion: atencion.filter(p => p.id === m),
+    });
+    const chip = (label, s) => {
+      const cls = s.estado === 'GENERADO' ? 'bg-tertiary-fixed text-on-tertiary-fixed'
+        : s.estado === 'PARCIAL' ? 'bg-secondary-container text-on-secondary-container'
+        : 'bg-surface-variant text-on-surface-variant';
+      return `<span class="px-3 py-1 rounded-full font-label-md text-label-md ${cls}">${label}: ${s.estado} (${s.pct}%)</span>`;
+    };
+    $('#newEstados').innerHTML = `${chip('Entre semana', est.entre)}${chip('Fin de semana', est.fin)}${chip('Labores', est.labores)}`;
+  })();
 }
 
 /* ---------- Vista de asignación automática ---------- */

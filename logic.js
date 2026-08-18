@@ -2084,6 +2084,57 @@ export function salidasFaltantes(salidas) {
   return faltantes;
 }
 
+// Estado calculado de cada programa de un mes (spec 33, decisión 6):
+// BORRADOR (0%), PARCIAL (>0<100%), GENERADO (100%).
+// `programs`: { midweeks, months, salidas, atencion } del mes.
+// Devuelve { entre, fin, labores } con { pct, estado, done, total }.
+export function estadoProgramas(programs) {
+  const total = (done, t) => t === 0 ? 0 : Math.round((done / t) * 100);
+  const estado = (p) => p <= 0 ? 'BORRADOR' : p >= 100 ? 'GENERADO' : 'PARCIAL';
+  const res = (done, t) => { const pct = total(done, t); return { pct, estado: estado(pct), done, total: t }; };
+
+  let entTotal = 0, entDone = 0;
+  (programs.midweeks || []).forEach(w => {
+    entTotal += 1;
+    if (asStr(w.presidente)) entDone++;
+    (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => {
+      midweekSlotsOf(sec, p).forEach(slot => {
+        entTotal++;
+        if (asStr((p.assignments || {})[slot.key])) entDone++;
+      });
+    }));
+  });
+
+  let finTotal = 0, finDone = 0;
+  (programs.months || []).forEach(m => (m.weeks || []).forEach(w => {
+    camposFinSemana(w).forEach(({ campo }) => {
+      finTotal++;
+      if (asStr(w[campo])) finDone++;
+    });
+  }));
+  (programs.salidas || []).forEach(p => (p.weeks || []).forEach(w => {
+    if (w.sinSalida) return;
+    (w.outings || []).forEach(o => { finTotal++; if (asStr(o.oradorSalida)) finDone++; });
+  }));
+
+  let labTotal = 0, labDone = 0;
+  const countLab = (labores) => {
+    const l = labores || {};
+    ATENCION_DEF.forEach(d => {
+      const v = l[d.key];
+      const arr = Array.isArray(v) ? v : [v];
+      for (let si = 0; si < d.count; si++) {
+        labTotal++;
+        if (asStr(arr[si])) labDone++;
+      }
+    });
+  };
+  (programs.atencion || []).forEach(p => (p.weeks || []).forEach(w => countLab(w.labores)));
+  (programs.midweeks || []).forEach(w => countLab(w.labores));
+
+  return { entre: res(entDone, entTotal), fin: res(finDone, finTotal), labores: res(labDone, labTotal) };
+}
+
 const LABOR_LABEL = {
   'presidente': 'Presidente',
   'conductor1': 'Conductor (Atalaya)',

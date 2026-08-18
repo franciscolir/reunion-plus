@@ -23,7 +23,7 @@ import {
   cargoNivel, esPublicador, esAnciano, balanceReport,
   asId, asStr, slotOf, applyManual, applyAuto,
   manualSlotKeys, clearAutoSlots, unwrapPrograms, wrapGeneratedPrograms,
-  wrapManualPrograms, changedManualKeys, runEngine,
+  wrapManualPrograms, changedManualKeys, runEngine, estadoProgramas,
 } from './logic.js';
 
 let pass = 0, fail = 0;
@@ -1793,6 +1793,25 @@ console.log('[runEngine (motor único con envoltorio)]');
   const out2 = runEngine(people, manual, { scope: 'fin' });
   eq('runEngine conserva presidente manual', out2.months[0].weeks[0].presidente, { id: 1, src: 'MANUAL', locked: true });
   ok('runEngine rellena conductor alrededor del manual', asStr(out2.months[0].weeks[0].conductor) !== '');
+}
+
+console.log('[estadoProgramas]');
+{
+  const est = estadoProgramas({
+    midweeks: [
+      { id: '2026-08-03', presidente: '', sections: [{ id: 'tesoros', parts: [{ num: 1, title: 'X', mins: 5, assignments: { lector: '2' } }] }], labores: {} },
+    ],
+    months: [{ id: '2026-08', weeks: [{ date: '2026-08-01', type: 'normal', presidente: '1', conductor: '', lector: '', tituloDiscurso: 'T', orador: 'X' }] }],
+    salidas: [{ id: '2026-08', weeks: [{ saturday: '2026-08-01', outings: [{ oradorSalida: '3' }] }] }],
+    atencion: [{ id: '2026-08', weeks: [{ saturday: '2026-08-01', labores: { acomodacion: ['4'], microfono: [], plataforma: '', sonido: '' } }] }],
+  });
+  ok('entre PARCIAL', est.entre.estado === 'PARCIAL' && est.entre.pct === 50, JSON.stringify(est.entre));
+  ok('fin tiene estado válido', ['BORRADOR', 'PARCIAL', 'GENERADO'].includes(est.fin.estado), JSON.stringify(est.fin));
+  // labores: 1 llena de 12 (6 fin de semana + 6 entre semana)
+  ok('labores PARCIAL', est.labores.estado === 'PARCIAL' && est.labores.done === 1 && est.labores.total === 12, JSON.stringify(est.labores));
+
+  const vacio = estadoProgramas({ midweeks: [], months: [], salidas: [], atencion: [] });
+  ok('vacío → BORRADOR 0%', vacio.entre.estado === 'BORRADOR' && vacio.entre.pct === 0 && vacio.fin.estado === 'BORRADOR' && vacio.labores.estado === 'BORRADOR');
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);

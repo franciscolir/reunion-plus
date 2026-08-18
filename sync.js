@@ -175,7 +175,7 @@ function reunionADocumento(mw) {
 
 // Convierte los 4 programas del mes (months/salidas/atencion/aseos) a UN
 // documento Firestore programas/{mes}. Devuelve null si no hay ningún dato.
-async function mesADocumento(mes) {
+async function mesADocumento(mes, version = 0) {
   const [month, sal, ate, aseo] = await Promise.all([
     db.getMonth(mes),
     db.getSalidas(mes),
@@ -227,6 +227,8 @@ async function mesADocumento(mes) {
       month: month ? month.month : Number(mes.slice(5, 7)),
       semanas,
       published: month ? !!month.published : false,
+      version: version || 0,
+      updatedAt: Date.now(),
       createdAt: month ? month.createdAt : Date.now(),
     },
   };
@@ -273,12 +275,31 @@ async function pushStore(store) {
         ...(await db.listAtencion()).map(a => String(a.id)),
         ...(await db.listAseos()).map(a => String(a.id)),
       ]);
+      // Control de versiones (spec 24): si algún mes cambió en Firebase desde la
+      // última sincronización conocida, NO sobrescribir en silencio.
+      const f = await import('./firestore.js');
+      const versiones = await leerVersiones();
+      const conflictos = [];
       const docs = [];
       for (const mes of meses) {
-        const d = await mesADocumento(mes);
+        const local = versiones[mes] || 0;
+        let rv = 0;
+        try {
+          const remoto = await f.obtenerPrograma(mes);
+          rv = (remoto && Number(remoto.version)) || 0;
+        } catch (e) { /* sin datos remotos: se considera 0 */ }
+        if (rv > local) { conflictos.push(mes); continue; }
+        const d = await mesADocumento(mes, local + 1);
         if (d) docs.push(d);
       }
+      if (conflictos.length) {
+        setStatus('error', `Los datos cambiaron en Firebase: ${conflictos.join(', ')}. Actualiza antes de guardar.`);
+        return;
+      }
       await batchWrite(docs);
+      const nv = { ...versiones };
+      for (const mes of meses) nv[mes] = (versiones[mes] || 0) + 1;
+      await guardarVersiones(nv);
       setStatus('ok', `programas: ${docs.length}`);
     } else if (store === 'assignment_log') {
       const log = await db.listAssignmentLog();
@@ -346,6 +367,30 @@ async function leerPendientes() {
 
 async function guardarPendientes(arr) {
   await db.setSettingSilent(SETTING_PENDIENTES, Array.isArray(arr) ? arr : []);
+}
+
+// Versiones conocidas de cada mes (para detectar cambios remotos, spec 24).
+const SETTING_VERSIONES = 'versiones_mes';
+
+async function leerVersiones() {
+  const v = await db.getSetting(SETTING_VERSIONES, {});
+  return (v && typeof v === 'object') ? v : {};
+}
+
+async function guardarVersiones(v) {
+  await db.setSettingSilent(SETTING_VERSIONES, v || {});
+}
+
+// Sincroniza las versiones locales desde los documentos descargados de Firebase.
+async function adoptarVersiones(programas) {
+  const v = await leerVersiones();
+  let cambio = false;
+  (programas || []).forEach(p => {
+    const mes = String(p.id || p.mes || '');
+    const rv = Number(p.version) || 0;
+    if (mes && rv > (v[mes] || 0)) { v[mes] = rv; cambio = true; }
+  });
+  if (cambio) await guardarVersiones(v);
 }
 
 // Encola con persistencia en IndexedDB (cola de sincronización offline).
@@ -480,6 +525,7 @@ export async function pullAll() {
 
     // programas: des-fusionar en months/salidas/atencion/aseos
     for (const p of programas) await desplegarPrograma(p);
+    await adoptarVersiones(programas);
 
     // asignaciones
     for (const a of asignaciones) {
@@ -676,13 +722,14 @@ export async function reconciliar() {
     ]);
     const mesesASubir = [...mesesLocales].filter(mes => !idsProgramas.has(mes));
     for (const mes of mesesASubir) {
-      if (puedeEscribir) { const d = await mesADocumento(mes); if (d) { await batchWrite([d]); subidos++; } }
+      if (puedeEscribir) { const d = await mesADocumento(mes, (await leerVersiones())[mes] || 0); if (d) { await batchWrite([d]); subidos++; } }
     }
     for (const p of programas) {
       if (mesesLocales.has(String(p.id))) continue;
       await desplegarPrograma(p);
       bajados++;
     }
+    await adoptarVersiones(programas);
 
     // ---- historial: assignment_log ↔ asignaciones ----
     const log = await db.listAssignmentLog();
