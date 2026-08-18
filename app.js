@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady, borrarParticipantesReunionesProgramas, borrarSoloProgramas, limpiarTodasLasColecciones } from './firestore.js';
-import { iniciarSync, pullSiVacio, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora } from './sync.js';
+import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
 import { login, loginWithGoogle, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
@@ -55,7 +55,7 @@ async function init() {
   registerSW();
   bindGlobal();
   // Sincronización con Firebase (si está configurado). No bloquea el arranque.
-  iniciarSync().catch(() => {});
+  iniciarSync().then(() => mostrarBannerBorrador()).catch(() => {});
   // Autenticación: restaurar sesión persistente y actualizar la UI.
   onAuthChange((user) => {
     renderAuthUI();
@@ -115,10 +115,20 @@ function initSyncIndicator() {
   const pintar = () => {
     const on = navigator.onLine;
     const dirty = hayCambiosPendientes();
+    const st = syncStatus();
+    const last = lastSavedAt();
     root.classList.remove('hidden');
     root.classList.add('flex');
-    dot.style.background = dirty || !on ? '#e5484d' : '#2e7d32';
-    txt.textContent = dirty ? 'cambios sin subir' : (on ? 'on line' : 'off line');
+    let color, label;
+    if (st.state === 'syncing') { color = '#f59e0b'; label = 'Guardando…'; }
+    else if (st.state === 'error') { color = '#e5484d'; label = 'Error de sincronización'; }
+    else if (dirty || st.state === 'pending') { color = '#f59e0b'; label = 'Cambios sin guardar'; }
+    else if (!on) { color = '#e5484d'; label = 'off line'; }
+    else { color = '#2e7d32'; label = 'Sincronizado'; }
+    dot.style.background = color;
+    txt.textContent = label;
+    const lastTxt = last ? new Date(last).toLocaleString('es', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    root.title = 'Estado de la sincronización' + (lastTxt ? `\nÚltimo guardado en Firebase: ${lastTxt}` : '');
     if (btnCloud) btnCloud.style.color = dirty ? '#e5484d' : '';
     if (saveLabel) {
       saveLabel.classList.toggle('hidden', !dirty);
@@ -166,6 +176,40 @@ function initSyncIndicator() {
   pintar();
 }
 
+// Aviso de borrador local no guardado (spec 46): al reabrir la app SIN conexión
+// con cambios locales pendientes, se ofrece Continuar borrador o Descartarlo
+// (volver a la última versión confirmada en Firebase).
+function mostrarBannerBorrador() {
+  if (!navigator.onLine || !hayCambiosPendientes()) return;
+  if (document.getElementById('draftBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'draftBanner';
+  banner.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-container-low text-on-surface shadow-xl border border-outline-variant max-w-[94vw] flex-wrap justify-center';
+  banner.innerHTML = `
+    <span class="material-symbols-outlined text-warning">edit_note</span>
+    <span class="text-sm">Hay cambios locales no guardados.</span>
+    <div class="flex gap-2">
+      <button id="draftKeep" class="px-3 py-1.5 rounded-lg bg-primary text-on-primary text-sm font-semibold hover:opacity-90">Continuar borrador</button>
+      <button id="draftDiscard" class="px-3 py-1.5 rounded-lg border border-error text-error text-sm font-semibold hover:bg-error-container">Descartar borrador</button>
+    </div>`;
+  document.body.appendChild(banner);
+  banner.querySelector('#draftKeep').onclick = () => banner.remove();
+  banner.querySelector('#draftDiscard').onclick = async () => {
+    if (!(await confirmDialog('¿Descartar el borrador local? Se restaurarán los datos confirmados en Firebase (los cambios sin guardar se perderán).', 'Descartar borrador'))) return;
+    banner.remove();
+    try {
+      const res = await pullAll();
+      if (res && res.error) { toast('No se pudo descartar: ' + res.error, 'error'); return; }
+      await descartarLocal();
+      await refreshCatalogs();
+      router();
+      toast('Borrador descartado. Se restauraron los datos de Firebase.', 'success');
+    } catch (err) {
+      toast('Error al descartar: ' + (err.message || err), 'error');
+    }
+  };
+}
+
 // Reconstruye el historial de asignaciones desde el estado actual de todos los
 // programas (entre semana, fin de semana, acomodación y salidas). Es idempotente:
 // las entradas tienen id compuesto persona+fecha+programa+puesto, así que
@@ -188,21 +232,30 @@ async function syncAssignmentLog() {
 function registerSW() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
-      // Si hay una nueva versión del SW instalándose, avisar y actualizar.
-      if (reg.waiting) {
-        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-      }
+      // Aviso de nueva versión (spec 30): la actualización se activa con el botón.
+      const mostrarAviso = () => {
+        if (document.getElementById('swUpdateBanner')) return;
+        const banner = document.createElement('div');
+        banner.id = 'swUpdateBanner';
+        banner.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-container-low text-on-surface shadow-xl border border-outline-variant max-w-[94vw]';
+        banner.innerHTML = `
+          <span class="material-symbols-outlined text-primary">system_update</span>
+          <span class="text-sm">Nueva versión disponible. Actualizar aplicación.</span>
+          <button id="swUpdateBtn" class="px-3 py-1.5 rounded-lg bg-primary text-on-primary text-sm font-semibold hover:opacity-90 whitespace-nowrap">Actualizar</button>`;
+        document.body.appendChild(banner);
+        banner.querySelector('#swUpdateBtn').onclick = () => {
+          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        };
+      };
       reg.addEventListener('updatefound', () => {
         const nuevo = reg.installing;
         if (!nuevo) return;
         nuevo.addEventListener('statechange', () => {
-          if (nuevo.state === 'installed' && navigator.serviceWorker.controller) {
-            reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
+          if (nuevo.state === 'installed' && navigator.serviceWorker.controller) mostrarAviso();
         });
       });
     }).catch(() => {});
-    // Cuando un nuevo SW toma control, recargar para usar la versión nueva.
+    // Cuando un nuevo SW toma control (tras pulsar Actualizar), recargar.
     let recargando = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (recargando) return;
@@ -1822,6 +1875,7 @@ async function aplicarPropuesta(p, month) {
   await Promise.all(writes);
   state.midweeks = await db.listMidweeks();
   await syncAssignmentLog();
+  await subirStores(['midweeks', 'months', 'salidas', 'atencion', 'assignment_log']);
 }
 
 // Vista previa de una propuesta: renderiza la vista mensual general con los
@@ -2590,6 +2644,7 @@ async function saveMonth() {
   state.month = wrapped;
   await db.putMonth(wrapped);
   await syncAssignmentLog();
+  await subirStores(['months', 'assignment_log']);
   toast('Cambios guardados', 'success');
 }
 
@@ -5275,6 +5330,7 @@ async function renderAtencion(monthId, opts = {}) {
         else week.labores[key] = next;
         await db.putAtencion(program);
         await syncAssignmentLog();
+        await subirStores(['atencion', 'assignment_log']);
         toast('Labor asignada', 'success');
         render();
       });
@@ -5295,6 +5351,7 @@ async function renderAtencion(monthId, opts = {}) {
         await db.putMidweek(week);
         state.midweeks = await db.listMidweeks();
         await syncAssignmentLog();
+        await subirStores(['midweeks', 'assignment_log']);
         toast('Labor asignada', 'success');
         render();
       });
@@ -5582,6 +5639,7 @@ async function renderSalidas(monthId, opts = {}) {
       await db.putSalidas(wrapped);
       program = wrapped;
       await syncAssignmentLog();
+      await subirStores(['salidas', 'assignment_log']);
       toast('Salidas guardadas', 'success');
     };
   };
@@ -6010,6 +6068,7 @@ async function renderMidweek(id) {
     await db.putMidweek(wrapped);
     state.midweeks = await db.listMidweeks();
     await syncAssignmentLog();
+    await subirStores(['midweeks', 'assignment_log']);
     toast('Asignaciones guardadas', 'success');
     renderMidweek(id);
   };

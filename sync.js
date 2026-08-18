@@ -68,6 +68,52 @@ export function isSyncEnabled() {
   return _enabled;
 }
 
+// Última fecha/hora de un guardado CONFIRMADO en Firebase (no un cambio local).
+let _lastSavedAt = null;
+export function lastSavedAt() {
+  return _lastSavedAt;
+}
+
+async function registrarGuardado() {
+  _lastSavedAt = Date.now();
+  try { await db.setSettingSilent('lastSavedAt', new Date(_lastSavedAt).toISOString()); } catch (e) { /* noop */ }
+}
+
+// Stores de PROGRAMAS: se suben SOLO al pulsar Guardar (borrador local + cola).
+// El resto de stores (catálogos: people/departments/settings/talks) se suben
+// automáticamente en cada commit, como hasta ahora.
+const PROGRAM_STORES = new Set(['months', 'salidas', 'atencion', 'midweeks', 'assignment_log']);
+
+// Hook del punto único de escritura (db.js commit). Para programas solo marca
+// el borrador local pendiente; los catálogos se suben de inmediato.
+function marcarLocal(store) {
+  if (PROGRAM_STORES.has(store)) {
+    encolarPendienteAsync(store).then(() => marcarDirty());
+    return;
+  }
+  pushStore(store).catch(() => {});
+}
+
+// Sube explícitamente un conjunto de stores de programa (al pulsar Guardar en
+// un editor). Respeta la cola offline y el estado de sincronización.
+export async function subirStores(stores) {
+  if (!_enabled) return { error: 'inactivo' };
+  if (!navigator.onLine) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'offline' }; }
+  if (!(await isFirebaseReady())) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'firebase-no-disponible' }; }
+  setStatus('syncing', 'guardando cambios…');
+  for (const s of (stores || [])) {
+    if (PROGRAM_STORES.has(s)) await pushStore(s);
+  }
+  return { ok: true };
+}
+
+// Descarta el borrador local: vacía la cola de pendientes y deja el estado
+// "sincronizado" (se llama tras restaurar desde Firebase).
+export async function descartarLocal() {
+  await guardarPendientes([]);
+  await marcarSegunPendientes();
+}
+
 // Convierte un registro de personas (IndexedDB) a documento Firestore.
 function personaADocumento(p) {
   return {
@@ -284,6 +330,7 @@ async function pushStore(store) {
   if (!errorSync) {
     await quitarPendiente(store);
     await marcarSegunPendientes();
+    await registrarGuardado();
   }
 }
 
@@ -348,7 +395,7 @@ export async function drenarPendientes() {
   await guardarPendientes(restantes);
   await marcarSegunPendientes();
   if (restantes.length) setStatus('error', 'pendientes sin sincronizar: ' + restantes.join(', '));
-  else setStatus('ok', 'pendientes sincronizados');
+  else { setStatus('ok', 'pendientes sincronizados'); await registrarGuardado(); }
 }
 
 // Subida forzada de todos los datos locales a Firebase. La usa el botón
@@ -369,6 +416,7 @@ export async function sincronizarAhora() {
     setStatus('error', 'hubo errores al subir: ' + pend.join(', '));
     return { error: 'parcial' };
   }
+  await registrarGuardado();
   setStatus('ok', 'cambios subidos');
   return { ok: true };
 }
@@ -497,7 +545,9 @@ export async function iniciarSync() {
   const ready = await isFirebaseReady();
   if (!ready) { setStatus('inactivo', 'Firebase no disponible'); return; }
   _enabled = true;
-  db.onSync(pushStore);
+  db.onSync(marcarLocal);
+  const saved = await db.getSetting('lastSavedAt', null).catch(() => null);
+  if (saved) _lastSavedAt = typeof saved === 'string' ? Date.parse(saved) : saved;
   // Reintentar pendientes al volver a estar en línea.
   window.addEventListener('online', () => drenarPendientes().catch(() => {}));
   setStatus('conectado', 'sincronización activa');
@@ -672,6 +722,7 @@ export async function reconciliar() {
     }
 
     setStatus('ok', `datos sincronizados`);
+    await registrarGuardado();
     return { ok: true, subidos, bajados };
   } catch (e) {
     console.warn('[Reunión+] Error en sync', e);
