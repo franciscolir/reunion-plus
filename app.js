@@ -809,6 +809,9 @@ async function renderNew() {
       <button id="autoBtn" data-admin class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors" title="Asignación automática del mes">
         <span class="material-symbols-outlined text-[18px]">auto_awesome</span> Asignación automática
       </button>
+      <button id="genAllBtn" data-admin class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95" title="Genera el programa mensual completo (conserva lo manual/bloqueado)">
+        <span class="material-symbols-outlined text-[18px]">auto_awesome</span> Generar programa mensual completo
+      </button>
     </div>
     <div class="flex gap-2 mb-8 border-b border-outline-variant flex-wrap">
       ${tabs.map(t => `<button data-tab="${t.id}" class="newTab px-5 py-3 font-label-md text-label-md transition-colors">${t.label}</button>`).join('')}
@@ -820,6 +823,25 @@ async function renderNew() {
   $('#progMonth').onchange = (e) => goMonth(e.target.value);
   app.querySelectorAll('[data-month]').forEach(b => b.onclick = () => goMonth(b.dataset.month));
   $('#autoBtn').onclick = () => go('algoritmo');
+  const genAll = $('#genAllBtn');
+  if (genAll) genAll.onclick = async () => {
+    genAll.disabled = true;
+    try {
+      const month = state.progMonth;
+      const ok = await confirmarRegeneracion(month, 'all');
+      if (!ok) return;
+      const r = await generateProgram(month, 'all');
+      toast(r.vacios
+        ? `Programa mensual generado: ${r.asignados} asignación(es), ${r.vacios} sin cubrir. Revise cada pestaña y pulse Guardar.`
+        : `Programa mensual generado: ${r.asignados} asignación(es). Revise y pulse Guardar.`, r.vacios ? 'info' : 'success');
+      renderNewBody();
+    } catch (err) {
+      console.error(err);
+      toast('Error al generar: ' + (err.message || err), 'error');
+    } finally {
+      genAll.disabled = false;
+    }
+  };
 
   const tabNodes = app.querySelectorAll('.newTab');
   const setActive = () => {
@@ -1365,6 +1387,135 @@ async function etapaFinSemana(month) {
   };
 }
 
+/* ================================================================== */
+/* ETAPA 4/5: GENERACIÓN POR ÁMBITO DESDE LOS EDITORES                */
+/* ================================================================== */
+
+const TAB_SCOPE = { entre: 'entre', fin: 'fin', salidas: 'salidas', atencion: 'labores' };
+const SCOPE_LABELS = { entre: 'Reunión de entre semana', fin: 'Reunión de fin de semana', salidas: 'Salidas', labores: 'Labores', all: 'programa mensual completo' };
+
+// ¿El ámbito del mes tiene ya alguna asignación? (para decidir si advertir)
+async function scopeTieneAsignaciones(month, scope) {
+  const [midweeks, months, salidas, atencion] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listSalidas(), db.listAtencion()]);
+  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
+  const mesMes = months.filter(m => m.id === month);
+  const salMes = salidas.filter(p => p.id === month);
+  const labMes = atencion.filter(p => p.id === month);
+  const entries = extractAssignments(
+    (scope === 'entre' || scope === 'labores' || scope === 'all') ? mwMes : [],
+    (scope === 'fin' || scope === 'all') ? mesMes : [],
+    (scope === 'fin' || scope === 'salidas' || scope === 'all') ? salMes : [],
+    (scope === 'labores' || scope === 'all') ? labMes : [],
+    state.people,
+  );
+  return entries.length > 0;
+}
+
+// Modal de confirmación (spec 16): solo si el ámbito ya tiene asignaciones.
+function confirmarRegeneracion(month, scope) {
+  return new Promise(async (resolve) => {
+    const tiene = await scopeTieneAsignaciones(month, scope);
+    if (!tiene) return resolve(true);
+    const label = SCOPE_LABELS[scope] || scope;
+    const mesTxt = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+    openModal(`
+      <div class="text-center">
+        <span class="material-symbols-outlined text-6xl text-warning mb-2">auto_awesome</span>
+        <h3 class="font-headline-md text-headline-md text-primary mb-1">Generar ${label}</h3>
+        <p class="text-on-surface-variant text-sm mb-1">${mesTxt}</p>
+        <p class="text-on-surface-variant text-sm mb-2 mt-3">Esta acción volverá a generar el programa seleccionado y podría reemplazar las asignaciones automáticas existentes.</p>
+        <p class="text-on-surface-variant text-sm mb-6">Las asignaciones manuales/bloqueadas se conservarán.</p>
+        <div class="flex gap-3 justify-center">
+          <button id="genCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
+          <button id="genGo" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Continuar</button>
+        </div>
+      </div>`);
+    $('#genCancel').onclick = () => { closeModal(); resolve(false); };
+    $('#genGo').onclick = () => { closeModal(); resolve(true); };
+  });
+}
+
+// Genera (o regenera) el ámbito de un mes usando el motor único: borra SOLO las
+// asignaciones automáticas del ámbito, conserva manuales/bloqueadas, ejecuta y
+// persiste como borrador local (el botón Guardar del editor sube a Firebase).
+async function generateProgram(month, scope) {
+  const [midweeks, months, salidas, atencion] = await Promise.all([
+    db.listMidweeks(), db.listMonths(), db.listSalidas(), db.listAtencion(),
+  ]);
+  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
+  const mesMes = months.filter(m => m.id === month);
+  const salMes = salidas.filter(p => p.id === month);
+  const labMes = atencion.filter(p => p.id === month);
+  const base = { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes };
+
+  const clearKeys = scope === 'entre' ? ['midweeks']
+    : scope === 'fin' ? ['months', 'salidas']
+    : scope === 'salidas' ? ['salidas']
+    : scope === 'labores' ? ['atencion', 'midweeks']
+    : ['midweeks', 'months', 'salidas', 'atencion'];
+  const limpio = { ...base };
+  for (const k of clearKeys) limpio[k] = clearAutoSlots({ [k]: base[k] })[k];
+
+  const cfg = await db.getConfig();
+  const algo = { ...defaultAlgorithmConfig(), ...((cfg.algorithm) || {}) };
+  const log = await db.listAssignmentLog();
+  const historial = log.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') }));
+  const nombres = Object.fromEntries(state.people.map(p => [String(p.id), p.name]));
+
+  const out = runEngine(state.people, limpio, {
+    scope,
+    entreOpts: { historial, nombres, readerLevel: algo.studentReaderLevel },
+    finOpts: {
+      permanentConductorId: algo.permanentConductorId,
+      permanentConductorBackupId: algo.permanentConductorBackupId,
+      permanentConductorBackupId2: algo.permanentConductorBackupId2,
+    },
+    atencionOpts: { serviceRolesOnlyMale: algo.serviceRolesOnlyMale !== false, months: limpio.months },
+  });
+
+  const persist = { entre: ['midweeks'], fin: ['months', 'salidas'], salidas: ['salidas'], labores: ['atencion', 'midweeks'], all: ['midweeks', 'months', 'salidas', 'atencion'] }[scope] || [];
+  const writes = [];
+  if (persist.includes('midweeks')) out.midweeks.forEach(w => writes.push(db.putMidweek(w)));
+  if (persist.includes('months')) out.months.forEach(m => writes.push(db.putMonth(m)));
+  if (persist.includes('salidas')) out.salidas.forEach(s => writes.push(db.putSalidas(s)));
+  if (persist.includes('atencion')) out.atencion.forEach(a => writes.push(db.putAtencion(a)));
+  await Promise.all(writes);
+  state.midweeks = await db.listMidweeks();
+  await syncAssignmentLog();
+
+  const total = Object.values(out.reportes).reduce((s, r) => s + (r && r.asignados || 0), 0);
+  const vacios = Object.values(out.reportes).reduce((s, r) => s + ((r && r.vacios) || []).length, 0);
+  return { asignados: total, vacios };
+}
+
+// Botón "Generar automáticamente" por pestaña de Programas.
+function bindGenerarAmbito(bar, scope) {
+  bar.innerHTML = `
+    <button id="newGenBtn" data-admin class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
+      <span class="material-symbols-outlined text-[18px]">auto_awesome</span> Generar automáticamente
+    </button>`;
+  const btn = $('#newGenBtn');
+  if (!btn) return;
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const month = state.progMonth;
+      const ok = await confirmarRegeneracion(month, scope);
+      if (!ok) return;
+      const r = await generateProgram(month, scope);
+      toast(r.vacios
+        ? `Generado: ${r.asignados} asignación(es), ${r.vacios} sin cubrir. Revise y pulse Guardar.`
+        : `Generado: ${r.asignados} asignación(es). Revise y pulse Guardar.`, r.vacios ? 'info' : 'success');
+      renderNewBody();
+    } catch (err) {
+      console.error(err);
+      toast('Error al generar: ' + (err.message || err), 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
 /* ---------- ALGORITMO (motor configurable) ---------- */
 
 // SVG nativo: gráfico de barras horizontales. `rows`: [{ label, value, sub }].
@@ -1906,12 +2057,19 @@ function redaccionSinAsignarPropuesta(p) {
 async function renderNewBody() {
   const body = $('#newBody');
   if (!body) return;
-  if (state.newTab === 'entre') { renderMidweeks({ embed: body, month: state.progMonth }); return; }
-  if (state.newTab === 'atencion') { renderAtencion(state.progMonth, { embed: body }); return; }
-  if (state.newTab === 'atencionGrupo') { renderAtencionGrupo(state.progMonth, { embed: body }); return; }
-  if (state.newTab === 'salidas') { renderSalidas(state.progMonth, { embed: body }); return; }
-  if (state.newTab === 'general') { renderGeneralMonth(state.progMonth, { embed: body }); return; }
-  renderNewFin(body, state.progMonth);
+  const scope = TAB_SCOPE[state.newTab] || '';
+  const showGen = !!scope;
+  body.innerHTML = showGen
+    ? `<div id="newGenBar" class="flex justify-end mb-4"></div><div id="newTabBody"></div>`
+    : `<div id="newTabBody"></div>`;
+  const tabBody = $('#newTabBody');
+  if (showGen) bindGenerarAmbito($('#newGenBar'), scope);
+  if (state.newTab === 'entre') { renderMidweeks({ embed: tabBody, month: state.progMonth }); return; }
+  if (state.newTab === 'atencion') { renderAtencion(state.progMonth, { embed: tabBody }); return; }
+  if (state.newTab === 'atencionGrupo') { renderAtencionGrupo(state.progMonth, { embed: tabBody }); return; }
+  if (state.newTab === 'salidas') { renderSalidas(state.progMonth, { embed: tabBody }); return; }
+  if (state.newTab === 'general') { renderGeneralMonth(state.progMonth, { embed: tabBody }); return; }
+  renderNewFin(tabBody, state.progMonth);
 }
 
 async function renderNewFin(body, progMonth) {

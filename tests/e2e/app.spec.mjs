@@ -319,6 +319,47 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Firebase no está configurado');
   });
 
+  test('programas: generar automáticamente por pestaña rellena el programa', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await expect(page.locator('[data-tab="entre"]')).toBeVisible();
+    await page.click('[data-tab="entre"]');
+    await expect(page.locator('#newGenBtn')).toBeVisible();
+
+    // Sin asignaciones previas genera sin pedir confirmación.
+    await page.click('#newGenBtn');
+    await expect(page.locator('#toastRoot')).toContainText('Generado');
+
+    // El presidente quedó asignado en las semanas (sin vacíos).
+    await expect(page.locator('#newTabBody')).not.toContainText('Presidente: —');
+  });
+
+  test('programas: generar mensual completo avisa, cancela y regenera', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await expect(page.locator('#genAllBtn')).toBeVisible();
+
+    // Primera vez: sin asignaciones → genera sin confirmar.
+    await page.click('#genAllBtn');
+    await expect(page.locator('#toastRoot')).toContainText('Programa mensual generado');
+
+    // Segunda vez: ya hay asignaciones → pide confirmación (spec 16).
+    await page.click('#genAllBtn');
+    await expect(page.locator('h3:has-text("Generar programa mensual completo")')).toBeVisible();
+    await page.click('#genCancel');
+    await expect(page.locator('#genAllBtn')).toBeEnabled();
+
+    // Reintentar y continuar regenera.
+    await page.click('#genAllBtn');
+    await expect(page.locator('h3:has-text("Generar programa mensual completo")')).toBeVisible();
+    await page.click('#genGo');
+    await expect(page.locator('#toastRoot')).toContainText('Programa mensual generado');
+  });
+
   test('entre semana: oración final como extensión del conductor del estudio y presidente en negrita', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
