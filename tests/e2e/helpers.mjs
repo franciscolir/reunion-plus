@@ -91,3 +91,46 @@ export async function seedProposalData(page) {
     })();
   }, { people, midweeks, month, salidas, atencion });
 }
+
+// Seed mínimo para probar el filtro por labor en los selectores de atención:
+// cada persona tiene solo UNA labor, para verificar que cada puesto solo ofrece
+// a quienes tienen esa labor habilitada (y no a quien no tiene labores).
+export async function seedAtencionSelects(page) {
+  const people = [
+    { name: 'Persona Audio', genero: 'masculino', calificacion: 'B', labores: ['audio'] },
+    { name: 'Persona Microfono', genero: 'masculino', calificacion: 'B', labores: ['microf'] },
+    { name: 'Persona Acomodador', genero: 'masculino', calificacion: 'B', labores: ['acomodador'] },
+    { name: 'Persona Sin Labor', genero: 'masculino', calificacion: 'B', labores: [] },
+  ];
+  const saturday = '2026-08-01';
+  const month = { id: '2026-08', year: 2026, month: 8, published: false, weeks: [{ date: saturday, type: 'normal', presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' }] };
+  const midweeks = [{ id: '2026-08-03', presidente: '', header: '3-10 de AGOSTO DE 2026', sections: [] }];
+  const atencion = [{ id: '2026-08', weeks: [{ saturday, labores: {} }] }];
+
+  await page.addInitScript(({ people, month, midweeks, atencion }) => {
+    (async () => {
+      const DB = 'reunion-plus';
+      await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+      const db = await new Promise((res, rej) => {
+        const req = indexedDB.open(DB, 7);
+        req.onupgradeneeded = (e) => {
+          const d = e.target.result;
+          const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+          mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+          mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+          mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+        };
+        req.onsuccess = () => res(req.result);
+        req.onerror = () => rej(req.error);
+      });
+      const tx = db.transaction(['people', 'midweeks', 'months', 'atencion', 'settings'], 'readwrite');
+      people.forEach(p => tx.objectStore('people').add(p));
+      tx.objectStore('months').put(month);
+      midweeks.forEach(w => tx.objectStore('midweeks').put(w));
+      atencion.forEach(a => tx.objectStore('atencion').put(a));
+      tx.objectStore('settings').put({ congregation: 'Congregación Test', lastMonthId: '2026-08' }, 'congregation');
+      await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+      db.close();
+    })();
+  }, { people, month, midweeks, atencion });
+}

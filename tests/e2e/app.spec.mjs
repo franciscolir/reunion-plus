@@ -3,7 +3,7 @@
 // de modo que IndexedDB es la única fuente de datos. Cada test usa un
 // contexto de navegador nuevo (base de datos vacía).
 import { test, expect } from '@playwright/test';
-import { openApp, gotoLabores, seedProposalData } from './helpers.mjs';
+import { openApp, gotoLabores, seedProposalData, seedAtencionSelects } from './helpers.mjs';
 
 test.describe('Reunión+ PWA (modo offline)', () => {
 
@@ -201,6 +201,10 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Propuesta aplicada');
     await expect(page.locator('h1:has-text("Programas")')).toBeVisible();
 
+    // La cobertura del mes refleja lo aceptado (no 0%): los campos automáticos
+    // (presidente, conductor, lector) quedaron asignados en las 4 semanas.
+    await expect(page.locator('#newMonthsList')).toContainText('4 reuniones · 100% completo');
+
     // El programa de entre semana quedó asignado en la BD.
     const [presidente, primerSlot] = await page.evaluate(() => new Promise((res, rej) => {
       const req = indexedDB.open('reunion-plus', 7);
@@ -219,6 +223,31 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     }));
     expect(presidente).not.toBe('');
     expect(primerSlot).not.toBe('');
+  });
+
+  test('atención: el select de cada labor solo muestra a quienes la tienen habilitada', async ({ page }) => {
+    await seedAtencionSelects(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await expect(page.locator('[data-tab="atencion"]')).toBeVisible();
+    await page.click('[data-tab="atencion"]');
+    await expect(page.locator('select[data-atencion-key="sonido"]').first()).toBeVisible();
+
+    // Sonido (FS): solo la persona con la labor 'audio'/'sonido'.
+    await expect(page.locator('select[data-atencion-key="sonido"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Audio']);
+    // La persona sin labores y las de otras labores no aparecen.
+    await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Persona Microfono');
+    await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Persona Acomodador');
+    await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Persona Sin Labor');
+
+    // Acomodación: solo quien tiene 'acomodador'.
+    await expect(page.locator('select[data-atencion-key="acomodacion"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Acomodador']);
+    // Micrófono: solo quien tiene 'microf'.
+    await expect(page.locator('select[data-atencion-key="microfono"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Microfono']);
+
+    // El select entre semana aplica el mismo filtro.
+    await expect(page.locator('select[data-mwatencion-key="sonido"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Audio']);
   });
 
   test('ajustes: motor con veces numéricas, tooltips por campo y nivel lector CD', async ({ page }) => {

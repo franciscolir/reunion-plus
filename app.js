@@ -1935,7 +1935,7 @@ async function renderNewFin(body, progMonth) {
     </div>`;
   } else {
     list.innerHTML = months.map(m => {
-      const filled = m.weeks.filter(w => w.type === 'assembly' || weekComplete(w)).length;
+      const filled = m.weeks.filter(w => w.type === 'assembly' || camposFinSemana(w).every(({ campo }) => Boolean(w[campo]))).length;
       const pct = Math.round((filled / m.weeks.length) * 100);
       const label = m.published ? 'Final' : (pct === 0 ? 'Nuevo programa' : 'Borrador');
       return `<article class="week-card-accent bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 border border-outline-variant hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow flex flex-col gap-4">
@@ -4963,8 +4963,18 @@ async function renderAtencion(monthId, opts = {}) {
   // solo varones aparecen en los selectores manuales, alineado con la generación.
   const algoCfg = { ...defaultAlgorithmConfig(), ...((state.config && state.config.algorithm) || {}) };
   const atencionPred = (p) => isAtencionPerson(p) && (algoCfg.serviceRolesOnlyMale === false || p.genero !== 'femenino');
-  const atencionOpts = (week, curVal, collector) => `<option value="">— Sin asignar —</option>` +
-    eligiblePeople(week, state.people, atencionPred, curVal, collector).map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+  const atencionLabores = { sonido: ['audio', 'sonido'], microfono: ['microf'], plataforma: ['plataforma'], acomodacion: ['acomodador'] };
+  const atencionOpts = (week, curVal, collector, key) => {
+    const req = atencionLabores[key] || [];
+    const pred = (p) => atencionPred(p) && (req.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => req.includes(r))));
+    const list = eligiblePeople(week, state.people, pred, curVal, collector);
+    if (curVal && !list.some(p => String(p.id) === String(curVal))) {
+      const cur = state.people.find(p => String(p.id) === String(curVal));
+      if (cur) list.push(cur);
+    }
+    return `<option value="">— Sin asignar —</option>` +
+      list.map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+  };
 
   const render = () => {
     const finBySunday = new Map();
@@ -4986,7 +4996,7 @@ async function renderAtencion(monthId, opts = {}) {
         const bits = [];
         if (fin) {
           bits.push(`<div class="flex flex-col gap-0.5">
-            <select data-atencion-wi="${fin.wi}" data-atencion-key="${key}" data-atencion-si="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${atencionOpts(fin.w, curVal)}</select>
+            <select data-atencion-wi="${fin.wi}" data-atencion-key="${key}" data-atencion-si="${si}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${atencionOpts(fin.w, curVal, null, key)}</select>
             <span class="text-[9px] uppercase text-on-surface-variant/70 tracking-wider">FS</span>
           </div>`);
         } else if (curVal) {
@@ -4994,7 +5004,7 @@ async function renderAtencion(monthId, opts = {}) {
         }
         if (mw) {
           bits.push(`<div class="flex flex-col gap-0.5">
-            <select data-mwatencion-key="${key}" data-mwatencion-si="${si}" data-mwatencion-id="${mw.id}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${atencionOpts(mw, mwName, collectMidweekPersons)}</select>
+            <select data-mwatencion-key="${key}" data-mwatencion-si="${si}" data-mwatencion-id="${mw.id}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">${atencionOpts(mw, mwName, collectMidweekPersons, key)}</select>
             <span class="text-[9px] uppercase text-on-surface-variant/70 tracking-wider">ES</span>
           </div>`);
         } else if (mwName) {
