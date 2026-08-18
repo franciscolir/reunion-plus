@@ -207,7 +207,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     // El programa de entre semana quedó asignado en la BD.
     const [presidente, primerSlot] = await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 7);
+      const req = indexedDB.open('reunion-plus', 8);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('midweeks', 'readonly');
@@ -274,7 +274,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // Duplicado provocado de propósito: el MISMO orador dos veces en la semana 1
     // (antes mostraba el badge "Repite en la semana" y el cuadro de avisos).
     await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 7);
+      const req = indexedDB.open('reunion-plus', 8);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('salidas', 'readwrite');

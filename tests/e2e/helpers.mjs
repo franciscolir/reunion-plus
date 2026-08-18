@@ -68,7 +68,7 @@ export async function seedProposalData(page) {
       const DB = 'reunion-plus';
       await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
       const db = await new Promise((res, rej) => {
-        const req = indexedDB.open(DB, 7);
+        const req = indexedDB.open(DB, 8);
         req.onupgradeneeded = (e) => {
           const d = e.target.result;
           const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
@@ -112,7 +112,7 @@ export async function seedAtencionSelects(page) {
       const DB = 'reunion-plus';
       await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
       const db = await new Promise((res, rej) => {
-        const req = indexedDB.open(DB, 7);
+        const req = indexedDB.open(DB, 8);
         req.onupgradeneeded = (e) => {
           const d = e.target.result;
           const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };

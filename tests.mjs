@@ -21,6 +21,9 @@ import {
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats, scarcityIndex,
   salidasFaltantes, laboresVaciasPropuesta, sinAsignarPorMotivo,
   cargoNivel, esPublicador, esAnciano, balanceReport,
+  asId, asStr, slotOf, applyManual, applyAuto,
+  manualSlotKeys, clearAutoSlots, unwrapPrograms, wrapGeneratedPrograms,
+  wrapManualPrograms, changedManualKeys, runEngine,
 } from './logic.js';
 
 let pass = 0, fail = 0;
@@ -1697,6 +1700,99 @@ console.log('[cargoNivel / balanceReport]');
   ok('publicador en servicio (C y D)', b.publicadoresEnServicio === 2);
   ok('mujeres en presentaciones (D)', b.mujeresEnPresentaciones === 1);
   ok('sin participación (E)', b.sinParticipar === 1);
+}
+
+// --- Formato de asignación {id, src, locked} ---
+console.log('[formato asignación]');
+{
+  ok('asId passthrough id simple', asId(7) === 7);
+  ok('asId extrae id de objeto', asId({ id: 3, src: 'AUTO' }) === 3);
+  ok('asStr objeto vacío → ""', asStr({ id: '' }) === '');
+  ok('asStr id numérico → string', asStr(4) === '4');
+  eq('slotOf envuelve id simple', slotOf(5, 'MANUAL', true), { id: 5, src: 'MANUAL', locked: true });
+  const ya = { id: 9, src: 'AUTO', locked: false };
+  ok('slotOf devuelve el mismo objeto', slotOf(ya, 'MANUAL') === ya);
+  eq('applyManual cambia → MANUAL/locked', applyManual({ id: 1, src: 'AUTO', locked: false }, '2'), { id: '2', src: 'MANUAL', locked: true });
+  ok('applyManual conserva AUTO si no cambia', applyManual({ id: 1, src: 'AUTO', locked: false }, 1).src === 'AUTO');
+  ok('applyManual vacía → ""', applyManual('1', '') === '');
+  ok('applyAuto conserva MANUAL', applyAuto({ id: 1, src: 'MANUAL', locked: true }, '1').src === 'MANUAL');
+  eq('applyAuto marca AUTO lo nuevo', applyAuto('', '6'), { id: '6', src: 'AUTO', locked: false });
+  ok('applyAuto vacía → ""', applyAuto('1', '') === '');
+}
+
+console.log('[visitantes por programa]');
+{
+  const midweek = {
+    id: '2026-08-03',
+    presidente: { id: 1, src: 'MANUAL', locked: true },
+    sections: [{ id: 'tesoros', parts: [{ num: 1, title: 'X', assignments: { conductor: { id: 2, src: 'AUTO', locked: false }, lector: 3 } }] }],
+    labores: { sonido: [4] },
+  };
+  const mk = manualSlotKeys({ midweeks: [midweek] });
+  ok('manualSlotKeys marca presidente', mk.has('mw_presidente'));
+  ok('manualSlotKeys marca slot AUTO no (conductor no es manual)', !mk.has('mw_0_1_conductor'));
+  ok('manualSlotKeys marca slot simple como manual (datos antiguos)', mk.has('mw_0_1_lector'));
+  ok('manualSlotKeys marca atencion simple', mk.has('atencion_sonido_0'));
+
+  const limpiado = clearAutoSlots({ midweeks: [midweek] }).midweeks[0];
+  eq('clearAutoSlots conserva manual', limpiado.presidente, { id: 1, src: 'MANUAL', locked: true });
+  ok('clearAutoSlots borra AUTO', limpiado.sections[0].parts[0].assignments.conductor === '');
+  ok('clearAutoSlots conserva slot simple (manual)', limpiado.sections[0].parts[0].assignments.lector === 3);
+
+  const unw = unwrapPrograms({ midweeks: [midweek] }).midweeks[0];
+  ok('unwrapPrograms aplanado presidente', unw.presidente === 1);
+  ok('unwrapPrograms aplanado assignments', unw.sections[0].parts[0].assignments.conductor === 2);
+  ok('unwrapPrograms aplanado atencion', unw.labores.sonido[0] === 4);
+
+  const rewrap = wrapGeneratedPrograms({ midweeks: [midweek] }, mk).midweeks[0];
+  ok('wrapGenerated manual conserva MANUAL', rewrap.presidente.src === 'MANUAL');
+  ok('wrapGenerated slot simple → MANUAL (estaba en manualKeys)', rewrap.sections[0].parts[0].assignments.lector.src === 'MANUAL');
+  ok('wrapGenerated atencion simple → MANUAL', rewrap.labores.sonido[0].src === 'MANUAL');
+
+  const changed = changedManualKeys(
+    { months: [{ id: '2026-08', weeks: [{ date: '2026-08-01', presidente: 1, conductor: { id: 2, src: 'AUTO', locked: false } }] }] },
+    { months: [{ id: '2026-08', weeks: [{ date: '2026-08-01', presidente: 3, conductor: { id: 2, src: 'AUTO', locked: false } }] }] },
+  );
+  ok('changedManualKeys detecta cambio de presidente', changed.has('fin_2026-08-01_presidente'));
+  ok('changedManualKeys NO marca conductor sin cambio', !changed.has('fin_2026-08-01_conductor'));
+
+  const wm = wrapManualPrograms(
+    { months: [{ id: '2026-08', weeks: [{ date: '2026-08-01', presidente: 3, conductor: { id: 2, src: 'AUTO', locked: false } }] }] },
+    changed,
+  ).months[0].weeks[0];
+  ok('wrapManual marca presidente cambiado como MANUAL', wm.presidente.src === 'MANUAL' && wm.presidente.locked);
+  ok('wrapManual conserva AUTO el conductor no tocado', wm.conductor.src === 'AUTO' && !wm.conductor.locked);
+}
+
+console.log('[runEngine (motor único con envoltorio)]');
+{
+  const people = [
+    { id: 1, name: 'A', genero: 'masculino', calificacion: 'A', labores: ['presidente', 'conductor1', 'conductor2', 'lector1', 'lector2', 'orador', 'audio', 'microf', 'plataforma', 'acomodador', 'asignacion4', 'asignacion1', 'asignacion2', 'asignacion3'] },
+    { id: 2, name: 'B', genero: 'masculino', calificacion: 'B', labores: ['presidente', 'conductor1', 'conductor2', 'lector1', 'lector2', 'orador', 'audio', 'microf', 'plataforma', 'acomodador', 'asignacion4', 'asignacion1', 'asignacion2', 'asignacion3'] },
+    { id: 3, name: 'C', genero: 'masculino', calificacion: 'B', labores: ['presidente', 'conductor1', 'conductor2', 'lector1', 'lector2', 'orador', 'audio', 'microf', 'plataforma', 'acomodador', 'asignacion4', 'asignacion1', 'asignacion2', 'asignacion3'] },
+    { id: 4, name: 'D', genero: 'masculino', calificacion: 'C', labores: ['presidente', 'conductor1', 'conductor2', 'lector1', 'lector2', 'orador', 'audio', 'microf', 'plataforma', 'acomodador', 'asignacion4', 'asignacion1', 'asignacion2', 'asignacion3'] },
+  ];
+  const program = {
+    midweeks: [{ id: '2026-08-03', presidente: '', sections: [{ id: 'tesoros', parts: [{ num: 1, title: 'X', mins: 5, assignments: { conductor: '' } }] }], labores: {} }],
+    months: [{ id: '2026-08', weeks: [{ date: '2026-08-01', type: 'normal', presidente: '', conductor: '', lector: '' }] }],
+    salidas: [{ id: '2026-08', weeks: [{ saturday: '2026-08-01', outings: [{ oradorSalida: '' }] }] }],
+    atencion: [{ id: '2026-08', weeks: [{ saturday: '2026-08-01', labores: {} }] }],
+  };
+  const out = runEngine(people, program, { scope: 'all' });
+  const mw = out.midweeks[0];
+  ok('runEngine asigna presidente AUTO', mw.presidente && mw.presidente.src === 'AUTO');
+  const parte = Object.values(mw.sections[0].parts[0].assignments).find(v => asStr(v));
+  ok('runEngine rellena la parte AUTO', parte && parte.src === 'AUTO');
+  const fin = out.months[0].weeks[0];
+  ok('runEngine asigna fin de semana AUTO', fin.presidente && fin.presidente.src === 'AUTO');
+  const sal = out.salidas[0].weeks[0].outings[0];
+  ok('runEngine asigna orador de salida AUTO', sal.oradorSalida && sal.oradorSalida.src === 'AUTO');
+
+  // Un presidente puesto a mano (MANUAL) debe conservarse al regenerar.
+  const manual = { ...program, months: [{ id: '2026-08', weeks: [{ date: '2026-08-01', type: 'normal', presidente: { id: 1, src: 'MANUAL', locked: true }, conductor: '', lector: '' }] }] };
+  const out2 = runEngine(people, manual, { scope: 'fin' });
+  eq('runEngine conserva presidente manual', out2.months[0].weeks[0].presidente, { id: 1, src: 'MANUAL', locked: true });
+  ok('runEngine rellena conductor alrededor del manual', asStr(out2.months[0].weeks[0].conductor) !== '');
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);

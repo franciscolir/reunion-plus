@@ -38,7 +38,7 @@ beforeEach(async () => {
 // --- Esquema ---
 test('esquema v7 crea todos los stores', async () => {
   await db.listPeople(); // fuerza la apertura/creación del esquema
-  const d = await openRaw(DB_NAME, 7);
+  const d = await openRaw(DB_NAME, 8);
   const names = [...d.objectStoreNames];
   d.close();
   for (const s of STORES) assert.ok(names.includes(s), `falta el store "${s}"`);

@@ -139,6 +139,268 @@ export function addDays(iso, days) {
   return isoDate(dt);
 }
 
+/* =============================================================== */
+/* FORMATO DE ASIGNACIÓN: { id, src, locked }                       */
+/*                                                                  */
+/* Una casilla de persona (presidente, conductor, una parte de      */
+/* entre semana, un orador de salida, un puesto de atencion...)     */
+/* puede guardarse como id simple (datos antiguos) o como objeto:   */
+/*   { id: <personId>, src: 'MANUAL'|'AUTO', locked: bool }         */
+/*                                                                  */
+/* · src = 'MANUAL': la puso el usuario (por defecto locked).       */
+/* · src = 'AUTO'  : la puso el generador (regenerable).            */
+/* · locked: si está bloqueada, el generador jamás la toca.         */
+/*                                                                  */
+/* El motor puro trabaja con ids simples; el envoltorio (db/app/    */
+/* sync) se encarga de aplicar/leer este formato.                   */
+/* =============================================================== */
+
+// Extrae el id de una casilla (id simple u objeto {id}).
+export function asId(v) {
+  return (v && typeof v === 'object' && 'id' in v) ? v.id : v;
+}
+
+// Normaliza una casilla a string de id ('' si está vacía).
+export function asStr(v) {
+  const id = asId(v);
+  return id === null || id === undefined ? '' : String(id);
+}
+
+// Envuelve un id simple en el formato de asignación. Si ya es objeto lo
+// devuelve tal cual (conserva su src/locked).
+export function slotOf(v, src = 'MANUAL', locked = null) {
+  if (v && typeof v === 'object' && 'id' in v) return v;
+  return { id: v === null || v === undefined ? '' : v, src, locked: locked === null ? src === 'MANUAL' : !!locked };
+}
+
+// Aplica el resultado de una edición MANUAL del usuario: si la casilla no
+// cambió de persona conserva su origen (AUTO/MANUAL); si cambió (o se asignó
+// de nuevo) pasa a MANUAL y queda bloqueada.
+export function applyManual(prevVal, newVal) {
+  const newId = asStr(newVal);
+  if (!newId) return '';
+  if (asStr(prevVal) === newId && prevVal && typeof prevVal === 'object' && 'id' in prevVal) return prevVal;
+  return { id: asId(newVal), src: 'MANUAL', locked: true };
+}
+
+// Aplica el resultado de una generación automática. Las casillas manuales/
+// bloqueadas se conservan tal cual; las rellenadas ahora se marcan AUTO.
+export function applyAuto(prevVal, newVal) {
+  const newId = asStr(newVal);
+  if (!newId) return '';
+  if (asStr(prevVal) === newId && prevVal && typeof prevVal === 'object' && prevVal.src === 'MANUAL') return prevVal;
+  return { id: asId(newVal), src: 'AUTO', locked: false };
+}
+
+// ¿Una casilla es manual o está bloqueada? (las que el generador no toca).
+// Un id simple se trata como manual (datos antiguos, no perder trabajo).
+function esManualOVista(v) {
+  if (v === null || v === undefined || v === '') return false;
+  if (typeof v !== 'object') return true;
+  if (!('id' in v)) return false;
+  return v.src === 'MANUAL' || v.locked === true;
+}
+
+// --- Visitantes por tipo de programa (devuelven copias) ---
+// Cada visitor recibe (claveGlobalUnica, valorActual) y devuelve el nuevo valor
+// o undefined para no tocar la casilla.
+
+// Acomodación (objeto labores {key: id | [ids]}) → claves "atencion_<key>_<si>".
+function mapAtencionLabores(labores, visitor) {
+  const l = labores || {};
+  const out = {};
+  for (const d of ATENCION_DEF) {
+    const v = l[d.key];
+    if (v === undefined) { out[d.key] = v; continue; }
+    const values = Array.isArray(v) ? v : [v];
+    const mapped = values.map((id, si) => {
+      const next = visitor(`atencion_${d.key}_${si}`, id);
+      return next === undefined ? id : next;
+    });
+    out[d.key] = Array.isArray(v) ? mapped : (mapped[0] ?? '');
+  }
+  return out;
+}
+
+// Entre semana: presidente + sections[].parts[].assignments + labores.
+export function mapMidweekSlots(week, visitor) {
+  const w = { ...week, sections: (week.sections || []).map((sec, si) => ({
+    ...sec,
+    parts: (sec.parts || []).map(p => {
+      const ap = { ...(p.assignments || {}) };
+      for (const [slot, val] of Object.entries(ap)) {
+        const next = visitor(`mw_${si}_${p.num}_${slot}`, val);
+        if (next !== undefined) ap[slot] = next;
+      }
+      return { ...p, assignments: ap };
+    }),
+  })) };
+  const nextPres = visitor('mw_presidente', week.presidente);
+  if (nextPres !== undefined) w.presidente = nextPres;
+  w.labores = mapAtencionLabores(week.labores || {}, visitor);
+  return w;
+}
+
+// Fin de semana (months.weeks): campos de persona → "fin_<date>_<campo>".
+const FIN_FIELDS = ['presidente', 'conductor', 'lector', 'estudioSinLectura'];
+export function mapFinWeekSlots(week, visitor) {
+  const w = { ...week };
+  for (const f of FIN_FIELDS) {
+    if (f in w) {
+      const next = visitor(`fin_${w.date}_${f}`, w[f]);
+      if (next !== undefined) w[f] = next;
+    }
+  }
+  return w;
+}
+
+// Salidas: outings[].oradorSalida → "sal_<saturday>_<oi>".
+export function mapSalidasSlots(prog, visitor) {
+  return {
+    ...prog,
+    weeks: (prog.weeks || []).map(w => ({
+      ...w,
+      outings: (w.outings || []).map((o, oi) => {
+        const next = visitor(`sal_${w.saturday}_${oi}`, o.oradorSalida);
+        return next !== undefined ? { ...o, oradorSalida: next } : o;
+      }),
+    })),
+  };
+}
+
+// Atencion: weeks[].labores → "ate_<saturday>_<key>_<si>".
+export function mapAtencionSlots(prog, visitor) {
+  return {
+    ...prog,
+    weeks: (prog.weeks || []).map(w => ({
+      ...w,
+      labores: mapAtencionLabores(w.labores || {}, (k, v) => visitor(`ate_${w.saturday}_${k}`, v)),
+    })),
+  };
+}
+
+// Claves de las casillas que el generador no debe tocar (manuales/bloqueadas).
+export function manualSlotKeys(programs) {
+  const keys = new Set();
+  const visit = (visitor) => {
+    (programs.midweeks || []).forEach(w => mapMidweekSlots(w, (k, v) => { if (esManualOVista(v)) keys.add(k); return undefined; }));
+    (programs.months || []).forEach(m => (m.weeks || []).forEach(w => mapFinWeekSlots(w, (k, v) => { if (esManualOVista(v)) keys.add(k); return undefined; })));
+    (programs.salidas || []).forEach(s => mapSalidasSlots(s, (k, v) => { if (esManualOVista(v)) keys.add(k); return undefined; }));
+    (programs.atencion || []).forEach(a => mapAtencionSlots(a, (k, v) => { if (esManualOVista(v)) keys.add(k); return undefined; }));
+    return keys;
+  };
+  return visit();
+}
+
+// Borra SOLO las casillas automáticas (deja las manuales/bloqueadas intactas).
+export function clearAutoSlots(programs) {
+  return {
+    midweeks: (programs.midweeks || []).map(w => mapMidweekSlots(w, (k, v) => (esManualOVista(v) ? v : ''))),
+    months: (programs.months || []).map(m => ({ ...m, weeks: (m.weeks || []).map(w => mapFinWeekSlots(w, (k, v) => (esManualOVista(v) ? v : ''))) })),
+    salidas: (programs.salidas || []).map(s => mapSalidasSlots(s, (k, v) => (esManualOVista(v) ? v : ''))),
+    atencion: (programs.atencion || []).map(a => mapAtencionSlots(a, (k, v) => (esManualOVista(v) ? v : ''))),
+  };
+}
+
+// Deja todos los valores de persona como ids simples (para pasar al motor puro).
+export function unwrapPrograms(programs) {
+  return {
+    midweeks: (programs.midweeks || []).map(w => mapMidweekSlots(w, (k, v) => asId(v))),
+    months: (programs.months || []).map(m => ({ ...m, weeks: (m.weeks || []).map(w => mapFinWeekSlots(w, (k, v) => asId(v))) })),
+    salidas: (programs.salidas || []).map(s => mapSalidasSlots(s, (k, v) => asId(v))),
+    atencion: (programs.atencion || []).map(a => mapAtencionSlots(a, (k, v) => asId(v))),
+  };
+}
+
+// Vuelve a envolver los valores tras una generación: manual→MANUAL, resto→AUTO.
+export function wrapGeneratedPrograms(programs, manualKeys = new Set()) {
+  const wr = (k, v) => {
+    const plain = asId(v);
+    if (!asStr(plain)) return '';
+    return manualKeys.has(k) ? { id: plain, src: 'MANUAL', locked: true } : { id: plain, src: 'AUTO', locked: false };
+  };
+  return {
+    midweeks: (programs.midweeks || []).map(w => mapMidweekSlots(w, (k, v) => wr(k, v))),
+    months: (programs.months || []).map(m => ({ ...m, weeks: (m.weeks || []).map(w => mapFinWeekSlots(w, (k, v) => wr(k, v))) })),
+    salidas: (programs.salidas || []).map(s => mapSalidasSlots(s, (k, v) => wr(k, v))),
+    atencion: (programs.atencion || []).map(a => mapAtencionSlots(a, (k, v) => wr(k, v))),
+  };
+}
+
+// Envuelve los valores de una semana tras una edición MANUAL: las casillas que
+// el usuario cambió quedan MANUAL/bloqueadas; las no tocadas conservan origen.
+export function wrapManualPrograms(programs, manualKeys = new Set()) {
+  const wr = (k, v) => {
+    const plain = asId(v);
+    if (!asStr(plain)) return '';
+    if (manualKeys.has(k)) return { id: plain, src: 'MANUAL', locked: true };
+    if (v && typeof v === 'object' && 'id' in v) return v;
+    return { id: plain, src: 'MANUAL', locked: true };
+  };
+  return {
+    midweeks: (programs.midweeks || []).map(w => mapMidweekSlots(w, (k, v) => wr(k, v))),
+    months: (programs.months || []).map(m => ({ ...m, weeks: (m.weeks || []).map(w => mapFinWeekSlots(w, (k, v) => wr(k, v))) })),
+    salidas: (programs.salidas || []).map(s => mapSalidasSlots(s, (k, v) => wr(k, v))),
+    atencion: (programs.atencion || []).map(a => mapAtencionSlots(a, (k, v) => wr(k, v))),
+  };
+}
+
+// Índice clave→valor (id string) de todos los puestos de los programas.
+function collectSlotValues(programs) {
+  const map = new Map();
+  const set = (k, v) => map.set(k, asStr(v));
+  (programs.midweeks || []).forEach(w => mapMidweekSlots(w, (k, v) => { set(k, v); return undefined; }));
+  (programs.months || []).forEach(m => (m.weeks || []).forEach(w => mapFinWeekSlots(w, (k, v) => { set(k, v); return undefined; })));
+  (programs.salidas || []).forEach(s => mapSalidasSlots(s, (k, v) => { set(k, v); return undefined; }));
+  (programs.atencion || []).forEach(a => mapAtencionSlots(a, (k, v) => { set(k, v); return undefined; }));
+  return map;
+}
+
+// Claves de las casillas cuyo valor cambió entre dos estados (para un guardado
+// manual: lo que el usuario tocó se marca MANUAL; lo demás conserva su origen).
+export function changedManualKeys(before, after) {
+  const b = collectSlotValues(before || {});
+  const a = collectSlotValues(after || {});
+  const keys = new Set();
+  for (const [k, val] of a) {
+    const prev = b.get(k) || '';
+    if (val && val !== prev) keys.add(k);
+  }
+  return keys;
+}
+
+/* ================================================================== */
+/* GENERADOR ÚNICO: ejecuta el motor existente sobre los datos del     */
+/* mes (ya envueltos), conservando lo manual/bloqueado y marcando lo   */
+/* nuevo como AUTO. Es la puerta única para generar por ámbito o todo. */
+/* ================================================================== */
+
+// Ejecuta los motores según `opts.scope` ('entre'|'fin'|'labores'|'all').
+// Devuelve { midweeks, months, salidas, atencion, reportes } ya envueltos.
+export function runEngine(people, programs, opts = {}) {
+  const scope = opts.scope || 'all';
+  const manualKeys = manualSlotKeys(programs);
+  const p = unwrapPrograms(programs);
+  const reportes = {};
+
+  if (scope === 'all' || scope === 'entre') {
+    reportes.entre = automatizarEntreSemana(people, p.midweeks, opts.ocupadosEntre || null, opts.entreOpts || {});
+  }
+  if (scope === 'all' || scope === 'fin') {
+    reportes.fin = automatizarFinSemana(people, p.months, p.salidas, p.atencion, p.midweeks, opts.finOpts || {});
+    reportes.salidas = automatizarSalidas(people, p.salidas, { midweeks: p.midweeks, months: p.months, atencion: p.atencion });
+  }
+  if (scope === 'salidas') {
+    reportes.salidas = automatizarSalidas(people, p.salidas, { midweeks: p.midweeks, months: p.months, atencion: p.atencion });
+  }
+  if (scope === 'all' || scope === 'labores') {
+    reportes.atencion = automatizarAtencion(people, p.atencion, p.midweeks, opts.atencionOpts || {});
+  }
+
+  const wrapped = wrapGeneratedPrograms(p, manualKeys);
+  return { ...wrapped, reportes };
+}
+
 // Último día de un evento (rango desde/hasta, o fecha + días).
 export function eventEndDate(ev) {
   if (!ev) return null;
@@ -177,12 +439,12 @@ export function collectWeekPersons(w) {
   else if (w.type === 'supervisor') mainFields.push('presidente', 'estudioSinLectura');
   else if (w.type === 'commemoration') mainFields.push('presidente');
   for (const f of mainFields) {
-    const v = w[f];
+    const v = asId(w[f]);
     if (v) out.push({ value: String(v), key: f });
   }
   if (Array.isArray(w.outings) && !w.sinSalida) {
     w.outings.forEach((o, j) => {
-      const v = o.oradorSalida;
+      const v = asId(o.oradorSalida);
       if (v) out.push({ value: String(v), key: `salida_${j}` });
     });
   }
@@ -232,7 +494,7 @@ export function collectAtencionPersons(atencion) {
     const v = l[d.key];
     const values = Array.isArray(v) ? v : [v];
     for (let si = 0; si < d.count; si++) {
-      const id = values[si];
+      const id = asId(values[si]);
       if (id) out.push({ value: String(id), key: `atencion_${d.key}_${si}` });
     }
   }
@@ -244,12 +506,14 @@ export function collectAtencionPersons(atencion) {
 // key: "mw_<si>_<num>_<slot>" (si=sección, num=nº de parte, slot=rol).
 export function collectMidweekPersons(week) {
   const out = [];
-  if (week.presidente) out.push({ value: String(week.presidente), key: 'mw_presidente' });
+  const pres = asId(week.presidente);
+  if (pres) out.push({ value: String(pres), key: 'mw_presidente' });
   (week.sections || []).forEach((sec, si) => {
     (sec.parts || []).forEach(p => {
       const ap = p.assignments || {};
       Object.entries(ap).forEach(([slot, id]) => {
-        if (id) out.push({ value: String(id), key: `mw_${si}_${p.num}_${slot}`, sectionTitle: sec.title, partNum: p.num, slot });
+        const pid = asId(id);
+        if (pid) out.push({ value: String(pid), key: `mw_${si}_${p.num}_${slot}`, sectionTitle: sec.title, partNum: p.num, slot });
       });
     });
   });
@@ -284,7 +548,7 @@ export function eligiblePeople(week, people, labore, currentId, collector) {
         (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore)) &&
         laboreAllowedForPerson(p, labore)
       : () => true);
-  return people.filter(p => match(p) && (!assigned.has(String(p.id)) || String(p.id) === String(currentId)));
+  return people.filter(p => match(p) && (!assigned.has(String(p.id)) || String(p.id) === asStr(currentId)));
 }
 
 export function labelOf(f) { return FIELD_LABELS[f] || f; }
@@ -319,7 +583,7 @@ export function computeConflicts(month) {
     }
     required.forEach(f => {
       const v = w[f];
-      if (v === '' || v === undefined || v === null) {
+      if (asStr(v) === '') {
         perWeek[i].missing.push(f);
         errors.push(`Semana ${i + 1}: falta ${labelOf(f)}`);
       }
@@ -1134,17 +1398,18 @@ export function collectPersonAssignments(context) {
     const mes = String(mw.id || '').slice(0, 7);
     const semana = weekSundayOf(mw.id);
     const header = mw.header || mw.id || '';
-    add(mw.presidente, mes, semana, 'entre', 'presidente', `Presidente · ${header}`);
+    add(asId(mw.presidente), mes, semana, 'entre', 'presidente', `Presidente · ${header}`);
     (mw.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
       Object.entries(p.assignments || {}).forEach(([slot, id]) => {
-        if (!id) return;
-        add(id, mes, semana, 'entre', `parte${si}.${p.num}.${slot}`, `${sec.title} · parte ${p.num} (${slot}) · ${header}`);
+        const pid = asId(id);
+        if (!pid) return;
+        add(pid, mes, semana, 'entre', `parte${si}.${p.num}.${slot}`, `${sec.title} · parte ${p.num} (${slot}) · ${header}`);
       });
     }));
     const l = (mw.labores || {});
     ATENCION_DEF.forEach(d => {
       const arr = Array.isArray(l[d.key]) ? l[d.key] : [l[d.key] || ''];
-      arr.forEach((id, si) => { if (id) add(id, mes, semana, 'entre', `atencion_${d.key}_${si}`, `${d.label} ${si + 1} (entre semana) · ${header}`); });
+      arr.forEach((id, si) => { const pid = asId(id); if (pid) add(pid, mes, semana, 'entre', `atencion_${d.key}_${si}`, `${d.label} ${si + 1} (entre semana) · ${header}`); });
     });
   });
 
@@ -1155,7 +1420,8 @@ export function collectPersonAssignments(context) {
     const semana = weekSundayOf(w.date);
     const mesTxt = MONTHS_ES[Number(m.month) - 1] || mes;
     ['presidente', 'conductor', 'lector'].forEach(f => {
-      if (w[f]) add(w[f], mes, semana, 'fin', f, `${labelOf(f)} · ${mesTxt}`);
+      const v = asId(w[f]);
+      if (v) add(v, mes, semana, 'fin', f, `${labelOf(f)} · ${mesTxt}`);
     });
   }));
 
@@ -1165,7 +1431,7 @@ export function collectPersonAssignments(context) {
     const l = (w.labores || {});
     ATENCION_DEF.forEach(d => {
       const arr = Array.isArray(l[d.key]) ? l[d.key] : [l[d.key] || ''];
-      arr.forEach((id, si) => { if (id) add(id, p.id, weekSundayOf(w.saturday), 'acomodacion', `${d.key}_${si}`, `${d.label} ${si + 1} (fin de semana)`); });
+      arr.forEach((id, si) => { const pid = asId(id); if (pid) add(pid, p.id, weekSundayOf(w.saturday), 'acomodacion', `${d.key}_${si}`, `${d.label} ${si + 1} (fin de semana)`); });
     });
   }));
 
@@ -1173,7 +1439,8 @@ export function collectPersonAssignments(context) {
   (context.salidas || []).forEach(p => (p.weeks || []).forEach((w, wi) => {
     if (w.sinSalida) return;
     (w.outings || []).forEach((o, oi) => {
-      if (o.oradorSalida) add(o.oradorSalida, p.id, weekSundayOf(w.saturday), 'salida', `salida_${wi}_${oi}`, `Orador de salida · semana ${wi + 1}`);
+      const v = asId(o.oradorSalida);
+      if (v) add(v, p.id, weekSundayOf(w.saturday), 'salida', `salida_${wi}_${oi}`, `Orador de salida · semana ${wi + 1}`);
     });
   }));
 
@@ -1768,14 +2035,50 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
   return reporte;
 }
 
+// Automatiza los oradores de salida de un mes: asigna a quien tenga la labor
+// "orador" (o sin labores) y no esté ya ocupado esa semana por acomodación,
+// salidas o la reunión de fin de semana. Muta `salidas` (plain). Devuelve reporte.
+export function automatizarSalidas(people, salidas, { midweeks = [], months = [], atencion = [] } = {}) {
+  const reporte = { asignados: 0, vacios: [] };
+  const ocupados = new Map();
+  const marcar = (sat, id) => { if (id) { const s = new Set(ocupados.get(sat) || []); s.add(String(id)); ocupados.set(sat, s); } };
+  atencion.forEach(p => (p.weeks || []).forEach(w => {
+    const l = w.labores || {};
+    ATENCION_DEF.forEach(dd => { const v = l[dd.key]; (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id)); });
+  }));
+  months.forEach(p => (p.weeks || []).forEach(w => {
+    ['presidente', 'conductor', 'lector', 'estudioSinLectura'].forEach(f => marcar(w.date, w[f]));
+  }));
+  midweeks.forEach(w => {
+    const sat = addDays(w.id, 5);
+    if (w.presidente) marcar(sat, w.presidente);
+    (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => marcar(sat, id))));
+  });
+  const peopleForSalida = people.filter(p => (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('orador')) && laboreAllowedForPerson(p, 'orador'));
+  salidas.forEach(p => (p.weeks || []).forEach(w => {
+    if (w.sinSalida) return;
+    const sat = String(w.saturday);
+    const ocup = new Set(ocupados.get(sat) || []);
+    (w.outings || []).forEach(o => {
+      if (o.oradorSalida) { marcar(sat, o.oradorSalida); return; }
+      const cand = peopleForSalida.find(x => !ocup.has(String(x.id)));
+      if (!cand) { reporte.vacios.push({ semana: sat, labore: 'orador' }); return; }
+      o.oradorSalida = cand.id;
+      ocup.add(String(cand.id));
+      marcar(sat, cand.id);
+      reporte.asignados++;
+    });
+  }));
+  return reporte;
+}
+
 // Salidas del mes sin orador asignado (puestos vacíos del programa de salidas).
-// Las semanas marcadas sin salida (sinSalida) no cuentan como faltantes.
 export function salidasFaltantes(salidas) {
   const faltantes = [];
   (salidas || []).forEach(p => (p.weeks || []).forEach(w => {
     if (w.sinSalida) return;
     (w.outings || []).forEach((o, oi) => {
-      if (!o || !o.oradorSalida) faltantes.push({ saturday: String(w.saturday || ''), index: oi });
+      if (!o || !asStr(o.oradorSalida)) faltantes.push({ saturday: String(w.saturday || ''), index: oi });
     });
   }));
   return faltantes;
@@ -1977,10 +2280,11 @@ export function extractAssignments(midweeks, months, salidas, atencion, people =
   };
   (midweeks || []).forEach(w => {
     const date = String(w.id);
-    if (w.presidente) push(w.presidente, date, 'entre', 'presidente', 'Presidente');
+    const pres = asId(w.presidente);
+    if (pres) push(pres, date, 'entre', 'presidente', 'Presidente');
     (w.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
       midweekSlotsOf(sec, p).forEach(slot => {
-        const id = (p.assignments || {})[slot.key];
+        const id = asId((p.assignments || {})[slot.key]);
         if (id) push(id, date, 'entre', slot.labore, slot.label);
       });
     }));
@@ -1989,20 +2293,23 @@ export function extractAssignments(midweeks, months, salidas, atencion, people =
     ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach((id, si) => {
-        if (id) push(id, addDays(w.id, 5), 'atencion', `atencion_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
+        const pid = asId(id);
+        if (pid) push(pid, addDays(w.id, 5), 'atencion', `atencion_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
       });
     });
   });
   (months || []).forEach(m => (m.weeks || []).forEach(w => {
     const date = String(w.date);
     camposFinSemana(w).forEach(({ campo, labore }) => {
-      if (w[campo]) push(w[campo], date, 'fin', labore, labelOf(campo));
+      const v = asId(w[campo]);
+      if (v) push(v, date, 'fin', labore, labelOf(campo));
     });
   }));
   (salidas || []).forEach(p => (p.weeks || []).forEach(w => {
     if (w.sinSalida) return;
     (w.outings || []).forEach(o => {
-      if (o.oradorSalida) push(o.oradorSalida, String(w.saturday), 'salidas', 'orador', 'Orador de salida');
+      const v = asId(o.oradorSalida);
+      if (v) push(v, String(w.saturday), 'salidas', 'orador', 'Orador de salida');
     });
   }));
   (atencion || []).forEach(p => (p.weeks || []).forEach(w => {
@@ -2010,7 +2317,8 @@ export function extractAssignments(midweeks, months, salidas, atencion, people =
     ATENCION_DEF.forEach(d => {
       const v = l[d.key];
       (Array.isArray(v) ? v : [v]).forEach((id, si) => {
-        if (id) push(id, String(w.saturday), 'atencion', `atencion_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
+        const pid = asId(id);
+        if (pid) push(pid, String(w.saturday), 'atencion', `atencion_${d.key}_${si}`, `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`);
       });
     });
   }));
@@ -2119,28 +2427,31 @@ function deepClone(x) {
 export function generateOneProposal(input, config = {}, seed = 1) {
   const people = rotateSeed(input.people || [], seed);
   const config4 = { ...defaultAlgorithmConfig(), ...(config || {}) };
-  const midweeks = deepClone(input.midweeks || []);
-  const months = deepClone(input.months || []);
-  const salidas = deepClone(input.salidas || []);
-  const atencion = deepClone(input.atencion || []);
   const historial = input.historial || [];
   const nombres = input.nombres || {};
-  const reportes = {};
 
-  reportes.entre = automatizarEntreSemana(people, midweeks, null, { historial, nombres, readerLevel: config4.studentReaderLevel });
-  // Las reuniones (fin de semana) tienen prioridad sobre las labores de servicio:
-  // se completan primero para asegurar la participación de todos en la reunión,
-  // y las labores de servicio se completan después con quien quede libre.
-  reportes.fin = automatizarFinSemana(people, months, salidas, atencion, midweeks, {
-    permanentConductorId: config4.permanentConductorId,
-    permanentConductorBackupId: config4.permanentConductorBackupId,
-    permanentConductorBackupId2: config4.permanentConductorBackupId2,
+  // Datos del mes (ya en formato de asignación {id,src,locked}): se conserva lo
+  // manual/bloqueado y lo nuevo se marca AUTO.
+  const programs = {
+    midweeks: input.midweeks || [],
+    months: input.months || [],
+    salidas: input.salidas || [],
+    atencion: input.atencion || [],
+  };
+  const salidas = runEngine(people, programs, {
+    scope: 'all',
+    entreOpts: { historial, nombres, readerLevel: config4.studentReaderLevel },
+    finOpts: {
+      permanentConductorId: config4.permanentConductorId,
+      permanentConductorBackupId: config4.permanentConductorBackupId,
+      permanentConductorBackupId2: config4.permanentConductorBackupId2,
+    },
+    atencionOpts: { serviceRolesOnlyMale: config4.serviceRolesOnlyMale },
   });
-  reportes.atencion = automatizarAtencion(people, atencion, midweeks, { serviceRolesOnlyMale: config4.serviceRolesOnlyMale, months });
 
-  const assignments = extractAssignments(midweeks, months, salidas, atencion, input.people);
+  const assignments = extractAssignments(salidas.midweeks, salidas.months, salidas.salidas, salidas.atencion, input.people);
   const balance = balanceReport(assignments, input.people);
-  return { seed, assignments, midweeks, months, salidas, atencion, reportes, balance };
+  return { seed, assignments, ...salidas, reportes: salidas.reportes, balance };
 }
 
 // Puntúa una solución 0-100 según assignmentScoringConfig y la configuración del

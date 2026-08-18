@@ -29,3 +29,5 @@ plantilla-participantes.xls
 test-results/
 playwright-report/
 .tmp/
+
+firebase-config.js

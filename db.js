@@ -1,10 +1,10 @@
 // db.js - Capa de acceso a IndexedDB
 // Stores: months (programas mensuales), people, departments, settings, talks, midweeks, aseos
 
-import { defaultAlgorithmConfig } from './logic.js';
+import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -65,6 +65,32 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(STORE_ASSIGNMENT_LOG)) {
         db.createObjectStore(STORE_ASSIGNMENT_LOG, { keyPath: 'id' });
+      }
+
+      // Migración v7→v8: las asignaciones de persona pasan a formato
+      // {id, src, locked}. Los datos existentes se marcan MANUAL (bloqueados)
+      // para no perder trabajo del usuario; los vacíos quedan como ''.
+      if (e.oldVersion < 8) {
+        const t = e.target.transaction;
+        const wrap = (v) => {
+          if (v && typeof v === 'object' && 'id' in v) return v;
+          return v ? { id: v, src: 'MANUAL', locked: true } : '';
+        };
+        const migrarStore = (name, mapFn) => {
+          if (!t.objectStoreNames.contains(name)) return;
+          const st = t.objectStore(name);
+          const cur = st.openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            c.update(mapFn(c.value));
+            c.continue();
+          };
+        };
+        migrarStore(STORE_MONTHS, (m) => ({ ...m, weeks: (m.weeks || []).map(w => mapFinWeekSlots(w, (k, v) => wrap(v))) }));
+        migrarStore(STORE_MIDWEEKS, (w) => mapMidweekSlots(w, (k, v) => wrap(v)));
+        migrarStore(STORE_SALIDAS, (s) => mapSalidasSlots(s, (k, v) => wrap(v)));
+        migrarStore(STORE_ATENCION, (a) => mapAtencionSlots(a, (k, v) => wrap(v)));
       }
     };
 

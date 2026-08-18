@@ -22,6 +22,8 @@ import {
   laboresVaciasPropuesta, sinAsignarPorMotivo,
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats,
   balanceReport, cargoNivel,
+  asId, asStr, slotOf, runEngine, changedManualKeys, wrapManualPrograms,
+  clearAutoSlots, manualSlotKeys,
 } from './logic.js';
 
 /* ---------- Estado ---------- */
@@ -1286,14 +1288,15 @@ async function etapaEntreSemana(month) {
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const historial = log.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') }));
   const nombres = Object.fromEntries(state.people.map(p => [String(p.id), p.name]));
-  const repMw = automatizarEntreSemana(state.people, mwMes, null, { historial, nombres });
-  await Promise.all(mwMes.map(w => db.putMidweek(w)));
+  const out = runEngine(state.people, { midweeks: mwMes, months: [], salidas: [], atencion: [] }, { scope: 'entre', entreOpts: { historial, nombres } });
+  await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
   state.midweeks = await db.listMidweeks();
+  const r = out.reportes.entre || { asignados: 0, vacios: [] };
   return {
-    asignados: repMw.asignados,
-    vacios: repMw.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
-    motivos: repMw.motivos,
-    flexiones: repMw.flexiones,
+    asignados: r.asignados,
+    vacios: r.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
+    motivos: r.motivos,
+    flexiones: r.flexiones,
   };
 }
 
@@ -1302,60 +1305,31 @@ async function etapaAtencion(month) {
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const labMes = labores.filter(p => p.id === month);
   const mesMes = months.filter(m => m.id === month);
-  const repLab = automatizarAtencion(state.people, labMes, mwMes, { serviceRolesOnlyMale: (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false, months: mesMes });
+  const out = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: [], atencion: labMes }, {
+    scope: 'labores',
+    atencionOpts: { serviceRolesOnlyMale: (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false, months: mesMes },
+  });
   // Las labores de entre semana se guardan en cada week.labores del midweek.
-  await Promise.all(labMes.map(p => db.putAtencion(p)));
-  await Promise.all(mwMes.map(w => db.putMidweek(w)));
+  await Promise.all(out.atencion.map(p => db.putAtencion(p)));
+  await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
   state.midweeks = await db.listMidweeks();
+  const r = out.reportes.atencion || { asignados: 0, vacios: [] };
   return {
-    asignados: repLab.asignados,
-    vacios: repLab.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
+    asignados: r.asignados,
+    vacios: r.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
   };
 }
 
 async function etapaSalidas(month) {
-  const salidas = await db.listSalidas();
-  const salMes = salidas.filter(p => p.id === month);
-  // El orador de salida se asigna con personas con rol "orador" que no estén ya
-  // ocupadas esa semana por acomodación, salidas o la reunión de fin de semana.
-  const [midweeks, months, labores] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listAtencion()]);
+  const [midweeks, months, labores, salidas] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listAtencion(), db.listSalidas()]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const mesMes = months.filter(m => m.id === month);
   const labMes = labores.filter(p => p.id === month);
-  const ocupados = new Map();
-  const marcar = (sat, id) => { if (id) { const s = new Set(ocupados.get(sat) || []); s.add(String(id)); ocupados.set(sat, s); } };
-  labMes.forEach(p => (p.weeks || []).forEach(w => {
-    const l = w.labores || {};
-    ATENCION_DEF.forEach(dd => { const v = l[dd.key]; (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id)); });
-  }));
-  mesMes.forEach(p => (p.weeks || []).forEach(w => {
-    ['presidente', 'conductor', 'lector', 'estudioSinLectura'].forEach(f => marcar(w.date, w[f]));
-  }));
-  mwMes.forEach(w => {
-    const sat = addDays(w.id, 5);
-    if (w.presidente) marcar(sat, w.presidente);
-    (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => marcar(sat, id))));
-  });
-  // labor de salida: por defecto "orador"; sin labores → todas las personas.
-  const peopleForSalida = state.people.filter(p => (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('orador')) && laboreAllowedForPerson(p, 'orador'));
-  let asignados = 0;
-  const vacios = [];
-  salMes.forEach(p => (p.weeks || []).forEach(w => {
-    if (w.sinSalida) return;
-    const sat = String(w.saturday);
-    const ocup = new Set(ocupados.get(sat) || []);
-    (w.outings || []).forEach(o => {
-      if (o.oradorSalida) { marcar(sat, o.oradorSalida); return; }
-      const cand = peopleForSalida.find(x => !ocup.has(String(x.id)));
-      if (!cand) { vacios.push({ semana: sat, rol: 'orador' }); return; }
-      o.oradorSalida = cand.id;
-      ocup.add(String(cand.id));
-      marcar(sat, cand.id);
-      asignados++;
-    });
-  }));
-  await Promise.all(salMes.map(p => db.putSalidas(p)));
-  return { asignados, vacios };
+  const salMes = salidas.filter(p => p.id === month);
+  const out = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'salidas' });
+  await Promise.all(out.salidas.map(p => db.putSalidas(p)));
+  const r = out.reportes.salidas || { asignados: 0, vacios: [] };
+  return { asignados: r.asignados, vacios: r.vacios.map(v => ({ semana: v.semana, rol: v.labore })) };
 }
 
 async function etapaFinSemana(month) {
@@ -1370,30 +1344,24 @@ async function etapaFinSemana(month) {
   const salMes = salidas.filter(p => p.id === month);
   const labMes = labores.filter(p => p.id === month);
 
-  // Personas ya ocupadas cada semana por acomodación y salidas (E1/E2).
-  const ocupados = new Map(); // sábado -> Set de personas
-  const marcar = (sat, id) => { if (id) { const s = new Set(ocupados.get(sat) || []); s.add(String(id)); ocupados.set(sat, s); } };
-  salMes.forEach(p => (p.weeks || []).forEach(w => (w.outings || []).forEach(o => marcar(w.saturday, o.oradorSalida))));
-  labMes.forEach(p => (p.weeks || []).forEach(w => {
-    const l = w.labores || {};
-    ATENCION_DEF.forEach(d => {
-      const v = l[d.key];
-      (Array.isArray(v) ? v : [v]).forEach(id => marcar(w.saturday, id));
-    });
-  }));
+  // Primero se completan los vacíos de entre semana (con acomodación/salidas en
+  // cuenta) y después fin de semana + salidas, que usan ese contexto (E1/E2).
+  const outEntre = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'entre' });
+  const out = runEngine(state.people, { midweeks: outEntre.midweeks, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'fin' });
 
-  // Rellenar vacíos restantes de entre semana (ahora con acomodación/salidas en cuenta).
-  const repMw = automatizarEntreSemana(state.people, mwMes, ocupados);
-  const repFin = automatizarFinSemana(state.people, mesMes, salMes, labMes, mwMes);
-
-  await Promise.all(mwMes.map(w => db.putMidweek(w)));
-  await Promise.all(mesMes.map(m => db.putMonth(m)));
+  await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
+  await Promise.all(out.months.map(m => db.putMonth(m)));
+  await Promise.all(out.salidas.map(s => db.putSalidas(s)));
   state.midweeks = await db.listMidweeks();
 
+  const rEnt = outEntre.reportes.entre || { asignados: 0, vacios: [] };
+  const rFin = out.reportes.fin || { asignados: 0, vacios: [] };
+  const rSal = out.reportes.salidas || { asignados: 0, vacios: [] };
   return {
-    asignados: repMw.asignados + repFin.asignados,
-    vacios: [...repMw.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
-             ...repFin.vacios.map(v => ({ semana: v.semana, rol: v.labore }))],
+    asignados: rEnt.asignados + rFin.asignados + rSal.asignados,
+    vacios: [...rEnt.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
+             ...rFin.vacios.map(v => ({ semana: v.semana, rol: v.labore })),
+             ...rSal.vacios.map(v => ({ semana: v.semana, rol: v.labore }))],
   };
 }
 
@@ -2378,8 +2346,9 @@ function sameFieldOtherWeek(field, weekIdx) {
   const m = state.month;
   if (!m || !Array.isArray(m.weeks)) return false;
   const val = m.weeks[weekIdx] && m.weeks[weekIdx][field];
-  if (!val) return false;
-  return m.weeks.some((w, i) => i !== weekIdx && w[field] && String(w[field]) === String(val));
+  const valStr = asStr(val);
+  if (!valStr) return false;
+  return m.weeks.some((w, i) => i !== weekIdx && asStr(w[field]) === valStr);
 }
 
 function fillPeople(sel) {
@@ -2387,11 +2356,11 @@ function fillPeople(sel) {
   const current = parseInt(sel.dataset.idx, 10);
   const field = sel.dataset.field;
   if (!state.month || !state.month.weeks[current]) return;
-  const val = state.month.weeks[current][field];
+  const val = asId(state.month.weeks[current][field]);
   const labore = sel.dataset.labore || '';
   const list = eligiblePeople(state.month.weeks[current], state.people, labore, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
-    list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+    list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
   fillSuggestions(sel, current, field, labore, val);
 }
 
@@ -2422,11 +2391,11 @@ function fillOutingPeople(sel) {
   if (parts.length !== 2 || !state.month || !state.month.weeks[parts[0]]) return;
   const [wi, oi] = parts;
   const outing = state.month.weeks[wi].outings?.[oi];
-  const val = outing ? outing.oradorSalida : '';
+  const val = outing ? asId(outing.oradorSalida) : '';
   const labore = sel.dataset.labore || 'orador';
   const list = eligiblePeople(state.month.weeks[wi], state.people, labore, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
-    list.map(p => `<option value="${p.id}" ${String(p.id) === String(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+    list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
 }
 
 function refreshPeopleSelects() {
@@ -2454,8 +2423,14 @@ async function saveMonth() {
     toast(`${hard.length} problema(s) sin resolver. Revise los campos resaltados.`, 'error');
     return;
   }
-  state.month.updatedAt = Date.now();
-  await db.putMonth(state.month);
+  // Envolver en formato {id, src, locked}: lo que el usuario cambió pasa a
+  // MANUAL/bloqueado; lo no tocado conserva su origen (AUTO sigue siendo AUTO).
+  const stored = await db.getMonth(state.month.id);
+  const changed = changedManualKeys({ months: stored ? [stored] : [] }, { months: [state.month] });
+  const wrapped = wrapManualPrograms({ months: [state.month] }, changed).months[0];
+  wrapped.updatedAt = Date.now();
+  state.month = wrapped;
+  await db.putMonth(wrapped);
   await syncAssignmentLog();
   toast('Cambios guardados', 'success');
 }
@@ -5007,14 +4982,15 @@ async function renderAtencion(monthId, opts = {}) {
   const atencionLabores = { sonido: ['audio', 'sonido'], microfono: ['microf'], plataforma: ['plataforma'], acomodacion: ['acomodador'] };
   const atencionOpts = (week, curVal, collector, key) => {
     const req = atencionLabores[key] || [];
+    const curId = asStr(curVal);
     const pred = (p) => atencionPred(p) && (req.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => req.includes(r))));
-    const list = eligiblePeople(week, state.people, pred, curVal, collector);
-    if (curVal && !list.some(p => String(p.id) === String(curVal))) {
-      const cur = state.people.find(p => String(p.id) === String(curVal));
+    const list = eligiblePeople(week, state.people, pred, asId(curVal), collector);
+    if (curId && !list.some(p => String(p.id) === curId)) {
+      const cur = state.people.find(p => String(p.id) === curId);
       if (cur) list.push(cur);
     }
     return `<option value="">— Sin asignar —</option>` +
-      list.map(p => `<option value="${p.id}" ${String(p.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+      list.map(p => `<option value="${p.id}" ${String(p.id) === curId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
   };
 
   const render = () => {
@@ -5136,8 +5112,9 @@ async function renderAtencion(monthId, opts = {}) {
         if (!week) return;
         ensureAtencion(week);
         const val = sel.value;
-        if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
-        else week.labores[key] = val;
+        const next = val ? slotOf(val) : '';
+        if (Array.isArray(week.labores[key])) week.labores[key][si] = next;
+        else week.labores[key] = next;
         await db.putAtencion(program);
         await syncAssignmentLog();
         toast('Labor asignada', 'success');
@@ -5154,8 +5131,9 @@ async function renderAtencion(monthId, opts = {}) {
         if (!week) return;
         ensureAtencion(week);
         const val = sel.value;
-        if (Array.isArray(week.labores[key])) week.labores[key][si] = val;
-        else week.labores[key] = val;
+        const next = val ? slotOf(val) : '';
+        if (Array.isArray(week.labores[key])) week.labores[key][si] = next;
+        else week.labores[key] = next;
         await db.putMidweek(week);
         state.midweeks = await db.listMidweeks();
         await syncAssignmentLog();
@@ -5438,7 +5416,16 @@ async function renderSalidas(monthId, opts = {}) {
     const programBtn = embed ? embed.querySelector('#salidasProgram') : $('#salidasProgram');
     if (programBtn) programBtn.onclick = () => go('outings', { monthId: cur });
     const saveBtn = embed ? embed.querySelector('#salidasSave') : $('#salidasSave');
-    if (saveBtn) saveBtn.onclick = async () => { await db.putSalidas(program); await syncAssignmentLog(); toast('Salidas guardadas', 'success'); };
+    if (saveBtn) saveBtn.onclick = async () => {
+      const stored = await db.getSalidas(cur);
+      const changed = changedManualKeys({ salidas: stored ? [stored] : [] }, { salidas: [program] });
+      const wrapped = wrapManualPrograms({ salidas: [program] }, changed).salidas[0];
+      wrapped.updatedAt = Date.now();
+      await db.putSalidas(wrapped);
+      program = wrapped;
+      await syncAssignmentLog();
+      toast('Salidas guardadas', 'success');
+    };
   };
 
   async function createProgram() {
@@ -5744,7 +5731,7 @@ async function renderMidweek(id) {
   const presOpts = ['<option value="">— Sin asignar —</option>'];
   const presList = state.people.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('presidente'));
   for (const person of presList) {
-    presOpts.push(`<option value="${person.id}" ${String(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
+    presOpts.push(`<option value="${person.id}" ${asStr(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
   }
   editor.innerHTML = `
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
@@ -5770,7 +5757,7 @@ async function renderMidweek(id) {
         const roleFilter = isStudentLabore(s.labore) ? isStudentPerson : s.labore;
         const list = eligiblePeople(week, state.people, roleFilter, cur, collectMidweekPersons);
         for (const person of list) {
-          opts.push(`<option value="${person.id}" ${String(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
+          opts.push(`<option value="${person.id}" ${asStr(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
         }
         const missing = !cur;
         return `<div class="flex-1 min-w-[160px]">
@@ -5856,7 +5843,13 @@ async function renderMidweek(id) {
     week.labores = ensureAtencion(week).labores;
     const presSel = editor.querySelector('select[data-mw-presidente]');
     if (presSel) week.presidente = presSel.value;
-    await db.putMidweek(week);
+    // Envolver en formato {id, src, locked}: lo cambiado → MANUAL; lo no tocado
+    // conserva su origen (las asignaciones AUTO no se pierden al editar a mano).
+    const stored = await db.getMidweek(id);
+    const changed = changedManualKeys({ midweeks: stored ? [stored] : [] }, { midweeks: [week] });
+    const wrapped = wrapManualPrograms({ midweeks: [week] }, changed).midweeks[0];
+    wrapped.updatedAt = Date.now();
+    await db.putMidweek(wrapped);
     state.midweeks = await db.listMidweeks();
     await syncAssignmentLog();
     toast('Asignaciones guardadas', 'success');
@@ -6586,11 +6579,13 @@ function aseoWeeksForMonth(year, month) {
 }
 
 function personNameOf(id) {
+  id = asId(id);
   if (!id) return '—';
   const p = state.people.find(x => String(x.id) === String(id));
   return p ? p.name : '—';
 }
 function personOf(id) {
+  id = asId(id);
   return state.people.find(x => String(x.id) === String(id)) || null;
 }
 
