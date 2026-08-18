@@ -319,6 +319,38 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Firebase no está configurado');
   });
 
+  test('entre semana: oración final como extensión del conductor del estudio y presidente en negrita', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/midweek/2026-08-03'; });
+    await expect(page.locator('h1:has-text("3-10 de AGOSTO DE 2026")')).toBeVisible();
+
+    // Presidente: más a la derecha y en negrita.
+    const pres = page.locator('#mwEditor select[data-mw-presidente]');
+    await expect(pres).toBeVisible();
+    await expect(pres).toHaveClass(/font-bold/);
+
+    // Oración final derivada del conductor del Estudio Bíblico: sin asignar
+    // muestra el texto por defecto y NO crea un select nuevo.
+    await expect(page.locator('#mwEditor')).toContainText('Oración final');
+    await expect(page.locator('[data-oracion-final]')).toContainText('Quien conduce el estudio');
+
+    // Al asignar el conductor del Estudio Bíblico (vida, última parte), la
+    // oración final muestra su nombre en vivo.
+    await page.selectOption('select[data-sec="2"][data-part="7"][data-slot="conductor"]', '1');
+    await expect(page.locator('[data-oracion-final]')).toContainText('Álvaro P.');
+
+    // Guardar para que la vista final lea la asignación persistida.
+    await page.click('#mwSave');
+    await expect(page.locator('#toastRoot')).toContainText('Asignaciones guardadas');
+
+    // Vista Final: la oración final aparece antes de las palabras de conclusión.
+    await page.click('#mwPreviewBtn');
+    await expect(page.locator('#mwDoc')).toContainText('Oración final:');
+    await expect(page.locator('#mwDoc')).toContainText('Álvaro P.');
+  });
+
   test('atención: el select de cada labor solo muestra a quienes la tienen habilitada', async ({ page }) => {
     await seedAtencionSelects(page);
     await openApp(page);

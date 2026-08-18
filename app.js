@@ -5701,6 +5701,16 @@ function mwSlotsFor(sec, part) {
   return midweekSlotsOf(sec, part);
 }
 
+// Quien conduce el Estudio Bíblico de la Congregación (última parte de "Nuestra
+// Vida Cristiana"). No es una asignación aparte: es quien da la oración final.
+function mwConductorEstudio(w) {
+  const vida = (w.sections || []).find(s => String(s.id) === 'vida');
+  if (!vida || !Array.isArray(vida.parts) || !vida.parts.length) return null;
+  const ultima = vida.parts[vida.parts.length - 1];
+  const v = ultima && ultima.assignments && ultima.assignments.conductor;
+  return v ? personNameOf(v) : null;
+}
+
 async function renderMidweek(id) {
   state.month = null;
   renderTop();
@@ -5738,11 +5748,16 @@ async function renderMidweek(id) {
   }
   editor.innerHTML = `
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="font-headline-md text-headline-md text-primary">Presidente</h2>
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Presidente</h2>
+          <p class="text-sm text-on-surface-variant mt-0.5">Da la bienvenida y ordena el programa.</p>
+        </div>
+        <div class="w-full md:w-1/2 lg:w-2/5">
+          <select data-mw-presidente class="mwSel w-full bg-surface-bright border ${!week.presidente ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-lg font-bold focus:border-primary">${presOpts.join('')}</select>
+          ${!week.presidente ? `<div class="mt-2 text-xs text-on-surface-variant" data-mwsugwrap="presidente">Sugerencias: ${mwSuggestChips(week, 'presidente', [], (p) => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('presidente'), (list) => list)}</div>` : ''}
+        </div>
       </div>
-      <select data-mw-presidente class="mwSel w-full bg-surface-bright border ${!week.presidente ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-md focus:border-primary">${presOpts.join('')}</select>
-      ${!week.presidente ? `<div class="mt-2 text-xs text-on-surface-variant" data-mwsugwrap="presidente">Sugerencias: ${mwSuggestChips(week, 'presidente', [], (p) => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('presidente'), (list) => list)}</div>` : ''}
     </div>` + (week.sections || []).map((sec, si) => {
     const parts = (sec.parts || []).map(p => {
       const slots = mwSlotsFor(sec, p);
@@ -5765,6 +5780,12 @@ async function renderMidweek(id) {
           ${missing ? `<div class="mt-1.5 flex flex-wrap gap-1 text-[11px]" data-mwsugwrap="${si}.${p.num}.${s.key}">${mwSuggestChips(week, `${si}.${p.num}.${s.key}`, list, roleFilter, collectMidweekPersons)}</div>` : ''}
         </div>`;
       }).join('');
+      const esEstudio = sec.id === 'vida' && (sec.parts || []).indexOf(p) === (sec.parts || []).length - 1;
+      const oracionFinalRow = esEstudio ? `
+        <div class="flex items-center justify-end gap-2 md:flex-col md:items-end md:justify-center">
+          <span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Oración final</span>
+          <span data-oracion-final class="font-body-lg font-bold ${ap.conductor ? 'text-on-surface' : 'text-on-surface-variant italic'}">${escapeHtml(ap.conductor ? personNameOf(ap.conductor) : 'Quien conduce el estudio')}</span>
+        </div>` : '';
       return `<div class="flex flex-col md:flex-row gap-3 md:items-center md:gap-4 bg-surface-container-low rounded-lg p-4 border border-outline-variant">
         <div class="min-w-[32px] h-8 px-2 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-md text-label-md">${p.num}</div>
         <div class="flex-1">
@@ -5773,6 +5794,7 @@ async function renderMidweek(id) {
           ${pairWarning(sec, p)}
         </div>
         <div class="flex-1 flex flex-wrap gap-3">${slotFields}</div>
+        ${oracionFinalRow}
       </div>`;
     }).join('');
     return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
@@ -5938,6 +5960,16 @@ function bindMwChange(node) {
     const id = editor?.dataset.mwid;
     const wk = state.midweeks.find(w => String(w.id) === String(id));
     mwRefreshConflicts(editor, wk || {});
+    // Si cambia el conductor del Estudio Bíblico, la oración final se actualiza
+    // en vivo (no es una asignación aparte: es una extensión de esa persona).
+    const target = document.querySelector('[data-oracion-final]');
+    if (!target || !wk || node.dataset.slot !== 'conductor' || !node.dataset.sec) return;
+    const vida = (wk.sections || []).find(s => String(s.id) === 'vida');
+    const num = vida && vida.parts && vida.parts.length ? String(vida.parts[vida.parts.length - 1].num) : null;
+    if (String(node.dataset.sec) === String((wk.sections || []).indexOf(vida)) && num && node.dataset.part === num) {
+      target.textContent = node.value ? personNameOf(node.value) : 'Quien conduce el estudio';
+      target.classList.toggle('italic', !node.value);
+    }
   });
 }
 
@@ -6018,11 +6050,12 @@ function midweekBlockContent(w) {
   };
 
   const introSong = w.introSong || w.songIn;
+  const oracionFinalName = mwConductorEstudio(w);
   return `
     <header class="mb-4">
       <h1 class="text-2xl font-bold text-gray-600 mb-1">${escapeHtml(w.header)}</h1>
       <p class="text-blue-custom font-bold text-lg mb-2">${escapeHtml(w.reading || '')}</p>
-      <p class="text-gray-600 text-sm mb-2">Presidente: ${escapeHtml(personNameOf(w.presidente))}</p>
+      <p class="text-gray-600 text-sm mb-2">Presidente: <span class="font-bold text-gray-800">${escapeHtml(personNameOf(w.presidente))}</span></p>
       <div class="mw-sep mb-3"></div>
       <div class="flex items-center text-sm mb-6">
         <span class="text-blue-custom mr-2">♪</span>
@@ -6037,6 +6070,10 @@ function midweekBlockContent(w) {
     ${sectionBlock((w.sections || []).find(s => s.id === 'vida'), { strong: '#9e2a2b', icon: '▦' })}
     <footer>
       <div class="mw-sep mb-3"></div>
+      <div class="flex items-center text-sm mb-1">
+        <span class="font-bold mr-1">Oración final:</span>
+        <span class="${oracionFinalName ? '' : 'text-gray-500 italic'}">${oracionFinalName ? escapeHtml(oracionFinalName) : 'el conductor del Estudio Bíblico'}</span>
+      </div>
       <div class="flex items-center text-sm">
         <span class="font-bold mr-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')}</span>
         <span class="text-gray-500 mr-1">(${w.closingMins || 3} mins.) |</span>
@@ -6122,19 +6159,21 @@ function compactWeekCard(w) {
     </div>`;
   };
   const introSong = w.introSong || w.songIn;
+  const oracionFinalName = mwConductorEstudio(w);
   return `
   <article class="border border-gray-300 rounded-md p-2.5" style="break-inside:avoid;page-break-inside:avoid;">
     <div class="text-center mb-1.5">
       <div class="font-bold text-sm text-gray-800">${escapeHtml(w.header)}</div>
       <div class="text-[10px] text-gray-600">${escapeHtml(w.reading || '')}</div>
-      <div class="text-[10px] text-gray-600">Presidente: ${escapeHtml(personNameOf(w.presidente))}</div>
+      <div class="text-[10px] text-gray-600">Presidente: <b>${escapeHtml(personNameOf(w.presidente))}</b></div>
       <div class="text-[9px] text-gray-500 mt-0.5">♪ Canción ${escapeHtml(introSong || '')} y oración · ${escapeHtml(w.introTitle || 'Palabras de introducción')} (${w.introMins || 1} min.)</div>
     </div>
     ${section((w.sections || []).find(s => s.id === 'tesoros'), '#0f7685')}
     ${section((w.sections || []).find(s => s.id === 'maestros'), '#b8860b')}
     ${section((w.sections || []).find(s => s.id === 'vida'), '#9e2a2b')}
     <div class="text-[9px] text-gray-600 border-t border-gray-200 pt-1 mt-1">
-      ${escapeHtml(w.closingTitle || 'Palabras de conclusión')} (${w.closingMins || 3} mins.) · ♪ Canción ${escapeHtml(w.songOut || '')}
+      ${escapeHtml(w.closingTitle || 'Palabras de conclusión')} (${w.closingMins || 3} mins.) · ♪ Canción ${escapeHtml(w.songOut || '')} ·
+      Oración final: <b class="text-gray-800">${oracionFinalName ? escapeHtml(oracionFinalName) : '—'}</b>
     </div>
     ${compactLabores(w)}
   </article>`;
