@@ -9,12 +9,12 @@
 // Ver también: firestore.rules (seguridad) y firebase.json (deploy).
 
 export const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyAQXhgPx_EyI-pjwba-jLaIZ0lA04YxNDc',
-  authDomain: 'reunion-b6f14.firebaseapp.com',
-  projectId: 'reunion-b6f14',
-  storageBucket: 'reunion-b6f14.firebasestorage.app',
-  messagingSenderId: '772112574179',
-  appId: '1:772112574179:web:3f937bde562369a937c7d6',
+  apiKey: "completar",
+  authDomain: "completar",
+  projectId: "completar",
+  storageBucket: "completar",
+  messagingSenderId: "completar",
+  appId: "completar"
 };
 
 // URL base del SDK de Firebase (módulos ES). Se usa el mismo que el script de
