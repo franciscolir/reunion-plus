@@ -267,6 +267,58 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('[data-previa]').first()).toBeVisible({ timeout: 20000 });
   });
 
+  test('salidas: no muestra el cuadro de conflictos (salidas tiene prioridad)', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    // Duplicado provocado de propósito: el MISMO orador dos veces en la semana 1
+    // (antes mostraba el badge "Repite en la semana" y el cuadro de avisos).
+    await page.evaluate(() => new Promise((res, rej) => {
+      const req = indexedDB.open('reunion-plus', 7);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('salidas', 'readwrite');
+        const st = tx.objectStore('salidas');
+        const g = st.get('2026-08');
+        g.onsuccess = () => {
+          const p = g.result;
+          p.weeks[0].outings = [
+            { oradorSalida: 1, tituloDiscurso: '' },
+            { oradorSalida: 1, tituloDiscurso: '' },
+          ];
+          st.put(p);
+          tx.oncomplete = () => { db.close(); res(); };
+          tx.onerror = () => rej(tx.error);
+        };
+        g.onerror = () => rej(g.error);
+      };
+      req.onerror = () => rej(req.error);
+    }));
+
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await expect(page.locator('[data-tab="salidas"]')).toBeVisible();
+    await page.click('[data-tab="salidas"]');
+    await expect(page.locator('[data-outing="0.0"]')).toBeVisible();
+    await expect(page.locator('[data-outing="0.1"]')).toBeVisible();
+
+    // El cuadro de conflictos de salidas ya no existe ni aparecen badges.
+    await expect(page.locator('#salidasCross')).toHaveCount(0);
+    await expect(page.locator('.conflict-dot')).toHaveCount(0);
+    await expect(page.locator('#salidasList')).not.toContainText('Repite');
+  });
+
+  test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await expect(page.locator('#onlineBtn')).toBeVisible();
+    // Sin Firebase no hay nada que subir: la etiqueta "Guardar cambios" está oculta.
+    await expect(page.locator('#syncSaveLabel')).toBeHidden();
+    // Pulsar la nube explica que Firebase no está configurado.
+    await page.click('#onlineBtn');
+    await expect(page.locator('#toastRoot')).toContainText('Firebase no está configurado');
+  });
+
   test('atención: el select de cada labor solo muestra a quienes la tienen habilitada', async ({ page }) => {
     await seedAtencionSelects(page);
     await openApp(page);

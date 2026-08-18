@@ -24,6 +24,30 @@ import { isAdmin, isAuthenticated } from './auth.js';
 let _enabled = false;
 let _syncing = false;
 let _lastStatus = { state: 'inactivo', detail: '', at: null };
+let _dirty = false;
+
+// ¿Hay cambios locales aún sin confirmar en Firebase? (nube roja)
+export function hayCambiosPendientes() {
+  return _dirty;
+}
+
+function dispatchDirty() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('reunion-dirty', { detail: { pending: _dirty } }));
+  }
+}
+
+function marcarDirty() {
+  if (!_dirty) { _dirty = true; dispatchDirty(); }
+}
+
+// Recalcula _dirty a partir de la cola de pendientes (fuente de verdad).
+async function marcarSegunPendientes() {
+  const pend = await leerPendientes();
+  const nuevo = pend.length > 0;
+  if (nuevo !== _dirty) { _dirty = nuevo; dispatchDirty(); }
+  return _dirty;
+}
 
 // Estado actual de la sincronización (para la interfaz).
 export function syncStatus() {
@@ -166,11 +190,13 @@ async function mesADocumento(mes) {
 // Si no hay red o falla, el store queda PENDIENTE para reintentarse cuando haya
 // conexión (cola de sincronización offline).
 async function pushStore(store) {
-  if (!_enabled || _syncing) return;
-  if (!navigator.onLine) { encolarPendiente(store); return; }
+  if (!_enabled) return;
+  if (_syncing) { await encolarPendienteAsync(store); marcarDirty(); return; }
+  if (!navigator.onLine) { await encolarPendienteAsync(store); marcarDirty(); return; }
   const ready = await isFirebaseReady();
-  if (!ready) { encolarPendiente(store); return; }
+  if (!ready) { await encolarPendienteAsync(store); marcarDirty(); return; }
   _syncing = true;
+  let errorSync = false;
   try {
     if (store === 'people') {
       const people = await db.listPeopleAll();
@@ -249,10 +275,15 @@ async function pushStore(store) {
   } catch (e) {
     console.warn('[Reunión+] Error al sincronizar store', store, e);
     // Queda pendiente para reintentar cuando haya conexión.
+    errorSync = true;
     encolarPendiente(store);
     setStatus('error', store + ': ' + (e.message || e) + ' (pendiente)');
   } finally {
     _syncing = false;
+  }
+  if (!errorSync) {
+    await quitarPendiente(store);
+    await marcarSegunPendientes();
   }
 }
 
@@ -270,15 +301,27 @@ async function guardarPendientes(arr) {
   await db.setSettingSilent(SETTING_PENDIENTES, Array.isArray(arr) ? arr : []);
 }
 
+// Encola con persistencia en IndexedDB (cola de sincronización offline).
+async function encolarPendienteAsync(store) {
+  const pend = await leerPendientes();
+  if (!pend.includes(store)) {
+    pend.push(store);
+    await guardarPendientes(pend);
+  }
+  setStatus('pending', `pendiente: ${pend.join(', ')}`);
+}
+
 function encolarPendiente(store) {
-  // No se encola en cadena: si ya está pendiente, no se repite.
-  leerPendientes().then(async (pend) => {
-    if (!pend.includes(store)) {
-      pend.push(store);
-      await guardarPendientes(pend);
-    }
-    setStatus('pending', `pendiente: ${pend.join(', ')}`);
-  });
+  encolarPendienteAsync(store);
+}
+
+// Quita un store de la cola de pendientes tras subirlo. Los stores de un mismo
+// mes (months/salidas/atencion/aseos) se sincronizan juntos: se limpian en grupo.
+async function quitarPendiente(store) {
+  const pend = await leerPendientes();
+  const familia = new Set(['months', 'salidas', 'atencion', 'aseos']);
+  const rest = pend.filter(s => s !== store && !(familia.has(store) && familia.has(s)));
+  await guardarPendientes(rest);
 }
 
 // Devuelve los stores pendientes de sincronizar.
@@ -303,8 +346,31 @@ export async function drenarPendientes() {
     }
   }
   await guardarPendientes(restantes);
+  await marcarSegunPendientes();
   if (restantes.length) setStatus('error', 'pendientes sin sincronizar: ' + restantes.join(', '));
   else setStatus('ok', 'pendientes sincronizados');
+}
+
+// Subida forzada de todos los datos locales a Firebase. La usa el botón
+// "Guardar cambios" del encabezado: garantiza que todo lo que hay en IndexedDB
+// se refleje en la nube aunque la cola de pendientes esté vacía.
+export async function sincronizarAhora() {
+  if (!isFirebaseConfigured()) return { error: 'no-configurado' };
+  if (!navigator.onLine) return { error: 'offline' };
+  if (!(await isFirebaseReady())) return { error: 'firebase-no-disponible' };
+  if (!isAuthenticated()) return { error: 'sin-sesion' };
+  if (_syncing) return { error: 'ocupado' };
+  if (!_enabled) await iniciarSync();
+  setStatus('syncing', 'subiendo cambios…');
+  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings'];
+  for (const store of stores) await pushStore(store);
+  const pend = await leerPendientes();
+  if (pend.length) {
+    setStatus('error', 'hubo errores al subir: ' + pend.join(', '));
+    return { error: 'parcial' };
+  }
+  setStatus('ok', 'cambios subidos');
+  return { ok: true };
 }
 
 // Descarga todos los datos de Firestore y los escribe en IndexedDB (pull).
@@ -440,6 +506,7 @@ export async function iniciarSync() {
   // Concilia ambos lados: sube lo local que falta en la nube y baja lo de la
   // nube que falta en local.
   await reconciliar().catch(() => {});
+  await marcarSegunPendientes().catch(() => {});
 }
 
 // Conciliación bidireccional IndexedDB ↔ Firestore.

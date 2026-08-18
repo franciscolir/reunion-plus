@@ -2,7 +2,7 @@
 import * as db from './db.js';
 import { isFirebaseConfigured } from './firebase-config.js';
 import { isFirebaseReady, borrarParticipantesReunionesProgramas, borrarSoloProgramas, limpiarTodasLasColecciones } from './firestore.js';
-import { iniciarSync, pullSiVacio, reconciliar, syncStatus } from './sync.js';
+import { iniciarSync, pullSiVacio, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora } from './sync.js';
 import { login, loginWithGoogle, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
@@ -107,16 +107,52 @@ function initSyncIndicator() {
   }
   const dot = $('#syncIndicatorDot');
   const txt = $('#syncIndicatorTxt');
+  const btnCloud = document.getElementById('onlineBtn');
+  const saveLabel = document.getElementById('syncSaveLabel');
 
   const pintar = () => {
     const on = navigator.onLine;
+    const dirty = hayCambiosPendientes();
     root.classList.remove('hidden');
     root.classList.add('flex');
-    dot.style.background = on ? '#2e7d32' : '#e5484d';
-    txt.textContent = on ? 'on line' : 'off line';
+    dot.style.background = dirty || !on ? '#e5484d' : '#2e7d32';
+    txt.textContent = dirty ? 'cambios sin subir' : (on ? 'on line' : 'off line');
+    if (btnCloud) btnCloud.style.color = dirty ? '#e5484d' : '';
+    if (saveLabel) {
+      saveLabel.classList.toggle('hidden', !dirty);
+      saveLabel.classList.toggle('inline-flex', !!dirty);
+    }
   };
   window.addEventListener('online', pintar);
   window.addEventListener('offline', pintar);
+  window.addEventListener('reunion-dirty', pintar);
+  let guardando = false;
+  const guardarAhora = async () => {
+    if (guardando) return;
+    guardando = true;
+    if (btnCloud) btnCloud.disabled = true;
+    try {
+      const res = await sincronizarAhora();
+      if (res && res.error) {
+        const msgs = {
+          'offline': 'Sin conexión: los cambios quedan en este dispositivo y se subirán solos al recuperar la conexión.',
+          'no-configurado': 'Firebase no está configurado en esta instalación.',
+          'sin-sesion': 'Inicia sesión para guardar los cambios en la nube.',
+          'ocupado': 'Sincronizando ahora mismo; espera un momento.',
+          'parcial': 'Hubo errores al subir algunos cambios; vuelve a pulsar para reintentar.',
+        };
+        toast(msgs[res.error] || 'No se pudo subir: ' + res.error, 'error');
+      }
+    } catch (err) {
+      toast('Error al guardar en Firebase: ' + (err.message || err), 'error');
+    } finally {
+      guardando = false;
+      if (btnCloud) btnCloud.disabled = false;
+      pintar();
+    }
+  };
+  if (btnCloud) btnCloud.addEventListener('click', guardarAhora);
+  if (saveLabel) saveLabel.addEventListener('click', guardarAhora);
   // Al terminar una descarga, refrescar catálogos y repintar la vista actual.
   window.addEventListener('reunion-sync', (e) => {
     const st = e.detail || {};
@@ -2166,21 +2202,18 @@ function weekCard(w, i, conflicts) {
 /* ---------- Labores: editor (tras bambalinas, no asignaciones de reunión) ---------- */
 /* ---------- EDIT: sección Salidas (sólo semanas normales) ---------- */
 function outingRow(o, weekIdx, outIdx, conflicts) {
-  const dup = conflicts.duplicates.includes(outIdx);
-  const badge = dup ? `<span class="flex items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Repite en la semana</span>` : '';
   const talkVal = o.tituloDiscurso || '';
   return `<div class="bg-secondary-container/20 border border-secondary/50 rounded-lg p-4 space-y-3" data-outing="${weekIdx}.${outIdx}">
     <div class="flex items-center justify-between">
       <span class="font-label-md text-label-md text-secondary uppercase">Orador ${outIdx + 1}</span>
       <div class="flex items-center gap-2">
-        ${badge}
         <button data-outing-del="${weekIdx}.${outIdx}" class="text-error" title="Eliminar orador"><span class="material-symbols-outlined text-[18px]">delete</span></button>
       </div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div class="space-y-1">
         <label class="font-label-md text-label-md text-on-surface-variant">Orador</label>
-        <select data-outing-field="oradorSalida" data-outing-idx="${weekIdx}.${outIdx}" data-people data-labore="orador" class="w-full bg-surface-bright border ${dup ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-md focus:border-primary">
+        <select data-outing-field="oradorSalida" data-outing-idx="${weekIdx}.${outIdx}" data-people data-labore="orador" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
           <option value="">— Sin asignar —</option>
         </select>
       </div>
@@ -5297,8 +5330,7 @@ async function renderSalidas(monthId, opts = {}) {
     const blocks = program ? (program.weeks || []).map((w, i) => {
       const date = new Date(w.saturday + 'T00:00:00');
       const dateStr = capitalize(date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }));
-      const occ = computeOutingConflicts({ weeks: program.weeks }, i);
-      const rows = (w.outings || []).map((o, j) => outingRow(o, i, j, occ)).join('');
+      const rows = (w.outings || []).map((o, j) => outingRow(o, i, j)).join('');
       const sinSalida = w.sinSalida === true;
       return `<section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
         <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
@@ -5338,8 +5370,7 @@ async function renderSalidas(monthId, opts = {}) {
               <span class="material-symbols-outlined text-[18px]">add_circle</span> Crear programa de salidas
             </button>
           </div>`
-        : `<div id="salidasCross" class="mb-4"></div>
-           <section id="salidasCong" class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6 mb-6">
+        : `<section id="salidasCong" class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6 mb-6">
             <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h2 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
                 <span class="material-symbols-outlined text-secondary">campaign</span> Datos de Salida
@@ -5408,8 +5439,6 @@ async function renderSalidas(monthId, opts = {}) {
     if (programBtn) programBtn.onclick = () => go('outings', { monthId: cur });
     const saveBtn = embed ? embed.querySelector('#salidasSave') : $('#salidasSave');
     if (saveBtn) saveBtn.onclick = async () => { await db.putSalidas(program); await syncAssignmentLog(); toast('Salidas guardadas', 'success'); };
-
-    renderCrossAlerts(embed ? embed.querySelector('#salidasCross') : $('#salidasCross'), cur);
   };
 
   async function createProgram() {
