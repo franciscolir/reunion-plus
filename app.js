@@ -2964,17 +2964,16 @@ function renderOutingsContent() {
   const mes = Number(state.monthId.slice(5, 7));
   const mesTxt = `${MONTHS_ES[mes - 1].toUpperCase()} ${y}`;
   const congs = outs.filter(c => c.nombre);
+  const sinCongs = '<span class="text-[#8a8271] italic">Sin congregaciones</span>';
+  const title = `SALIDAS  |  ${mesTxt}`;
   const congsLine = congs.map(c => {
     const diaLabel = c.dia === 'domingo' ? 'Domingos' : 'Sábados';
-    return `${escapeHtml(c.nombre)} — ${diaLabel} ${c.hora || ''}`;
+    return `Congregación ${escapeHtml(c.nombre)} — ${diaLabel} ${c.hora || ''}`;
   }).join('  |  ');
-  const sinCongs = '<span class="text-[#8a8271] italic">Sin congregaciones</span>';
   const header = `
     <div class="outings-head mb-5 pb-4 border-b border-[#e7e3db]">
-      <div class="outings-congs-label">Congregaciones ( Salidas  |  ${mesTxt} )</div>
-      <div class="outings-congs-line">
-        ${congsLine || sinCongs}  |  Salidas  |  ${mesTxt}  ( Congregación ${congsLine || 'Sin congregaciones'} )
-      </div>
+      <div class="outings-title">${title}</div>
+      <div class="outings-congs-line">${congsLine || sinCongs}</div>
     </div>`;
 
   if (outingsMode === 'movil') {
@@ -2999,11 +2998,11 @@ function renderOutingsContent() {
     </div>`;
 }
 
-// Bloque "Semana N" + día (número). Compartido por los dos formatos.
-function celdaFecha(i, dia) {
+// Bloque "Semana N" + fecha (texto). Compartido por los dos formatos.
+function celdaFecha(i, fechaText) {
   return `
     <div class="outing-semana text-[10px] uppercase tracking-[0.22em] text-[#9a927f] mb-1">Semana ${i + 1}</div>
-    <div class="outing-fecha text-lg md:text-xl font-semibold text-[#3f3a2e] leading-tight">${dia}</div>`;
+    <div class="outing-fecha text-lg md:text-xl font-semibold text-[#3f3a2e] leading-tight">${fechaText}</div>`;
 }
 
 function outingWeekRow(w, i) {
@@ -3012,7 +3011,7 @@ function outingWeekRow(w, i) {
   const outs = Array.isArray(w.outings) ? w.outings : [];
   if (w.sinSalida) {
     return `<tr class="align-top">
-      <td class="px-4 py-3 w-[150px]">${celdaFecha(i, dia)}</td>
+      <td class="px-4 py-3 w-[150px]">${celdaFecha(i, String(dia))}</td>
       <td class="px-4 py-3 text-[#8a8271] italic" colspan="2">Sin salida esta semana</td>
     </tr>`;
   }
@@ -3021,20 +3020,23 @@ function outingWeekRow(w, i) {
   const talks = outs.map(o =>
     `<div class="py-1.5 text-[#6b6454] text-base">${escapeHtml(o.tituloDiscurso || '—')}</div>`).join('');
   return `<tr class="align-top">
-    <td class="px-4 py-3 w-[150px]">${celdaFecha(i, dia)}</td>
+    <td class="px-4 py-3 w-[150px]">${celdaFecha(i, String(dia))}</td>
     <td class="px-4 py-3 w-2/5">${names || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
     <td class="px-4 py-3 w-2/5">${talks || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
   </tr>`;
 }
 
-// Formato móvil 16:9: semana + fecha arriba y el discurso a lo ancho debajo.
+// Formato móvil 16:9: semana + fecha (día de la semana) arriba y el discurso a
+// lo ancho debajo.
 function outingMovilCard(w, i) {
   const date = new Date(w.saturday + 'T00:00:00');
   const dia = date.getDate();
+  const weekday = capitalize(date.toLocaleDateString('es', { weekday: 'long' }));
+  const fechaTxt = `${weekday} ${dia}`;
   const outs = Array.isArray(w.outings) ? w.outings : [];
   if (w.sinSalida) {
     return `<div class="outings-movil-row border border-[#e7e3db] rounded-lg p-3">
-      ${celdaFecha(i, dia)}
+      ${celdaFecha(i, fechaTxt)}
       <div class="text-[#8a8271] italic mt-1">Sin salida esta semana</div>
     </div>`;
   }
@@ -3044,7 +3046,7 @@ function outingMovilCard(w, i) {
       <div class="text-[#6b6454] text-base">${escapeHtml(o.tituloDiscurso || '—')}</div>
     </div>`).join('');
   return `<div class="outings-movil-row border border-[#e7e3db] rounded-lg p-3">
-    ${celdaFecha(i, dia)}
+    ${celdaFecha(i, fechaTxt)}
     ${items || '<div class="text-[#8a8271] italic mt-1">—</div>'}
   </div>`;
 }

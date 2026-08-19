@@ -60,7 +60,7 @@ export async function seedProposalData(page) {
     id: '2026-08', year: 2026, month: 8, published: false,
     weeks: fsDates.map(date => ({ date, type: 'normal', presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' })),
   };
-  const salidas = [{ id: '2026-08', congregations: [{ name: 'Test' }], weeks: fsDates.map(saturday => ({ saturday, outings: [{ oradorSalida: '', tituloDiscurso: '' }] })) }];
+  const salidas = [{ id: '2026-08', congregations: [{ nombre: 'Test' }], weeks: fsDates.map(saturday => ({ saturday, outings: [{ oradorSalida: '', tituloDiscurso: '' }] })) }];
   const atencion = [{ id: '2026-08', weeks: fsDates.map(saturday => ({ saturday, labores: {} })) }];
 
   await page.addInitScript(({ people, midweeks, month, salidas, atencion }) => {
