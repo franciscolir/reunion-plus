@@ -1,96 +1,99 @@
-// firestore.js - Capa de acceso a Cloud Firestore (Fase 2)
-// =========================================================
-// Esta capa abstrae el acceso a Firestore por dominio (participantes, grupos,
-// reuniones, programas, asignaciones, configuración, usuarios). En esta fase
-// solo se prepara la API; la lógica de negocio sigue leyendo de IndexedDB
-// (db.js). Cuando se configure Firebase y se migren los módulos, estas
-// funciones reemplazarán progresivamente a db.js.
+// firestore.js - Capa de acceso a Supabase (reemplaza a Firestore)
+// =================================================================
+// Cada dominio (participantes, grupos, reuniones, programas, asignaciones,
+// configuración, usuarios) es una tabla Postgres con columnas:
+//   id text PK · data jsonb · updated_at timestamptz
+// El documento (los campos de la app) vive entero en `data` (jsonb), igual que
+// un documento de Firestore. Las reglas de seguridad son políticas RLS.
 //
-// Si Firebase no está configurado, todas las funciones devuelven null/[] y no
+// Si Supabase no está configurado, todas las funciones devuelven null/[] y no
 // hacen ninguna llamada de red (la app sigue funcionando offline con IndexedDB).
 
-import { FIREBASE_SDK_BASE, isFirebaseConfigured, getFirebaseApp } from './firebase-config.js';
+import { isFirebaseConfigured, getFirebaseApp } from './firebase-config.js';
 
-let _db = null;
+let _sb = null;
 let _ready = false;
 
-// Inicializa Firestore de forma perezosa. Devuelve { db } o null si no hay
-// configuración / no se pudo cargar el SDK (sin red).
+// Inicializa el cliente de Supabase de forma perezosa.
 async function initFirebase() {
-  if (_ready) return _db ? { db: _db } : null;
+  if (_ready) return _sb;
   _ready = true;
   if (!isFirebaseConfigured()) return null;
   try {
-    const app = await getFirebaseApp();
-    if (!app) return null;
-    const { getFirestore } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-    _db = getFirestore(app);
-    return { db: _db };
+    _sb = await getFirebaseApp();
+    return _sb;
   } catch (e) {
-    console.warn('[Reunión+] Firebase no disponible (¿sin conexión o SDK no cargado?)', e);
+    console.warn('[Reunión+] Supabase no disponible (¿sin conexión o SDK no cargado?)', e);
     return null;
   }
 }
 
-// Acceso de solo lectura (con manejo de desconexión). Devuelve array de docs.
-async function readAll(collection) {
-  const f = await initFirebase();
-  if (!f) return [];
-  const { getDocs, collection: coll, query, orderBy } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-  const snap = await getDocs(query(coll(f.db, collection), orderBy('updatedAt', 'desc')));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+// Convierte una fila (id + data jsonb) al formato documento { id, ...campos }.
+const filaADoc = (r) => ({ id: r.id, ...(r.data || {}) });
+
+// Lee todos los documentos de una tabla (los más recientes primero).
+async function readAll(table) {
+  const sb = await initFirebase();
+  if (!sb) return [];
+  const { data, error } = await sb.from(table).select('*').order('updated_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map(filaADoc);
 }
 
-async function readDoc(collection, id) {
-  const f = await initFirebase();
-  if (!f) return null;
-  const { getDoc, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-  const d = await getDoc(doc(f.db, collection, String(id)));
-  return d.exists() ? { id: d.id, ...d.data() } : null;
+async function readDoc(table, id) {
+  const sb = await initFirebase();
+  if (!sb) return null;
+  const { data, error } = await sb.from(table).select('*').eq('id', String(id)).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? filaADoc(data) : null;
 }
 
-async function writeDoc(collection, id, data) {
-  const f = await initFirebase();
-  if (!f) return null;
-  const { setDoc, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
+async function writeDoc(table, id, data) {
+  const sb = await initFirebase();
+  if (!sb) return null;
   const payload = { ...data, updatedAt: Date.now() };
   if (!payload.createdAt) payload.createdAt = payload.updatedAt;
-  await setDoc(doc(f.db, collection, String(id)), payload);
+  const { error } = await sb.from(table).upsert(
+    { id: String(id), data: payload, updated_at: new Date().toISOString() },
+    { onConflict: 'id' }
+  );
+  if (error) throw new Error(error.message);
   return id;
 }
 
-async function deleteDoc(collection, id) {
-  const f = await initFirebase();
-  if (!f) return null;
-  const { deleteDoc, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-  await deleteDoc(doc(f.db, collection, String(id)));
+async function deleteDoc(table, id) {
+  const sb = await initFirebase();
+  if (!sb) return null;
+  const { error } = await sb.from(table).delete().eq('id', String(id));
+  if (error) throw new Error(error.message);
   return id;
 }
 
-// Escribe muchos documentos en lotes (máx. 500 ops por batch en Firestore).
-// `docs` = [{ collection, id, data }]. Devuelve la cantidad de documentos escritos.
-// Idempotente: usa setDoc con id explícito (sobrescribe sin duplicar).
+// Escribe muchos documentos en lote. `docs` = [{ collection, id, data }].
+// Agrupa por tabla y hace upsert por id (idempotente). Devuelve nº escrito.
 export async function batchWrite(docs) {
-  const f = await initFirebase();
-  if (!f || !docs.length) return 0;
-  const { writeBatch, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-  const now = Date.now();
+  const sb = await initFirebase();
+  if (!sb || !docs.length) return 0;
+  const now = new Date().toISOString();
+  const nowNum = Date.now();
+  const porTabla = {};
+  for (const d of docs) {
+    const payload = { ...d.data, updatedAt: nowNum };
+    if (!payload.createdAt) payload.createdAt = nowNum;
+    (porTabla[d.collection] ||= []).push({ id: String(d.id), data: payload, updated_at: now });
+  }
   let written = 0;
-  for (let i = 0; i < docs.length; i += 400) {
-    const chunk = docs.slice(i, i + 400);
-    const batch = writeBatch(f.db);
-    for (const d of chunk) {
-      const payload = { ...d.data, updatedAt: now };
-      if (!payload.createdAt) payload.createdAt = now;
-      batch.set(doc(f.db, d.collection, String(d.id)), payload);
+  for (const [table, rows] of Object.entries(porTabla)) {
+    for (let i = 0; i < rows.length; i += 100) {
+      const { error } = await sb.from(table).upsert(rows.slice(i, i + 100), { onConflict: 'id' });
+      if (error) throw new Error(error.message);
+      written += Math.min(100, rows.length - i);
     }
-    await batch.commit();
-    written += chunk.length;
   }
   return written;
 }
 
-// Estado de conexión: true si Firebase está disponible y listo.
+// Estado de conexión: true si Supabase está disponible y listo.
 export async function isFirebaseReady() {
   return !!(await initFirebase());
 }
@@ -122,23 +125,20 @@ export const eliminarPrograma = (id) => deleteDoc('programas', id);
 // ===== Asignaciones (historial) =====
 export const obtenerAsignaciones = () => readAll('asignaciones');
 export const obtenerAsignacionesPorMes = async (mesId) => {
-  const f = await initFirebase();
-  if (!f) return [];
-  const { getDocs, collection: coll, query, where } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-  const snap = await getDocs(query(coll(f.db, 'asignaciones'), where('programaId', '==', String(mesId))));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const sb = await initFirebase();
+  if (!sb) return [];
+  const { data, error } = await sb.from('asignaciones').select('*').eq('data->>programaId', String(mesId));
+  if (error) throw new Error(error.message);
+  return (data || []).map(filaADoc);
 };
 export const obtenerAsignacionesPorParticipante = async (personaId) => {
-  const f = await initFirebase();
-  if (!f) return [];
-  const { getDocs, collection: coll, query, where, orderBy, limit } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-  const snap = await getDocs(query(
-    coll(f.db, 'asignaciones'),
-    where('participanteId', '==', String(personaId)),
-    orderBy('fecha', 'desc'),
-    limit(500)
-  ));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const sb = await initFirebase();
+  if (!sb) return [];
+  const { data, error } = await sb.from('asignaciones')
+    .select('*').eq('data->>participanteId', String(personaId))
+    .order('data->>fecha', { ascending: false }).limit(500);
+  if (error) throw new Error(error.message);
+  return (data || []).map(filaADoc);
 };
 export const guardarAsignacion = (id, data) => writeDoc('asignaciones', id, data);
 
@@ -156,60 +156,38 @@ export const obtenerUsuario = (uid) => readDoc('usuarios', uid);
 export const guardarUsuario = (uid, data) => writeDoc('usuarios', uid, data);
 
 // ===== Mantenimiento (borrado de datos) =====
-// Borra todos los documentos de una colección excepto los indicados por id.
-// Útil para "restaurar valores de fábrica" y borrar usuarios/reuniones/programas.
-export async function borrarColeccionExcepto(collection, exceptIds = []) {
-  const f = await initFirebase();
-  if (!f) return 0;
-  const { getDocs, collection: coll, writeBatch, doc } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-firestore.js');
-  const snap = await getDocs(coll(f.db, collection));
-  const aBorrar = snap.docs.filter((d) => !exceptIds.includes(String(d.id)));
-  let borrados = 0;
-  for (let i = 0; i < aBorrar.length; i += 400) {
-    const chunk = aBorrar.slice(i, i + 400);
-    const batch = writeBatch(f.db);
-    for (const d of chunk) batch.delete(doc(f.db, collection, String(d.id)));
-    await batch.commit();
-    borrados += chunk.length;
-  }
-  return borrados;
+export async function borrarColeccionExcepto(table, exceptIds = []) {
+  const sb = await initFirebase();
+  if (!sb) return 0;
+  let q = sb.from(table).delete();
+  if (exceptIds.length) q = q.not('id', 'in', exceptIds.map(String));
+  const { error } = await q;
+  if (error) throw new Error(error.message);
+  return 0;
 }
 
-// Limpia TODAS las colecciones de datos de la app (deja intacta la de usuarios
-// excepto el uid indicado, para conservar la cuenta admin).
 export async function limpiarTodasLasColecciones(exceptUid = '') {
-  const f = await initFirebase();
-  if (!f) return 0;
-  const colecciones = ['participantes', 'grupos', 'reuniones', 'programas', 'asignaciones', 'configuracion'];
+  const sb = await initFirebase();
+  if (!sb) return 0;
+  const tablas = ['participantes', 'grupos', 'reuniones', 'programas', 'asignaciones', 'configuracion'];
   let total = 0;
-  for (const c of colecciones) total += await borrarColeccionExcepto(c);
-  // usuarios: conservar solo el admin actual
+  for (const t of tablas) total += await borrarColeccionExcepto(t);
   total += await borrarColeccionExcepto('usuarios', exceptUid ? [String(exceptUid)] : []);
   return total;
 }
 
-// Borra participantes, reuniones y programas (con su historial de asignaciones).
-// NO toca la colección `usuarios`. Conserva grupos y configuración.
 export async function borrarParticipantesReunionesProgramas() {
-  const f = await initFirebase();
-  if (!f) return 0;
+  const sb = await initFirebase();
+  if (!sb) return 0;
   let total = 0;
-  total += await borrarColeccionExcepto('participantes');
-  total += await borrarColeccionExcepto('reuniones');
-  total += await borrarColeccionExcepto('programas');
-  total += await borrarColeccionExcepto('asignaciones'); // historial ligado a participantes/programas
+  for (const t of ['participantes', 'reuniones', 'programas', 'asignaciones']) total += await borrarColeccionExcepto(t);
   return total;
 }
 
-// Borra SOLO los programas (reuniones de entre semana, programas mensuales y su
-// historial), conservando participantes, grupos y configuración. Para volver a
-// crearlos desde cero sin perder el catálogo de personas.
 export async function borrarSoloProgramas() {
-  const f = await initFirebase();
-  if (!f) return 0;
+  const sb = await initFirebase();
+  if (!sb) return 0;
   let total = 0;
-  total += await borrarColeccionExcepto('reuniones');
-  total += await borrarColeccionExcepto('programas');
-  total += await borrarColeccionExcepto('asignaciones'); // historial ligado a los programas
+  for (const t of ['reuniones', 'programas', 'asignaciones']) total += await borrarColeccionExcepto(t);
   return total;
 }

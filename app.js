@@ -131,7 +131,7 @@ function initSyncIndicator() {
     dot.style.background = color;
     txt.textContent = label;
     const lastTxt = last ? new Date(last).toLocaleString('es', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-    root.title = 'Estado de la sincronización' + (lastTxt ? `\nÚltimo guardado en Firebase: ${lastTxt}` : '');
+    root.title = 'Estado de la sincronización' + (lastTxt ? `\nÚltimo guardado en Supabase: ${lastTxt}` : '');
     if (btnCloud) btnCloud.style.color = dirty ? '#e5484d' : '';
     if (saveLabel) {
       saveLabel.classList.toggle('hidden', !dirty);
@@ -151,16 +151,16 @@ function initSyncIndicator() {
       if (res && res.error) {
         const msgs = {
           'offline': 'Sin conexión: los cambios quedan en este dispositivo y se subirán solos al recuperar la conexión.',
-          'no-configurado': 'Firebase no está configurado en esta instalación.',
+          'no-configurado': 'Supabase no está configurado en esta instalación.',
           'sin-sesion': 'Inicia sesión para guardar los cambios en la nube.',
           'ocupado': 'Sincronizando ahora mismo; espera un momento.',
           'parcial': 'Hubo errores al subir algunos cambios; vuelve a pulsar para reintentar.',
-          'quota-exceeded': 'Cupo de Firebase superado: los cambios quedan en este dispositivo y se subirán cuando haya cupo.',
+          'quota-exceeded': 'Cupo de la nube superado: los cambios quedan en este dispositivo y se subirán cuando haya cupo.',
         };
         toast(msgs[res.error] || 'No se pudo subir: ' + res.error, 'error');
       }
     } catch (err) {
-      toast('Error al guardar en Firebase: ' + (err.message || err), 'error');
+      toast('Error al guardar en Supabase: ' + (err.message || err), 'error');
     } finally {
       guardando = false;
       if (btnCloud) btnCloud.disabled = false;
@@ -199,7 +199,7 @@ function mostrarBannerBorrador() {
   document.body.appendChild(banner);
   banner.querySelector('#draftKeep').onclick = () => banner.remove();
   banner.querySelector('#draftDiscard').onclick = async () => {
-    if (!(await confirmDialog('¿Descartar el borrador local? Se restaurarán los datos confirmados en Firebase (los cambios sin guardar se perderán).', 'Descartar borrador'))) return;
+    if (!(await confirmDialog('¿Descartar el borrador local? Se restaurarán los datos confirmados en Supabase (los cambios sin guardar se perderán).', 'Descartar borrador'))) return;
     banner.remove();
     try {
       const res = await pullAll();
@@ -207,7 +207,7 @@ function mostrarBannerBorrador() {
       await descartarLocal();
       await refreshCatalogs();
       router();
-      toast('Borrador descartado. Se restauraron los datos de Firebase.', 'success');
+      toast('Borrador descartado. Se restauraron los datos de Supabase.', 'success');
     } catch (err) {
       toast('Error al descartar: ' + (err.message || err), 'error');
     }
@@ -5098,14 +5098,14 @@ async function renderSettings() {
 
         <div class="border-t border-outline-variant pt-6">
           <h3 class="font-headline-md text-headline-md text-primary mb-2">Mantenimiento de datos</h3>
-          <p class="text-on-surface-variant text-sm mb-3">Los datos viven en Firebase y se sincronizan automáticamente. Aquí puedes restaurar los valores de fábrica o borrar solo reuniones y programas. Las acciones destructivas requieren tu contraseña de admin.</p>
+          <p class="text-on-surface-variant text-sm mb-3">Los datos viven en Supabase y se sincronizan automáticamente. Aquí puedes restaurar los valores de fábrica o borrar solo reuniones y programas. Las acciones destructivas requieren tu contraseña de admin.</p>
           <div class="flex gap-3 flex-wrap">
             <button id="setBorrarProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar participantes, reuniones y programas</button>
             <button id="setBorrarSoloProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar solo programas (recrear desde cero)</button>
             <button id="setResetFabrica" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Restaurar valores de fábrica</button>
           </div>
           <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
-          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Firebase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar participantes, reuniones y programas" elimina esas colecciones (conserva usuarios, grupos y configuración). "Borrar solo programas" elimina reuniones, programas, salidas y acomodación conservando los participantes para regenerarlos desde cero.</p>
+          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Supabase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar participantes, reuniones y programas" elimina esas colecciones (conserva usuarios, grupos y configuración). "Borrar solo programas" elimina reuniones, programas, salidas y acomodación conservando los participantes para regenerarlos desde cero.</p>
         </div>
       </div>
     </div>
@@ -5304,14 +5304,14 @@ async function renderSettings() {
   // Borrar participantes, reuniones y programas (conserva grupos, usuarios y config).
   $('#setBorrarProgramas').onclick = async () => {
     if (!await confirmarAdmin()) return;
-    if (!await confirmDialog('Se borrarán en Firebase y en el dispositivo: participantes, reuniones y programas mensuales (con su historial de asignaciones). Los usuarios, grupos y configuración se conservan. ¿Continuar?', 'Borrar')) return;
+    if (!await confirmDialog('Se borrarán en Supabase y en el dispositivo: participantes, reuniones y programas mensuales (con su historial de asignaciones). Los usuarios, grupos y configuración se conservan. ¿Continuar?', 'Borrar')) return;
     const btn = $('#setBorrarProgramas');
     btn.disabled = true;
     try {
       const borrados = await borrarParticipantesReunionesProgramas();
       await db.borrarParticipantesReunionesProgramasLocal();
       await refreshCatalogs();
-      toast(`Borrado completado · ${borrados} documentos en Firebase`, 'success');
+      toast(`Borrado completado · ${borrados} documentos en Supabase`, 'success');
     } catch (err) {
       toast('Error al borrar: ' + (err.message || err), 'error');
     } finally {
@@ -5332,7 +5332,7 @@ async function renderSettings() {
       const borrados = await borrarSoloProgramas();
       await db.borrarSoloProgramasLocal();
       await refreshCatalogs();
-      toast(`Programas borrados · ${borrados} documentos en Firebase`, 'success');
+      toast(`Programas borrados · ${borrados} documentos en Supabase`, 'success');
     } catch (err) {
       toast('Error al borrar programas: ' + (err.message || err), 'error');
     } finally {
@@ -5344,7 +5344,7 @@ async function renderSettings() {
   // Restaurar valores de fábrica: borra todo menos la cuenta admin.
   $('#setResetFabrica').onclick = async () => {
     if (!await confirmarAdmin()) return;
-    if (!await confirmDialog('Se borrarán TODOS los registros (personas, grupos, reuniones, programas, asignaciones, configuración) en Firebase y en el dispositivo. Las colecciones quedarán vacías y se conservará tu cuenta de admin. Esta acción NO se puede deshacer. ¿Continuar?', 'Restaurar valores de fábrica')) return;
+    if (!await confirmDialog('Se borrarán TODOS los registros (personas, grupos, reuniones, programas, asignaciones, configuración) en Supabase y en el dispositivo. Las colecciones quedarán vacías y se conservará tu cuenta de admin. Esta acción NO se puede deshacer. ¿Continuar?', 'Restaurar valores de fábrica')) return;
     const btn = $('#setResetFabrica');
     btn.disabled = true;
     btn.textContent = 'Restaurando…';
@@ -5353,7 +5353,7 @@ async function renderSettings() {
       const borrados = await limpiarTodasLasColecciones(uid);
       await db.limpiarIndexedDBLocal();
       await refreshCatalogs();
-      toast(`Valores de fábrica restaurados · ${borrados} documentos en Firebase`, 'success');
+      toast(`Valores de fábrica restaurados · ${borrados} documentos en Supabase`, 'success');
     } catch (err) {
       toast('Error al restaurar: ' + (err.message || err), 'error');
     } finally {
@@ -5367,8 +5367,8 @@ async function renderSettings() {
     const el = $('#setSyncStatus');
     if (!el) return;
     const mapa = {
-      'inactivo': ['text-on-surface-variant', 'Sincronización inactiva (Firebase no configurado)'],
-      'conectado': ['text-tertiary', 'Sincronización con Firebase activa'],
+      'inactivo': ['text-on-surface-variant', 'Sincronización inactiva (Supabase no configurado)'],
+      'conectado': ['text-tertiary', 'Sincronización con Supabase activa'],
       'syncing': ['text-primary', 'Sincronizando…'],
       'ok': ['text-tertiary', 'Sincronizado · ' + st.detail],
       'error': ['text-error', 'Error de sincronización · ' + st.detail],

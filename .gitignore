@@ -31,3 +31,4 @@ playwright-report/
 .tmp/
 
 firebase-config.js
+supabase-config.js

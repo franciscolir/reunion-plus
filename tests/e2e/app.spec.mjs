@@ -615,16 +615,16 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('[data-dvolver]');
   });
 
-  test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
+  test('nube: el botón guardar avisa cuando Supabase no está configurado', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
 
     await expect(page.locator('#onlineBtn')).toBeVisible();
-    // Sin Firebase no hay nada que subir: la etiqueta "Guardar cambios" está oculta.
+    // Sin Supabase no hay nada que subir: la etiqueta "Guardar cambios" está oculta.
     await expect(page.locator('#syncSaveLabel')).toBeHidden();
-    // Pulsar la nube explica que Firebase no está configurado.
+    // Pulsar la nube explica que Supabase no está configurado.
     await page.click('#onlineBtn');
-    await expect(page.locator('#toastRoot')).toContainText('Firebase no está configurado');
+    await expect(page.locator('#toastRoot')).toContainText('Supabase no está configurado');
   });
 
   test('programas: generar automáticamente por pestaña rellena el programa', async ({ page }) => {

@@ -1,0 +1,80 @@
+name: Deploy a GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generar supabase-config.js
+        shell: bash
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::warning::Secretos SUPABASE_URL / SUPABASE_ANON_KEY no configurados. Se despliega sin nube (solo IndexedDB)."
+          fi
+          cat > supabase-config.js <<EOF
+          export const SUPABASE_URL = '${SUPABASE_URL:-completar}';
+          export const SUPABASE_ANON_KEY = '${SUPABASE_ANON_KEY:-completar}';
+
+          export function isSupabaseConfigured() {
+            return Boolean(
+              SUPABASE_URL && SUPABASE_URL !== 'completar' &&
+              SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== 'completar'
+            );
+          }
+
+          let _client = null;
+
+          export async function getSupabase() {
+            if (_client) return _client;
+            if (!isSupabaseConfigured()) return null;
+            try {
+              const { createClient } = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+              _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+              return _client;
+            } catch (e) {
+              console.warn('[Reunión+] No se pudo inicializar Supabase', e);
+              return null;
+            }
+          }
+          EOF
+
+      - name: Preparar dist
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp index.html app.js db.js logic.js firestore.js firebase-config.js supabase-config.js auth.js migracion.js sync.js styles.css manifest.json favicon.png sw.js dist/
+          cp -r fonts icons vendor dist/
+          touch dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
