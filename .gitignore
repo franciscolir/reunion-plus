@@ -21,6 +21,7 @@ node_modules/
 mwb_S_*.pdf
 lista.pdf
 plantilla-participantes.xls
+plantilla-participantes.xlsx
 
 # Cache de Firebase CLI (local)
 .firebase/

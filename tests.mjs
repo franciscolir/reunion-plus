@@ -10,7 +10,7 @@ import {
   ATENCION_DEF, ATENCION_ROLES, isAtencionPerson, splitWords,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
-  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
@@ -26,6 +26,7 @@ import {
   wrapManualPrograms, changedManualKeys, runEngine, estadoProgramas,
 } from './logic.js';
 import { extractEpubText, xhtmlToLines, decodeEntities, resolvePath } from './epub.js';
+import { generatePeopleTemplate, parsePeopleXlsx, xlsxRowsFromXml } from './xlsx.js';
 import JSZip from 'jszip';
 
 let pass = 0, fail = 0;
@@ -1900,6 +1901,61 @@ console.log('[extractEpubText]');
   ok('normaliza la cabecera del EPUB', norm.includes('28 DE SEPTIEMBRE A 4 DE OCTUBRE'), norm);
   const { data } = convertPdfMidweeks(norm);
   ok('EPUB parsea la semana', data && data.weeks && data.weeks[0].header === '28-4 DE OCTUBRE', JSON.stringify(data && data.weeks.map(w => w.header)));
+}
+
+console.log('[personasFromXlsx]');
+{
+  const rows = [
+    ['Nombre', 'Sexo', 'Calificación', 'Cargo', 'Grupo'],
+    ['Ana García', 'Femenino', 'A', 'Anciano', '1'],
+    ['Luis Pérez', 'Masculino', 'B', 'S. Ministerial', '3'],
+    ['', '', '', '', ''],
+    ['Marta López', 'femenino', 'C', 'publicador', '5'],
+  ];
+  const { personas, warnings } = personasFromXlsx(rows);
+  eq('3 personas detectadas', personas.length, 3);
+  eq('Ana: campos completos', personas[0], { name: 'Ana García', genero: 'femenino', calificacion: 'A', cargos: ['anciano'], grupoId: '1' });
+  eq('Luis: s. ministerial → ministerial', personas[1].cargos, ['ministerial']);
+  eq('Luis grupo', personas[1].grupoId, '3');
+  eq('Marta: publicador', personas[2].cargos, ['publicador']);
+  ok('warnings por filas vacías no', !warnings.length, JSON.stringify(warnings));
+
+  // Cabeceras en distinto orden y con acento (Género).
+  const rows2 = [
+    ['Grupo', 'Género', 'Nombre', 'Cargo', 'Calificación'],
+    ['2', 'Mujer', 'Rosa Díaz', 'Anciano', 'B'],
+  ];
+  const { personas: p2 } = personasFromXlsx(rows2);
+  eq('orden distinto y Mujer', p2[0], { name: 'Rosa Díaz', genero: 'femenino', calificacion: 'B', cargos: ['anciano'], grupoId: '2' });
+}
+
+console.log('[xlsx.js]');
+{
+  const buf = await generatePeopleTemplate(JSZip);
+  ok('genera buffer', buf && buf.byteLength > 500, String(buf && buf.byteLength));
+
+  const zip = await JSZip.loadAsync(buf);
+  const sheet = await zip.file('xl/worksheets/sheet1.xml').async('string');
+  ok('cabeceras de la plantilla', ['Nombre', 'Sexo', 'Calificación', 'Cargo', 'Grupo'].every(h => sheet.includes(h)), sheet.slice(0, 200));
+  ok('validaciones desplegables', sheet.includes('dataValidation') && sheet.includes('Masculino,Femenino') && sheet.includes('Anciano,S. Ministerial,Publicador') && sheet.includes('1,2,3,4,5,6,7'), 'falta dataValidation');
+  ok('rango de 50 filas', sheet.includes('sqref="B2:B51"'), sheet.match(/sqref="[^"]+"/g));
+  ok('no faltan archivos OOXML', zip.file('[Content_Types].xml') && zip.file('xl/workbook.xml') && zip.file('_rels/.rels'));
+
+  const rows = xlsxRowsFromXml(sheet, []);
+  eq('fila cabecera leída', rows[0], ['Nombre', 'Sexo', 'Calificación', 'Cargo', 'Grupo']);
+  ok('tiene 51 filas (cabecera + 50)', rows.length >= 51, String(rows.length));
+
+  const rows2 = await parsePeopleXlsx(buf, JSZip);
+  eq('parsePeopleXlsx lee la plantilla', rows2[0], ['Nombre', 'Sexo', 'Calificación', 'Cargo', 'Grupo']);
+
+  // Parsing de shared strings e inline + número.
+  const handSheet = '<worksheet><sheetData>' +
+    '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="inlineStr"><is><t>Femenino</t></is></c></row>' +
+    '<row r="2"><c r="A2" t="s"><v>1</v></c><c r="B2"><v>3</v></c></row>' +
+    '</sheetData></worksheet>';
+  const hand = xlsxRowsFromXml(handSheet, ['Nombre', 'Ana García']);
+  eq('shared string e inline', hand[0], ['Nombre', 'Femenino']);
+  eq('shared string y número', hand[1], ['Ana García', '3']);
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);

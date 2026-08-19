@@ -920,6 +920,69 @@ function parsePersonRow(line, { laboresConocidas = [] } = {}) {
   return { name, genero, calificacion, grupoId, labores: uniq };
 }
 
+// Normaliza una cabecera de columna: minúsculas y sin acentos.
+function normalizeHeader(h) {
+  return String(h || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+// Mapea el cargo de la plantilla a los ids del sistema (publicador/ministerial/anciano).
+function cargoIdOf(cargo) {
+  const c = normalizeHeader(cargo);
+  if (!c) return null;
+  if (c.includes('anciano')) return 'anciano';
+  if (c.includes('ministerial')) return 'ministerial';
+  if (c.includes('publicador')) return 'publicador';
+  return null;
+}
+
+// Convierte las filas de la plantilla .xlsx (array de arrays) a personas.
+// La primera fila son las cabeceras: Nombre, Sexo, Calificación, Cargo, Grupo.
+// Devuelve { personas, warnings }.
+export function personasFromXlsx(rows) {
+  const head = (rows[0] || []).map(normalizeHeader);
+  const at = (names) => {
+    for (const n of names) {
+      const i = head.indexOf(n);
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+  const idx = {
+    name: at(['nombre', 'name']),
+    sexo: at(['sexo', 'genero', 'género']),
+    cal: at(['calificacion', 'calificación', 'calif', 'cal']),
+    cargo: at(['cargo', 'puesto']),
+    grupo: at(['grupo']),
+  };
+  const clean = (v) => String(v == null ? '' : v).trim();
+  const warnings = [];
+  const personas = [];
+  for (let i = 1; i < (rows || []).length; i++) {
+    const r = rows[i] || [];
+    const name = clean(r[idx.name]);
+    if (!name) continue;
+    const p = { name, genero: '', calificacion: '', cargos: [], grupoId: '' };
+    const sexo = clean(r[idx.sexo]);
+    if (/^fem|mujer|f$/.test(sexo.toLowerCase())) p.genero = 'femenino';
+    else if (/^mas|^var|hombre|m$/.test(sexo.toLowerCase())) p.genero = 'masculino';
+    const cal = clean(r[idx.cal]).toUpperCase().replace(/[^A-D]/g, '');
+    if (/^[A-D]$/.test(cal)) p.calificacion = cal;
+    const cargoId = cargoIdOf(clean(r[idx.cargo]));
+    if (cargoId) p.cargos = [cargoId];
+    const grupo = clean(r[idx.grupo]);
+    const gm = /^(\d{1,2})$/.exec(grupo);
+    if (gm) p.grupoId = gm[1];
+    if (!p.genero) warnings.push(`Fila ${i + 1}: sin sexo válido (${name}).`);
+    if (!p.calificacion) warnings.push(`Fila ${i + 1}: sin calificación válida (${name}).`);
+    personas.push(p);
+  }
+  if (!personas.length) warnings.push('No se encontraron filas con nombre en la plantilla.');
+  return { personas, warnings };
+}
+
 // Reconstruye el texto de una página PDF palabra por palabra a partir de los
 // ítems de pdf.js (getTextContent). En lugar de unir caracteres con espacios al
 // azar y re-separarlos con diccionario, usa la posición real de cada glifo:

@@ -12,7 +12,7 @@ import {
   dedupPersons, eligiblePeople, isAtencionPerson, ATENCION_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
-  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   collectPersonAssignments,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
@@ -27,6 +27,7 @@ import {
   clearAutoSlots, manualSlotKeys, estadoProgramas,
 } from './logic.js';
 import { extractEpubText } from './epub.js';
+import { generatePeopleTemplate, parsePeopleXlsx } from './xlsx.js';
 
 /* ---------- Estado ---------- */
 const state = {
@@ -4164,8 +4165,8 @@ const UPLOAD_TYPES = [
     key: 'people',
     title: 'Personas',
     icon: 'group',
-    desc: 'Lista de participantes. Use la plantilla descargable (solo Nombre, Género y Calificación), complétela y súbala convertida a PDF.',
-    pdfHint: 'Se extraen nombre, género y calificación de la tabla. Los roles y las parejas se asignan después en el sistema.',
+    desc: 'Lista de participantes. Use la plantilla descargable (.xlsx con listas desplegables), complétela y súbala directamente.',
+    pdfHint: 'Se extraen nombre, sexo, calificación, cargo y grupo de la plantilla .xlsx.',
   },
   {
     key: 'midweeks',
@@ -4194,15 +4195,15 @@ async function renderUploads() {
           <button data-dl-template class="flex items-center gap-2 border border-tertiary text-tertiary px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-tertiary-fixed/40 transition-colors">
             <span class="material-symbols-outlined text-[18px]">download</span> Descargar plantilla
           </button>
-          <span class="flex items-center gap-1 text-caption text-on-surface-variant"><span class="material-symbols-outlined text-[16px]">info</span> Llene la plantilla (Nombre, Género, Calificación), conviértala a PDF y súbala aquí.</span>
+          <span class="flex items-center gap-1 text-caption text-on-surface-variant"><span class="material-symbols-outlined text-[16px]">info</span> Llene la plantilla (Nombre, Sexo, Calificación, Cargo, Grupo) y súbala .xlsx directamente aquí.</span>
         </div>` : ''}
       <div data-slot="pdf">
         <label for="upl-pdf-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
-          <span class="material-symbols-outlined text-4xl text-on-surface-variant block mx-auto mb-2">${t.key === 'midweeks' ? 'auto_stories' : 'picture_as_pdf'}</span>
-          <span class="font-label-md text-label-md text-primary">${t.key === 'midweeks' ? 'Seleccionar archivo PDF o EPUB' : 'Seleccionar archivo PDF'}</span>
+          <span class="material-symbols-outlined text-4xl text-on-surface-variant block mx-auto mb-2">${t.key === 'midweeks' ? 'auto_stories' : t.key === 'people' ? 'table_view' : 'picture_as_pdf'}</span>
+          <span class="font-label-md text-label-md text-primary">${t.key === 'midweeks' ? 'Seleccionar archivo PDF o EPUB' : t.key === 'people' ? 'Seleccionar archivo XLSX' : 'Seleccionar archivo PDF'}</span>
           <span class="block text-caption text-on-surface-variant mt-1">${t.pdfHint}</span>
         </label>
-        <input id="upl-pdf-${t.key}" type="file" accept="${t.key === 'midweeks' ? '.pdf,application/pdf,.epub,application/epub+zip' : '.pdf,application/pdf'}" class="hidden" data-upload-pdf="${t.key}">
+        <input id="upl-pdf-${t.key}" type="file" accept="${t.key === 'midweeks' ? '.pdf,application/pdf,.epub,application/epub+zip' : t.key === 'people' ? '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : '.pdf,application/pdf'}" class="hidden" data-upload-pdf="${t.key}">
       </div>
       <p id="upl-status-${t.key}" class="mt-3 font-label-md text-label-md text-on-surface-variant hidden"></p>
     </div>
@@ -4219,7 +4220,7 @@ async function renderUploads() {
 
   app.querySelector('[data-dl-template]').onclick = downloadPeopleTemplate;
 
-  // Carga de PDF → valida el tipo y pide confirmación antes de guardar.
+  // Carga de archivo → valida el tipo y pide confirmación antes de guardar.
   app.querySelectorAll('input[data-upload-pdf]').forEach(input => {
     input.addEventListener('change', async () => {
       const file = input.files && input.files[0];
@@ -4227,8 +4228,30 @@ async function renderUploads() {
       const type = input.dataset.uploadPdf;
       const status = $(`#upl-status-${type}`);
       const isEpub = /\.epub$/i.test(file.name) || file.type === 'application/epub+zip';
-      showStatus(status, isEpub ? `Extrayendo ${file.name} (EPUB)…` : `Extrayendo ${file.name} con pdf.js…`, 'text-on-surface-variant');
+      const isXlsx = /\.xlsx$/i.test(file.name) || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      showStatus(status, isEpub ? `Extrayendo ${file.name} (EPUB)…` : isXlsx ? `Extrayendo ${file.name} (XLSX)…` : `Extrayendo ${file.name} con pdf.js…`, 'text-on-surface-variant');
       try {
+        // Personas desde plantilla .xlsx (nombre, sexo, calificación, cargo, grupo).
+        if (type === 'people' && isXlsx) {
+          const buffer = await file.arrayBuffer();
+          const rows = await parsePeopleXlsx(buffer);
+          const { personas, warnings } = personasFromXlsx(rows);
+          if (!personas.length) {
+            showStatus(status, 'No se encontraron filas con nombre en la plantilla. Revisa que hayas usado la plantilla descargada.', 'text-error');
+            return;
+          }
+          let msg = `Se detectaron ${personas.length} personas. ¿Guardar y reemplazar la lista de participantes?`;
+          if (warnings && warnings.length) msg += '\n\nAvisos:\n• ' + warnings.slice(0, 8).join('\n• ');
+          const ok = await confirmDialog(msg, 'Guardar');
+          if (!ok) { showStatus(status, 'Carga cancelada', 'text-on-surface-variant'); return; }
+          await db.replaceAllPeople(personas);
+          await refreshCatalogs();
+          showStatus(status, '✓ Datos guardados.', 'text-tertiary-fixed');
+          renderUploadSummary();
+          toast('Datos guardados', 'success');
+          return;
+        }
+
         let text;
         if (isEpub) {
           const buffer = await file.arrayBuffer();
@@ -4343,42 +4366,17 @@ async function cargarGuiaMidweeks(summary, text, label, status) {
   toast('Guía de actividades actualizada', 'success');
 }
 
-// Descarga la plantilla de participantes (Excel .xls con tabla).
-// Solo pide Nombre, Género y Calificación; los roles y las parejas se asignan
-// después en el sistema.
-function downloadPeopleTemplate() {
-  const html = `<!DOCTYPE html>
-<html lang="es" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-<head>
-<meta charset="UTF-8">
-<meta name="ProgId" content="Excel.Sheet">
-<meta name="Generator" content="Reunión+">
-<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
-<x:Name>Participantes</x:Name>
-<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
-</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-<style>
-  body { font-family: Arial, sans-serif; margin: 24px; }
-  h2 { color: #1a3a5c; }
-  p.small { font-size: 11px; color: #555; }
-  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-  th, td { border: 1px solid #999; padding: 6px 8px; font-size: 12px; text-align: left; }
-  th { background: #e8f0f8; }
-</style></head><body>
-  <h2>Reunión+ · Plantilla de participantes</h2>
-  <p class="small">Complete una fila por participante. Género: Masculino o Femenino. Calificación: A, B, C o D (D = requiere enlace de pareja). Los roles de asignación y las parejas se ingresan después en el sistema. Luego convierta la hoja a PDF y súbala en la vista Carga de Archivos.</p>
-  <table>
-    <thead><tr><th>Nombre</th><th>Género</th><th>Calificación</th></tr></thead>
-    <tbody>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-      <tr><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
-    </tbody>
-  </table>
-</body></html>`;
-  const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
-  downloadBlob(blob, 'plantilla-participantes.xls');
-  toast('Plantilla descargada', 'success');
+// Descarga la plantilla de participantes (.xlsx con listas desplegables).
+// Columnas: Nombre, Sexo, Calificación, Cargo y Grupo.
+async function downloadPeopleTemplate() {
+  try {
+    const buffer = await generatePeopleTemplate();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    downloadBlob(blob, 'plantilla-participantes.xlsx');
+    toast('Plantilla descargada (xlsx con listas desplegables)', 'success');
+  } catch (e) {
+    toast('Error al generar la plantilla: ' + e.message, 'error');
+  }
 }
 
 async function renderUploadSummary() {
