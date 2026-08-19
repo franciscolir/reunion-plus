@@ -2647,8 +2647,7 @@ async function saveMonth() {
   const conflicts = computeConflicts(state.month);
   const hard = conflicts.errors;
   if (hard.length) {
-    toast(`${hard.length} problema(s) sin resolver. Revise los campos resaltados.`, 'error');
-    return;
+    toast(`${hard.length} conflicto(s) en este programa; se guardarán igualmente. Revise los avisos parpadeantes.`, 'info');
   }
   // Envolver en formato {id, src, locked}: lo que el usuario cambió pasa a
   // MANUAL/bloqueado; lo no tocado conserva su origen (AUTO sigue siendo AUTO).
@@ -6492,6 +6491,9 @@ const REGLA_TXT = {
   E3: 'E3 · La misma asignación de entre semana se repite en el mes.',
   E4: 'E4 · El mismo cargo de fin de semana se repite en el mes.',
   E5: 'E5 · Más de una salida en el mes.',
+  E6: 'E6 · Repetido en la misma reunión de entre semana.',
+  E7: 'E7 · Repetido en la misma reunión de fin de semana.',
+  E8: 'E8 · Repetido en las salidas del mismo día.',
 };
 const ATENCION_ROL = { acomodacion: 'acomodador', microfono: 'microf', plataforma: 'plataforma', sonido: 'audio' };
 
@@ -6509,8 +6511,23 @@ async function renderConflictos(mes) {
   const salMes = salidas.filter(p => p.id === mes);
   const labMes = labores.filter(p => p.id === mes);
   const ctx = { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes, people: state.people };
-  const conflicts = computeCrossConflicts(ctx);
   const all = collectPersonAssignments(ctx);
+  // Conflictos intra-reunión: repetidos dentro de la misma semana/reunión.
+  const intra = [];
+  const agrupar = (map, regla) => map.forEach((asigs) => {
+    if (asigs.length > 1) {
+      const a0 = asigs[0];
+      intra.push({ value: a0.value, semana: a0.semana, mes, programa: a0.programa, rol: a0.rol, detalle: a0.detalle, regla, otros: asigs.slice(1).map(a => a.detalle) });
+    }
+  });
+  const entreDup = new Map(), finDup = new Map(), salDup = new Map();
+  all.forEach(a => {
+    if (a.programa === 'entre') { const k = `${a.value}|${a.semana}`; if (!entreDup.has(k)) entreDup.set(k, []); entreDup.get(k).push(a); }
+    else if (a.programa === 'fin') { const k = `${a.value}|${a.semana}`; if (!finDup.has(k)) finDup.set(k, []); finDup.get(k).push(a); }
+    else if (a.programa === 'salida') { const k = `${a.value}|${a.semana}`; if (!salDup.has(k)) salDup.set(k, []); salDup.get(k).push(a); }
+  });
+  agrupar(entreDup, 'E6'); agrupar(finDup, 'E7'); agrupar(salDup, 'E8');
+  const conflicts = [...computeCrossConflicts(ctx), ...intra];
   const config = await db.getConfig();
   const excepciones = Array.isArray(config.excepciones) ? config.excepciones : [];
   const exKey = (c) => `${c.value}|${c.regla}|${c.semana}`;
@@ -6617,6 +6634,7 @@ async function renderConflictos(mes) {
       const persona = state.people.find(x => String(x.id) === String(c.value));
       const asigs = all.filter(a => String(a.value) === String(c.value) && (
         (c.regla === 'E1' || c.regla === 'E2') ? String(a.semana) === String(c.semana)
+        : (c.regla === 'E6' || c.regla === 'E7' || c.regla === 'E8') ? (String(a.semana) === String(c.semana) && String(a.programa) === String(c.programa))
         : c.regla === 'E5' ? (String(a.mes) === String(c.mes) && a.programa === 'salida')
         : (String(a.mes) === String(c.mes) && String(a.programa) === String(c.programa) && String(a.rol) === String(c.rol))
       )).slice(0, 4);
@@ -6821,15 +6839,13 @@ async function renderMidweek(id) {
 
   $('#mwSave').onclick = async () => {
     const dup = mwCurrentDupKeys(editor);
+    const pairs = mwPairErrors(editor);
     if (dup.size) {
       mwRefreshConflicts(editor, week);
-      toast('Hay personas repetidas en esta reunión. Revise los campos resaltados.', 'error');
-      return;
+      toast('Hay personas repetidas en esta reunión; se guardará igualmente. Revise los campos resaltados.', 'info');
     }
-    const pairs = mwPairErrors(editor);
     if (pairs.length) {
-      toast(`Pareja no compatible: ${pairs[0].a.name} / ${pairs[0].b.name}. Revise la asignación.`, 'error');
-      return;
+      toast(`Pareja no compatible: ${pairs[0].a.name} / ${pairs[0].b.name}. Se guardará igualmente; revise la asignación.`, 'info');
     }
     week.sections.forEach((sec, si) => {
       sec.parts.forEach(p => {

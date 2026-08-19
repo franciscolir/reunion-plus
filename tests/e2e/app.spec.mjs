@@ -535,6 +535,39 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#app')).toContainText('Quitar autorización');
   });
 
+  test('guardar con conflicto ya no bloquea el programa (avisa y guarda)', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    // Crear un conflicto en fin de semana: la misma persona presidente y conductor.
+    await page.evaluate(() => new Promise((res, rej) => {
+      const req = indexedDB.open('reunion-plus', 8);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('months', 'readwrite');
+        const st = tx.objectStore('months');
+        const g = st.get('2026-08');
+        g.onsuccess = () => {
+          g.result.weeks[0].presidente = 1;
+          g.result.weeks[0].conductor = 1;
+          st.put(g.result);
+          tx.oncomplete = () => { db.close(); res(); };
+          tx.onerror = () => rej(tx.error);
+        };
+        g.onerror = () => rej(g.error);
+      };
+      req.onerror = () => rej(req.error);
+    }));
+
+    await page.evaluate(() => { location.hash = '#/edit/2026-08'; });
+    // El conflicto se marca en el editor (borde rojo parpadeante en el conductor).
+    await expect(page.locator('select[data-field="conductor"][data-idx="0"]')).toHaveClass(/border-error/);
+
+    // Guardar: ya no bloquea; guarda igualmente con el aviso.
+    await page.click('#btnSave');
+    await expect(page.locator('#toastRoot')).toContainText('Cambios guardados');
+  });
+
   test('personas: asignación de grupos en lote y avatar con número de grupo', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
