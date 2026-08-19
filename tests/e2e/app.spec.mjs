@@ -355,7 +355,12 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     }));
 
     await page.evaluate(() => { location.hash = '#/outings/2026-08'; });
-    await expect(page.locator('h1:has-text("SALIDAS")')).toBeVisible();
+    await expect(page.locator('#outingsContent')).toBeVisible();
+
+    // Encabezado: Congregaciones + línea "… | Salidas | AGOSTO 2026".
+    await expect(page.locator('#outingsContent')).toContainText('Congregaciones');
+    await expect(page.locator('#outingsContent')).toContainText('Salidas');
+    await expect(page.locator('#outingsContent')).toContainText('AGOSTO 2026');
 
     // Cabecera con las tres columnas.
     const headers = page.locator('#outingsContent thead th');
@@ -369,6 +374,12 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // La columna 1 tiene la etiqueta pequeña "Semana" y la fecha como "día N.".
     await expect(celdas.nth(0)).toContainText('Semana 1');
     await expect(celdas.nth(0)).toContainText('día 1.');
+
+    // Dos formatos de salida: A4 vertical y Móvil 16:9.
+    await expect(page.locator('#outModeSel')).toBeVisible();
+    await expect(page.locator('#outingsContent')).toHaveClass(/outings-mode-a4/);
+    await page.click('[data-outmode="movil"]');
+    await expect(page.locator('#outingsContent')).toHaveClass(/outings-mode-movil/);
   });
 
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {

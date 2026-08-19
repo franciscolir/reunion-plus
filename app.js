@@ -2880,33 +2880,31 @@ async function renderOutings() {
   renderTop();
   state.month = { weeks: program.weeks, outings: program.congregations };
   const app = $('#app');
-  const y = Number(state.monthId.slice(0, 4));
-  const mes = Number(state.monthId.slice(5, 7));
   const outs = program.congregations || [];
   app.innerHTML = `
-    <div class="outings-head mb-10 text-center md:text-left">
-      <div class="flex items-center gap-3 mb-2 justify-center md:justify-start">
-        <span class="editorial-line w-12 hidden md:block"></span>
-        <p class="font-label-md text-label-md text-[#6b6454] uppercase tracking-widest">Programa de Salidas</p>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6 no-print">
+      <div class="flex items-center gap-2">
+        <button id="btnEditOut" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">edit</span> Editar
+        </button>
+        <button id="btnPreviewOut" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:shadow-lg transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">visibility</span> Vista Final Programa
+        </button>
       </div>
-      <h1 class="font-display-lg text-display-lg text-[#3f3a2e] mb-2 leading-tight">${MONTHS_ES[mes - 1].toUpperCase()} ${y} — Salidas</h1>
-      <p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl">Programa de oradores para las salidas a congregaciones. Revise antes de compartir.</p>
+      <div class="flex items-center gap-2" id="outModeSel">
+        <span class="text-sm text-on-surface-variant font-label-md">Formato:</span>
+        <button data-outmode="a4" class="outModeBtn px-3 py-1.5 rounded-lg border border-primary bg-primary text-on-primary font-label-md text-label-md">A4 vertical</button>
+        <button data-outmode="movil" class="outModeBtn px-3 py-1.5 rounded-lg border border-outline text-on-surface-variant font-label-md text-label-md">Móvil 16:9</button>
+      </div>
     </div>
 
-    <div class="flex items-center justify-between gap-4 mb-6 no-print flex-wrap">
-      <button id="btnEditOut" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
-        <span class="material-symbols-outlined text-[20px]">edit</span> Editar
-      </button>
-      <button id="btnPreviewOut" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:shadow-lg transition-all active:scale-95">
-        <span class="material-symbols-outlined text-[20px]">visibility</span> Vista Final Programa
-      </button>
-    </div>
-
-    <div id="outingsContent" class="bg-surface-container-lowest editorial-shadow rounded-xl border border-outline-variant p-4 md:p-8"></div>
+    <div id="outingsContent" class="outings-doc outings-mode-a4 bg-surface-container-lowest editorial-shadow rounded-xl border border-outline-variant p-4 md:p-8"></div>
   `;
   $('#btnEditOut').onclick = () => go('salidas', { monthId: state.monthId });
   $('#btnPreviewOut').onclick = () => go('preview', { monthId: state.monthId });
   renderOutingsContent();
+  aplicarModoSalidas(outingsMode);
+  app.querySelectorAll('[data-outmode]').forEach(b => b.onclick = () => aplicarModoSalidas(b.dataset.outmode));
 
   const bar = $('#actionBar');
   bar.classList.remove('hidden');
@@ -2925,6 +2923,32 @@ async function renderOutings() {
   $('#outImg').onclick = imageOutings;
 }
 
+// Modo de salida de la vista de salidas: 'a4' (vertical A4) o 'movil' (16:9).
+let outingsMode = 'a4';
+
+function aplicarModoSalidas(mode) {
+  outingsMode = mode;
+  const doc = $('#outingsContent');
+  if (doc) {
+    doc.classList.toggle('outings-mode-a4', mode === 'a4');
+    doc.classList.toggle('outings-mode-movil', mode === 'movil');
+  }
+  document.querySelectorAll('.outModeBtn').forEach(b => {
+    const on = b.dataset.outmode === mode;
+    b.classList.toggle('bg-primary', on);
+    b.classList.toggle('text-on-primary', on);
+    b.classList.toggle('border-primary', on);
+    b.classList.toggle('border-outline', !on);
+    b.classList.toggle('text-on-surface-variant', !on);
+  });
+  // El tamaño de hoja para imprimir/PDF depende del modo (A4 vertical o 16:9).
+  let st = document.getElementById('outingsPageCss');
+  if (!st) { st = document.createElement('style'); st.id = 'outingsPageCss'; document.head.appendChild(st); }
+  st.textContent = mode === 'movil'
+    ? '@page { size: 90mm 160mm; margin: 5mm; }'
+    : '@page { size: A4 portrait; margin: 10mm; }';
+}
+
 function actionBtnOut(label, icon, id) {
   return `<button id="${id}" class="flex items-center gap-2 px-5 py-2 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed transition-all active:scale-95">
     <span class="material-symbols-outlined text-[20px]">${icon}</span> ${label}
@@ -2935,20 +2959,25 @@ function renderOutingsContent() {
   const c = $('#outingsContent');
   const m = state.month;
   const outs = m.outings || [];
-  const congsHtml = outs.filter(c => c.nombre).map(c => {
+  const y = Number(state.monthId.slice(0, 4));
+  const mes = Number(state.monthId.slice(5, 7));
+  const mesTxt = `${MONTHS_ES[mes - 1].toUpperCase()} ${y}`;
+  const congs = outs.filter(c => c.nombre);
+  const congsLine = congs.map(c => {
     const diaLabel = c.dia === 'domingo' ? 'Domingos' : 'Sábados';
-    return `<span class="inline-block px-3 py-1 bg-[#efece6] text-[#5c5648] font-label-md text-label-md rounded-full">
-      ${escapeHtml(c.nombre)} — ${diaLabel} ${c.hora || ''}
-    </span>`;
-  }).join(' ');
+    return `${escapeHtml(c.nombre)} — ${diaLabel} ${c.hora || ''}`;
+  }).join('  |  ');
   const weekRows = m.weeks.map((w, i) => outingWeekRow(w, i)).join('');
   c.innerHTML = `
-    <div class="mb-8 pb-6 border-b border-[#e7e3db]">
-      <h2 class="font-headline-md text-headline-md text-[#5c5648] mb-3">Congregaciones</h2>
-      <div class="flex flex-wrap gap-2">${congsHtml || '<span class="text-on-surface-variant text-sm">Sin congregaciones</span>'}</div>
+    <div class="outings-head mb-5 pb-4 border-b border-[#e7e3db]">
+      <div class="outings-congs-label">Congregaciones</div>
+      <div class="outings-congs-line">
+        <span class="outings-cong">${congsLine || 'Sin congregaciones'}</span>
+        <span class="outings-sufijo">  |  Salidas  |  ${mesTxt}</span>
+      </div>
     </div>
     <div class="overflow-x-auto">
-      <table class="w-full text-left border-collapse min-w-[640px]">
+      <table class="outings-tabla w-full text-left border-collapse">
         <thead>
           <tr class="bg-[#f4f1ec] text-[#6b6454]">
             <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em]">Semana / Fecha</th>
@@ -2968,7 +2997,7 @@ function outingWeekRow(w, i) {
   const outs = Array.isArray(w.outings) ? w.outings : [];
   const celdaSemana = `
     <div class="outing-semana text-[10px] uppercase tracking-[0.22em] text-[#9a927f] mb-1">Semana ${i + 1}</div>
-    <div class="outing-fecha text-2xl md:text-3xl font-semibold text-[#3f3a2e] leading-tight">día ${dia}.</div>`;
+    <div class="outing-fecha text-lg md:text-xl font-semibold text-[#3f3a2e] leading-tight">día ${dia}.</div>`;
   if (w.sinSalida) {
     return `<tr class="align-top">
       <td class="px-4 py-3">${celdaSemana}</td>
@@ -2976,11 +3005,11 @@ function outingWeekRow(w, i) {
     </tr>`;
   }
   const names = outs.map(o =>
-    `<div class="py-1 font-medium text-[#3f3a2e]">${escapeHtml(personNameOf(o.oradorSalida))}</div>`).join('');
+    `<div class="py-1.5 font-semibold text-[#2f2a20] text-lg">${escapeHtml(personNameOf(o.oradorSalida))}</div>`).join('');
   const talks = outs.map(o =>
-    `<div class="py-1 text-[#6b6454]">${escapeHtml(o.tituloDiscurso || '—')}</div>`).join('');
+    `<div class="py-1.5 text-[#6b6454] text-base">${escapeHtml(o.tituloDiscurso || '—')}</div>`).join('');
   return `<tr class="align-top">
-    <td class="px-4 py-3 w-[170px]">${celdaSemana}</td>
+    <td class="px-4 py-3 w-[150px]">${celdaSemana}</td>
     <td class="px-4 py-3 w-2/5">${names || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
     <td class="px-4 py-3 w-2/5">${talks || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
   </tr>`;
