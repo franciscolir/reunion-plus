@@ -46,7 +46,7 @@ jobs:
             if (_client) return _client;
             if (!isSupabaseConfigured()) return null;
             try {
-              const { createClient } = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+              const { createClient } = await import(/* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.6/+esm');
               _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
               return _client;
             } catch (e) {
