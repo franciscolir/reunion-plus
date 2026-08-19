@@ -2277,7 +2277,8 @@ function congCard(c, i) {
       <button data-cong-del="${i}" class="text-error" title="Eliminar"><span class="material-symbols-outlined text-[18px]">delete</span></button>
     </div>
     <div>
-      <input type="text" data-cong-field="nombre" data-cong-idx="${i}" value="${escapeAttr(c.nombre || '')}" placeholder="Ej. Centro" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Nombre de la congregación</label>
+      <input type="text" data-cong-field="nombre" data-cong-idx="${i}" value="${escapeAttr(c.nombre || '')}" placeholder="Ej. Centro, Norte, San Pablo…" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
     </div>
     <div class="grid grid-cols-2 gap-3">
       <div>
@@ -2296,11 +2297,16 @@ function congCard(c, i) {
 }
 
 function bindCongFieldChange(node) {
-  node.addEventListener('change', () => {
+  const guardar = () => {
     const idx = parseInt(node.dataset.congIdx, 10);
     const field = node.dataset.congField;
+    if (!state.month || !state.month.outings || !state.month.outings[idx]) return;
     state.month.outings[idx][field] = node.value;
-  });
+  };
+  // `input` guarda en cada tecla (el nombre no se pierde al re-renderizar);
+  // `change` cubre selects y campos de hora al desenfocar.
+  node.addEventListener('input', guardar);
+  node.addEventListener('change', guardar);
 }
 
 function renderWeeks() {
@@ -5602,7 +5608,17 @@ async function renderSalidas(monthId, opts = {}) {
       if (await confirmDialog('¿Eliminar esta congregación?')) { program.congregations.splice(i, 1); render(); }
     });
     const addCong = congWrap.querySelector('#addCongBtn');
-    if (addCong) addCong.onclick = () => { program.congregations.push(newCongregation()); render(); };
+    if (addCong) addCong.onclick = () => {
+      program.congregations.push(newCongregation());
+      render();
+      // Enfocar el campo de nombre de la congregación recién agregada para
+      // escribir directamente.
+      requestAnimationFrame(() => {
+        const inputs = congWrap.querySelectorAll('input[data-cong-field="nombre"]');
+        const ultimo = inputs[inputs.length - 1];
+        if (ultimo) { ultimo.focus(); ultimo.select(); }
+      });
+    };
 
     const list = embed ? embed.querySelector('#salidasList') : $('#salidasList');
     list.querySelectorAll('select[data-outing-field][data-people]').forEach(sel => {

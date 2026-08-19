@@ -307,6 +307,28 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#salidasList')).not.toContainText('Repite');
   });
 
+  test('salidas: agregar congregación permite escribir su nombre y persiste', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await expect(page.locator('[data-tab="salidas"]')).toBeVisible();
+    await page.click('[data-tab="salidas"]');
+    await expect(page.locator('#addCongBtn')).toBeVisible();
+
+    // Añadir una congregación y escribir su nombre.
+    await page.click('#addCongBtn');
+    const nombre = page.locator('input[data-cong-field="nombre"]').last();
+    await nombre.fill('Congregación Nueva');
+    await page.click('#salidasSave');
+    await expect(page.locator('#toastRoot')).toContainText('Salidas guardadas');
+
+    // Recargar la pestaña: el nombre persiste guardado.
+    await page.click('[data-tab="general"]');
+    await page.click('[data-tab="salidas"]');
+    await expect(page.locator('input[data-cong-field="nombre"]').last()).toHaveValue('Congregación Nueva');
+  });
+
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
