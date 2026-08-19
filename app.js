@@ -4237,7 +4237,8 @@ async function renderUploads() {
           const rows = await parsePeopleXlsx(buffer);
           const { personas, warnings } = personasFromXlsx(rows);
           if (!personas.length) {
-            showStatus(status, 'No se encontraron filas con nombre en la plantilla. Revisa que hayas usado la plantilla descargada.', 'text-error');
+            const cab = (rows[0] || []).filter(Boolean).join(', ') || '(vacío)';
+            showStatus(status, `No se encontraron filas con nombre en la plantilla. Cabeceras detectadas: ${cab}. Revisa que hayas usado la plantilla descargada.`, 'text-error');
             return;
           }
           let msg = `Se detectaron ${personas.length} personas. ¿Guardar y reemplazar la lista de participantes?`;

@@ -120,15 +120,24 @@ function cellValue(cellXml, shared) {
   return v ? xmlEscapedToText(v[1]) : '';
 }
 
-// Parsea xl/sharedStrings.xml → array de strings.
+// Atributo de la primera etiqueta que contenga nombre="valor".
+function attr(tagXml, name) {
+  const m = new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i').exec(tagXml);
+  return m ? m[1] : '';
+}
+
+// Parsea xl/sharedStrings.xml → array de strings (une runs de texto rich).
 function parseSharedStrings(xml) {
   const out = [];
   if (!xml) return out;
   let m;
   const re = /<si>([\s\S]*?)<\/si>/g;
   while ((m = re.exec(xml)) !== null) {
-    const t = /<t[^>]*>([\s\S]*?)<\/t>/.exec(m[1]);
-    out.push(t ? xmlEscapedToText(t[1]) : '');
+    let text = '';
+    let tm;
+    const tre = /<t[^>]*>([\s\S]*?)<\/t>/g;
+    while ((tm = tre.exec(m[1])) !== null) text += tm[1];
+    out.push(xmlEscapedToText(text));
   }
   return out;
 }
@@ -144,6 +153,8 @@ function colIndex(ref) {
 }
 
 // Extrae la hoja como array de filas (array de arrays), usando los shared strings.
+// Celdas sin referencia r= continúan la columna siguiente dentro de la fila
+// (así lo escriben algunos programas) y los textos rich se concatenan.
 export function xlsxRowsFromXml(sheetXml, sharedStrings) {
   const rows = [];
   const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>|<row\b[^>]*\/>/g;
@@ -151,6 +162,7 @@ export function xlsxRowsFromXml(sheetXml, sharedStrings) {
   while ((rm = rowRe.exec(sheetXml)) !== null) {
     const rowXml = rm[1] || '';
     const cells = [];
+    let lastCol = -1;
     if (rowXml) {
       let cm;
       const cellRe = /<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^>]*)\/>/g;
@@ -158,7 +170,8 @@ export function xlsxRowsFromXml(sheetXml, sharedStrings) {
         const attrs = cm[1] || cm[3] || '';
         const content = cm[2] || '';
         const ref = /(?:^|\s)r="([^"]+)"/.exec(attrs);
-        const col = colIndex(ref ? ref[1] : 'A');
+        const col = ref ? colIndex(ref[1]) : lastCol + 1;
+        lastCol = Math.max(lastCol, col);
         const val = cellValue(`<c ${attrs}>${content}</c>`, sharedStrings);
         cells[col] = val;
       }
@@ -170,6 +183,7 @@ export function xlsxRowsFromXml(sheetXml, sharedStrings) {
 }
 
 // Lee un .xlsx llenado y devuelve las filas (array de arrays).
+// Resuelve la primera hoja por workbook.xml → r:id → relación → Target.
 //  - arrayBuffer: contenido del archivo .xlsx.
 //  - JSZipImpl: clase JSZip (en el navegador se usa globalThis.JSZip).
 export async function parsePeopleXlsx(arrayBuffer, JSZipImpl) {
@@ -177,15 +191,31 @@ export async function parsePeopleXlsx(arrayBuffer, JSZipImpl) {
   if (!JSZip) throw new Error('Motor ZIP (JSZip) no disponible');
   const zip = await JSZip.loadAsync(arrayBuffer);
   const workbook = await zipText(zip, 'xl/workbook.xml');
+  if (!workbook) throw new Error('XLSX inválido: no se encontró el libro (workbook.xml)');
+
+  const firstSheet = /<sheet\b[^>]*\/?>|<sheet\b[^>]*>[\s\S]*?<\/sheet>/i.exec(workbook);
+  const sheetId = firstSheet ? attr(firstSheet[0], 'r:id') : '';
+
   const rels = await zipText(zip, 'xl/_rels/workbook.xml.rels');
   let sheetPath = 'xl/worksheets/sheet1.xml';
-  const rel = rels && /Target="([^"]+)"/.exec(rels);
-  if (rel) {
-    const t = rel[1];
-    sheetPath = t.startsWith('/') ? t.replace(/^\/+/, '') : 'xl/' + t.replace(/^\.\//, '');
+  if (rels) {
+    let target = '';
+    if (sheetId) {
+      let m;
+      const relRe = /<Relationship\b[^>]*>/g;
+      while ((m = relRe.exec(rels)) !== null) {
+        if (attr(m[0], 'Id') === sheetId) { target = attr(m[0], 'Target'); break; }
+      }
+    }
+    if (!target) {
+      const first = /Target="([^"]+)"/.exec(rels);
+      if (first) target = first[1];
+    }
+    if (target) sheetPath = target.startsWith('/') ? target.replace(/^\/+/, '') : 'xl/' + target.replace(/^\.\//, '');
   }
+
   const sheetXml = await zipText(zip, sheetPath);
-  if (!sheetXml) throw new Error('XLSX inválido: no se encontró la hoja de participantes');
+  if (!sheetXml) throw new Error(`XLSX inválido: no se encontró la hoja (${sheetPath})`);
   const shared = parseSharedStrings(await zipText(zip, 'xl/sharedStrings.xml'));
   return xlsxRowsFromXml(sheetXml, shared);
 }

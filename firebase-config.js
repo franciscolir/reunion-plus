@@ -7,7 +7,7 @@
 // Mientras Supabase no esté configurado, isFirebaseConfigured() devuelve false
 // y la app funciona 100% offline con IndexedDB.
 
-import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured, getSupabase } from './supabase-config.js?v=213';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured, getSupabase } from './supabase-config.js?v=214';
 
 export const FIREBASE_CONFIG = { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY };
 export const FIREBASE_SDK_BASE = ''; // Supabase se carga desde supabase-config.js
