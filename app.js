@@ -45,6 +45,7 @@ const state = {
   listsTab: 'labores',    // 'labores' | 'historial' (vista Personas)
   listsShowInactive: false, // mostrar también las personas desactivadas (borrado lógico)
   aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
+  atencionWeeks: [],      // labores de atención del mes activo (vista previa)
 };
 
 /* ---------- INIT ---------- */
@@ -2673,6 +2674,9 @@ async function renderPreview() {
   // Programa de aseo del mes: para mostrar el grupo asignado en la columna Grupo.
   const aseo = await db.getAseo(state.monthId).catch(() => null);
   state.aseoWeeks = (aseo && aseo.weeks) || [];
+  // Labores de atención del mes: para incluirlas en la vista lista.
+  const atencion = await db.getAtencion(state.monthId).catch(() => null);
+  state.atencionWeeks = (atencion && atencion.weeks) || [];
   renderTop();
   const app = $('#app');
   app.innerHTML = `
@@ -2758,13 +2762,16 @@ function weekCardList(w, i) {
   }
   const rows = [];
   const presName = personNameOf(w.presidente);
+  // Labores de atención de la semana (del programa de atención) + grupo semanal.
+  const atencionSemana = (state.atencionWeeks.find(x => String(x.saturday) === String(w.date)) || {}).labores || {};
+  const grupoSemana = (state.aseoWeeks.find(x => String(x.saturday) === String(w.date)) || {}).group;
   if (w.type === 'normal') {
     rows.push(['Presidente', presName, 'person']);
     rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Orador', w.orador || '—', 'campaign']);
     rows.push(['Conductor Atalaya', personNameOf(w.conductor), 'menu_book']);
     rows.push(['Lector', personNameOf(w.lector), 'library_books']);
-    rows.push(['Grupo de atención', deptNameOf(w.departamento), 'handshake']);
+    rows.push(['Grupo semanal', grupoSemana ? deptNameOf(grupoSemana) : deptNameOf(w.departamento), 'handshake']);
   } else if (w.type === 'supervisor') {
     rows.push(['Presidente', presName, 'person']);
     rows.push(['Discurso público', w.discursoSupervisor1 || '—', 'campaign']);
@@ -2793,7 +2800,7 @@ function weekCardList(w, i) {
       <span class="material-symbols-outlined text-primary text-4xl">${icon}</span>
     </div>
     ${rowsHtml}
-    ${previewLaboresBox(w)}
+    ${previewLaboresBox(atencionSemana)}
   </div>`;
 }
 
@@ -5378,9 +5385,26 @@ async function renderAtencion(monthId, opts = {}) {
         </select>
       </div>`;
 
+    const toolbar = embed ? '' : `
+      <div class="flex flex-wrap items-center gap-2 mb-4 no-print">
+        <button id="labPrint" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">print</span> Imprimir
+        </button>
+        <button id="labPdf" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">picture_as_pdf</span> Exportar PDF
+        </button>
+        <button id="labImg" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">image</span> Guardar Imagen
+        </button>
+        <button id="labWa" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">share</span> WhatsApp
+        </button>
+      </div>`;
+
     root.innerHTML = `
       <div class="${embed ? 'mb-0' : 'mb-8'}">
         ${title}
+        ${toolbar}
         ${monthSelBlock}
         <div class="${embed ? '' : 'mt-4 '}flex items-center gap-5 text-xs text-on-surface-variant">
           <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-full bg-primary"></span> Reunión de fin de semana</span>
@@ -5410,6 +5434,13 @@ async function renderAtencion(monthId, opts = {}) {
     if (monthSel) monthSel.onchange = (e) => go('atencion', { monthId: e.target.value });
     const createBtn = root.querySelector('#laboresCreate');
     if (createBtn) createBtn.onclick = createProgram;
+    if (!embed) {
+      const bindBtn = (id, fn) => { const bEl = root.querySelector('#' + id); if (bEl) bEl.onclick = fn; };
+      bindBtn('labPrint', () => window.print());
+      bindBtn('labPdf', () => window.print());
+      bindBtn('labImg', () => imageAtencion(cur));
+      bindBtn('labWa', () => waAtencion(cur));
+    }
     if (!program) return;
 
     root.querySelectorAll('select[data-atencion-wi]').forEach(sel => {
@@ -6516,12 +6547,12 @@ function compactLabores(w) {
 }
 
 /* Cuadro de Atención departamentos (labores) para las vistas de lista */
-function previewLaboresBox(w) {
-  const l = ensureAtencion(w).labores;
+function previewLaboresBox(labores) {
+  const l = labores || {};
   const rows = ATENCION_DEF.map(({ key, label, count }) => {
     const slots = Array.isArray(l[key]) ? l[key] : [l[key] || ''];
     const names = Array.from({ length: count }, (_, si) => {
-      const v = slots[si] || '';
+      const v = asId(slots[si]);
       return v ? personNameOf(v) : null;
     }).filter(Boolean);
     return `<div class="flex items-center justify-between text-xs mb-2">
@@ -7043,6 +7074,101 @@ function programaExportSvg() {
   });
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
+}
+
+/* ---------- Exportación del programa de labores (atención) en SVG puro ---------- */
+// Matriz de labores (fin de semana + entre semana) con el mismo agrupado por
+// domingo que la vista de atención.
+
+async function laboresExportSvg(cur) {
+  const program = await db.getAtencion(cur);
+  const mesTxt = `${MONTHS_ES[Number(cur.slice(5)) - 1].toUpperCase()} ${cur.slice(0, 4)}`;
+  const weekSunday = (iso) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6); return isoDate(d); };
+  const finBySunday = new Map();
+  ((program && program.weeks) || []).forEach((w, wi) => finBySunday.set(weekSunday(w.saturday), { w, wi }));
+  const mwBySunday = new Map();
+  state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
+  const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])].filter(s => s.startsWith(cur)).sort();
+
+  const W = 900, PAD = 40;
+  const colW = Math.max(120, (W - PAD * 2) / Math.max(1, sundays.length));
+  const firstW = 150;
+  const C = { title: '#3f3a2e', sub: '#6b6454', line: '#e7e3db', head: '#6b6454', headbg: '#f4f1ec', name: '#2f2a20' };
+
+  const colLabels = sundays.map((s) => {
+    const mw = mwBySunday.get(s);
+    if (mw) return { a: `Sem. ${(finBySunday.get(s) ? Array.from(finBySunday.keys()).indexOf(s) : 0) + 1}`, b: mw.header || '' };
+    const fin = finBySunday.get(s);
+    const fecha = fin ? new Date(fin.w.saturday + 'T00:00:00').toLocaleDateString('es', { day: '2-digit', month: 'short' }) : s.slice(5).replace('-', '/');
+    return { a: `Sem. ${Array.from(finBySunday.keys()).indexOf(s) + 1}`, b: fecha };
+  });
+
+  const laborRows = [];
+  for (const d of ATENCION_DEF) {
+    for (let si = 0; si < d.count; si++) {
+      laborRows.push({ label: `${d.label}${d.count > 1 ? ` ${si + 1}` : ''}`, key: d.key, si });
+    }
+  }
+
+  const cellLines = (s, key, si) => {
+    const lines = [];
+    const fin = finBySunday.get(s);
+    if (fin) { const v = asId(((fin.w.labores || {})[key] || [])[si]); if (v) lines.push(personNameOf(v)); }
+    const mw = mwBySunday.get(s);
+    if (mw) { const v = asId(((mw.labores || {})[key] || [])[si]); if (v) lines.push(personNameOf(v)); }
+    return lines;
+  };
+
+  const H = PAD + 34 + 12 + 40 + laborRows.length * 46 + PAD;
+  const P = [];
+  P.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+  let y = PAD;
+  P.push(svgT(W / 2, y + 24, `ATENCIÓN · TRAS BAMBALINAS`, 22, 700, C.title, 'middle'));
+  y += 30;
+  P.push(svgT(W / 2, y + 16, mesTxt, 15, 400, C.sub, 'middle'));
+  y += 22;
+  P.push(`<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  y += 14;
+  P.push(`<rect x="${PAD}" y="${y}" width="${W - PAD * 2}" height="38" fill="${C.headbg}"/>`);
+  P.push(svgT(PAD + 12, y + 24, 'Labor', 13, 600, C.head));
+  colLabels.forEach((cl, ci) => {
+    const cx = PAD + firstW + ci * colW;
+    P.push(svgT(cx + colW / 2, y + 18, cl.a, 12, 600, C.head, 'middle'));
+    P.push(svgT(cx + colW / 2, y + 32, cl.b, 10, 400, C.sub, 'middle'));
+  });
+  y += 38;
+  laborRows.forEach((lr) => {
+    const y0 = y;
+    P.push(svgT(PAD + 12, y0 + 28, lr.label, 14, 600, C.name));
+    colLabels.forEach((_, ci) => {
+      const cx = PAD + firstW + ci * colW;
+      const lines = cellLines(sundays[ci], lr.key, lr.si);
+      if (!lines.length) { P.push(svgT(cx + colW / 2, y0 + 28, '—', 13, 400, C.sub, 'middle')); return; }
+      lines.forEach((ln, li) => P.push(svgT(cx + colW / 2, y0 + 26 + li * 18, ln, 13, 400, C.name, 'middle')));
+    });
+    P.push(`<line x1="${PAD}" y1="${y0 + 46}" x2="${W - PAD}" y2="${y0 + 46}" stroke="${C.line}" stroke-width="1"/>`);
+    y += 46;
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
+}
+
+async function imageAtencion(cur) {
+  toast('Generando imagen…', 'info');
+  try {
+    const blob = await svgToPngBlob(await laboresExportSvg(cur));
+    downloadBlob(blob, `labores-${cur}.png`);
+    toast('Imagen descargada', 'success');
+  } catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
+}
+
+async function waAtencion(cur) {
+  toast('Generando imagen…', 'info');
+  try {
+    const blob = await svgToPngBlob(await laboresExportSvg(cur));
+    const compartido = await compartirPng(blob, `labores-${cur}.png`);
+    if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
+  } catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
 }
 
 /* ---------- Utilidades ---------- */

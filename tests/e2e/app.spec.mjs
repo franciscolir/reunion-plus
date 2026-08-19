@@ -410,6 +410,45 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
   });
 
+  test('fin de semana lista: incluye labores de servicio y grupo semanal; labores exporta imagen', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    // Asignar un puesto de sonido en el programa de atención (semana 1).
+    await page.evaluate(() => new Promise((res, rej) => {
+      const req = indexedDB.open('reunion-plus', 8);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('atencion', 'readwrite');
+        const st = tx.objectStore('atencion');
+        const g = st.get('2026-08');
+        g.onsuccess = () => {
+          const p = g.result;
+          p.weeks[0].labores = { sonido: [1] };
+          st.put(p);
+          tx.oncomplete = () => { db.close(); res(); };
+          tx.onerror = () => rej(tx.error);
+        };
+        g.onerror = () => rej(g.error);
+      };
+      req.onerror = () => rej(req.error);
+    }));
+
+    // Vista Lista de fin de semana: labores de servicio + grupo semanal.
+    await page.evaluate(() => { location.hash = '#/preview/2026-08'; });
+    await expect(page.locator('#previewContent')).toContainText('ATENCIÓN');
+    await expect(page.locator('#previewContent')).toContainText('Álvaro P.');
+    await expect(page.locator('#previewContent')).toContainText('Grupo semanal');
+    await expect(page.locator('#previewContent')).toContainText('Grupo 1');
+
+    // Programa de labores: botones de exportación y guardar imagen.
+    await page.evaluate(() => { location.hash = '#/atencion/2026-08'; });
+    await expect(page.locator('#labImg')).toBeVisible();
+    await expect(page.locator('#labPrint')).toBeVisible();
+    await page.click('#labImg');
+    await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
+  });
+
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
