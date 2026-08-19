@@ -329,6 +329,48 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('input[data-cong-field="nombre"]').last()).toHaveValue('Congregación Nueva');
   });
 
+  test('salidas: vista final ordena orador y discurso en sus columnas con fecha destacada', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    // Asignar orador + discurso en la primera salida directamente en la BD.
+    await page.evaluate(() => new Promise((res, rej) => {
+      const req = indexedDB.open('reunion-plus', 8);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('salidas', 'readwrite');
+        const st = tx.objectStore('salidas');
+        const g = st.get('2026-08');
+        g.onsuccess = () => {
+          const p = g.result;
+          p.weeks[0].outings[0].oradorSalida = 1;
+          p.weeks[0].outings[0].tituloDiscurso = 'Discurso Test';
+          st.put(p);
+          tx.oncomplete = () => { db.close(); res(); };
+          tx.onerror = () => rej(tx.error);
+        };
+        g.onerror = () => rej(g.error);
+      };
+      req.onerror = () => rej(req.error);
+    }));
+
+    await page.evaluate(() => { location.hash = '#/outings/2026-08'; });
+    await expect(page.locator('h1:has-text("SALIDAS")')).toBeVisible();
+
+    // Cabecera con las tres columnas.
+    const headers = page.locator('#outingsContent thead th');
+    await expect(headers).toHaveText(['Semana / Fecha', 'Orador', 'Discurso']);
+
+    // El orador y el discurso quedan en celdas separadas.
+    const fila = page.locator('#outingsContent tbody tr').first();
+    const celdas = fila.locator('td');
+    await expect(celdas.nth(1)).toContainText('Álvaro P.');
+    await expect(celdas.nth(2)).toContainText('Discurso Test');
+    // La columna 1 tiene la etiqueta pequeña "Semana" y la fecha grande.
+    await expect(celdas.nth(0)).toContainText('Semana 1');
+    await expect(celdas.nth(0)).toContainText('agosto');
+  });
+
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
