@@ -6191,13 +6191,15 @@ async function renderGeneralMonth(monthId, opts = {}) {
   });
 
   const title = embed ? '' : `
-    <div class="flex flex-wrap items-center gap-3 mb-1">
-      <h1 class="font-headline-lg text-headline-lg text-primary">Vista Mensual General</h1>
+    <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Vista Mensual General</h1>
+    <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Todas las reuniones del mes, semana por semana.</p>`;
+
+  const conflictsBar = `
+    <div class="flex justify-end mb-4 no-print">
       <button id="genConflictsBtn" data-admin class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container transition-colors">
         <span class="material-symbols-outlined text-[18px]">warning</span> Conflictos mensuales
       </button>
-    </div>
-    <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Todas las reuniones del mes, semana por semana.</p>`;
+    </div>`;
 
   const monthSelBlock = embed ? '' : `
     <div class="mt-4 max-w-xs">
@@ -6212,6 +6214,7 @@ async function renderGeneralMonth(monthId, opts = {}) {
       ${title}
       ${monthSelBlock}
     </div>
+    ${conflictsBar}
     ${boxes.length
       ? `<div class="space-y-6">${boxes.join('')}</div>`
       : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-10 text-center">

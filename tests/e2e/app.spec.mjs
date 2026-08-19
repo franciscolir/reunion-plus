@@ -527,6 +527,12 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('[data-close-modal]');
     await page.click('#genConflictsBtn');
     await expect(page.locator('#modalCard')).toContainText('Quitar autorización');
+
+    // El botón también aparece en la pestaña General embebida (Programas).
+    await page.click('[data-close-modal]');
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await page.click('[data-tab="general"]');
+    await expect(page.locator('#genConflictsBtn')).toBeVisible();
   });
 
   test('personas: asignación de grupos en lote y avatar con número de grupo', async ({ page }) => {
