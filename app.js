@@ -3270,6 +3270,7 @@ async function renderLists() {
   cargoFilter.addEventListener('change', applyFilter);
 
   const pList = $('#pList');
+  pList.className = 'overflow-auto max-h-[68vh] p-0';
   const inactivos = state.listsShowInactive ? await db.listPeopleInactive() : [];
   const rows = [
     ...state.people.map(p => renderPersonCard(p, false, false)),
