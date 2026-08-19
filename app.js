@@ -155,6 +155,7 @@ function initSyncIndicator() {
           'sin-sesion': 'Inicia sesión para guardar los cambios en la nube.',
           'ocupado': 'Sincronizando ahora mismo; espera un momento.',
           'parcial': 'Hubo errores al subir algunos cambios; vuelve a pulsar para reintentar.',
+          'quota-exceeded': 'Cupo de Firebase superado: los cambios quedan en este dispositivo y se subirán cuando haya cupo.',
         };
         toast(msgs[res.error] || 'No se pudo subir: ' + res.error, 'error');
       }
@@ -1884,7 +1885,7 @@ async function aplicarPropuesta(p, month) {
   await Promise.all(writes);
   state.midweeks = await db.listMidweeks();
   await syncAssignmentLog();
-  await subirStores(['midweeks', 'months', 'salidas', 'atencion', 'assignment_log']);
+  await subirStores(['midweeks', 'months', 'salidas', 'atencion']);
 }
 
 // Vista previa de una propuesta: renderiza la vista mensual general con los
@@ -2658,7 +2659,7 @@ async function saveMonth() {
   state.month = wrapped;
   await db.putMonth(wrapped);
   await syncAssignmentLog();
-  await subirStores(['months', 'assignment_log']);
+  await subirStores(['months']);
   toast('Cambios guardados', 'success');
 }
 
@@ -5777,7 +5778,7 @@ async function renderAtencion(monthId, opts = {}) {
         else week.labores[key] = next;
         await db.putAtencion(program);
         await syncAssignmentLog();
-        await subirStores(['atencion', 'assignment_log']);
+        await subirStores(['atencion']);
         toast('Labor asignada', 'success');
         render();
       });
@@ -5798,7 +5799,7 @@ async function renderAtencion(monthId, opts = {}) {
         await db.putMidweek(week);
         state.midweeks = await db.listMidweeks();
         await syncAssignmentLog();
-        await subirStores(['midweeks', 'assignment_log']);
+        await subirStores(['midweeks']);
         toast('Labor asignada', 'success');
         render();
       });
@@ -6102,7 +6103,7 @@ async function renderSalidas(monthId, opts = {}) {
       await db.putSalidas(wrapped);
       program = wrapped;
       await syncAssignmentLog();
-      await subirStores(['salidas', 'assignment_log']);
+      await subirStores(['salidas']);
       toast('Salidas guardadas', 'success');
     };
   };
@@ -6870,7 +6871,7 @@ async function renderMidweek(id) {
     await db.putMidweek(wrapped);
     state.midweeks = await db.listMidweeks();
     await syncAssignmentLog();
-    await subirStores(['midweeks', 'assignment_log']);
+    await subirStores(['midweeks']);
     toast('Asignaciones guardadas', 'success');
     renderMidweek(id);
   };

@@ -341,8 +341,15 @@ async function pushStore(store) {
     }
   } catch (e) {
     console.warn('[Reunión+] Error al sincronizar store', store, e);
-    // Queda pendiente para reintentar cuando haya conexión.
     errorSync = true;
+    // Cupo de Firestore superado: NO encolar para no martillar el backend con
+    // reintentos (el SDK ya aplica backoff). Se informa y se deja como local.
+    const msg = String((e && (e.code || e.message)) || e || '');
+    if (e && (e.code === 'resource-exhausted' || /quota|resource-exhausted/i.test(msg))) {
+      setStatus('error', 'Cupo de Firebase superado: los cambios quedan en este dispositivo y se subirán más tarde.');
+      return;
+    }
+    // Queda pendiente para reintentar cuando haya conexión.
     encolarPendiente(store);
     setStatus('error', store + ': ' + (e.message || e) + ' (pendiente)');
   } finally {
@@ -456,6 +463,10 @@ export async function sincronizarAhora() {
   setStatus('syncing', 'subiendo cambios…');
   const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings'];
   for (const store of stores) await pushStore(store);
+  // Si algún store falló por cupo de Firebase, informarlo (no dar éxito).
+  if (_lastStatus && _lastStatus.state === 'error') {
+    return { error: 'quota-exceeded' };
+  }
   const pend = await leerPendientes();
   if (pend.length) {
     setStatus('error', 'hubo errores al subir: ' + pend.join(', '));
@@ -773,6 +784,11 @@ export async function reconciliar() {
     return { ok: true, subidos, bajados };
   } catch (e) {
     console.warn('[Reunión+] Error en sync', e);
+    const msg = String((e && (e.code || e.message)) || e || '');
+    if (e && (e.code === 'resource-exhausted' || /quota|resource-exhausted/i.test(msg))) {
+      setStatus('error', 'Cupo de Firebase superado: se reintentará más tarde.');
+      return { error: 'quota-exceeded' };
+    }
     setStatus('error', 'sync: ' + (e.message || e));
     return { error: e.message || String(e) };
   } finally {
