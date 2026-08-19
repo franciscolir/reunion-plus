@@ -2875,6 +2875,7 @@ async function renderOutings() {
   if (!state.monthId) { go('home'); return; }
   const program = await db.getSalidas(state.monthId);
   if (!program) { toast('No hay programa de salidas para este mes', 'error'); go('salidas', { monthId: state.monthId }); return; }
+  if (!Array.isArray(program.congregations)) program.congregations = [];
   state.month = null;
   renderTop();
   state.month = { weeks: program.weeks, outings: program.congregations };
@@ -5515,6 +5516,8 @@ async function renderSalidas(monthId, opts = {}) {
   const allMonths = all.map(p => p.id).sort((a, b) => b.localeCompare(a));
   const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
   let program = await db.getSalidas(cur);
+  // Normalización: los programas antiguos pueden no traer congregaciones.
+  if (program && !Array.isArray(program.congregations)) program.congregations = [];
   if (program) state.month = { weeks: program.weeks, outings: program.congregations }; // reutiliza helpers
 
   const render = () => {
@@ -5609,6 +5612,7 @@ async function renderSalidas(monthId, opts = {}) {
     });
     const addCong = congWrap.querySelector('#addCongBtn');
     if (addCong) addCong.onclick = () => {
+      program.congregations = program.congregations || [];
       program.congregations.push(newCongregation());
       render();
       // Enfocar el campo de nombre de la congregación recién agregada para
