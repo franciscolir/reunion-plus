@@ -460,6 +460,7 @@ function router() {
     case 'atencionGrupo': renderAtencionGrupo(segs[1]); break;
     case 'salidas':  renderSalidas(segs[1]); break;
     case 'general':  renderGeneralMonth(segs[1]); break;
+    case 'conflictos': renderConflictos(segs[1]); break;
     case 'algoritmo': renderAlgoritmo(); break;
     case 'settings': renderSettings(); break;
     case 'about':    renderAbout(); break;
@@ -6225,7 +6226,7 @@ async function renderGeneralMonth(monthId, opts = {}) {
   const monthSel = $('#generalMonth');
   if (monthSel) monthSel.onchange = (e) => go('general', { monthId: e.target.value });
   const genConflicts = $('#genConflictsBtn');
-  if (genConflicts) genConflicts.onclick = () => abrirConflictosMensuales(cur);
+  if (genConflicts) genConflicts.onclick = () => go('conflictos', { monthId: cur });
   // Imagen por semana (SVG puro → PNG; comparte o descarga).
   root.querySelectorAll('[data-week-img]').forEach(btn => {
     btn.onclick = async () => {
@@ -6494,16 +6495,19 @@ const REGLA_TXT = {
 };
 const ATENCION_ROL = { acomodacion: 'acomodador', microfono: 'microf', plataforma: 'plataforma', sonido: 'audio' };
 
-// Tabla de conflictos mensuales: persona, asignaciones con fecha, autorizar
+// Vista de conflictos mensuales: persona, asignaciones con fecha, autorizar
 // excepción (alcance puntual: persona+regla+semana) o cambiar persona, y regla.
-async function abrirConflictosMensuales(cur) {
+async function renderConflictos(mes) {
+  state.month = null;
+  renderTop();
+  const app = $('#app');
   const [months, midweeks, labores, salidas] = await Promise.all([
     db.listMonths(), db.listMidweeks(), db.listAtencion(), db.listSalidas(),
   ]);
-  const mwMes = midweeks.filter(m => String(m.id).startsWith(cur));
-  const mesMes = months.filter(m => m.id === cur);
-  const salMes = salidas.filter(p => p.id === cur);
-  const labMes = labores.filter(p => p.id === cur);
+  const mwMes = midweeks.filter(m => String(m.id).startsWith(mes));
+  const mesMes = months.filter(m => m.id === mes);
+  const salMes = salidas.filter(p => p.id === mes);
+  const labMes = labores.filter(p => p.id === mes);
   const ctx = { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes, people: state.people };
   const conflicts = computeCrossConflicts(ctx);
   const all = collectPersonAssignments(ctx);
@@ -6582,16 +6586,18 @@ async function abrirConflictosMensuales(cur) {
 
   const render = () => {
     const conflictsVivos = conflicts.filter(c => !excepciones.some(e => e && `${e.personaId}|${e.regla}|${e.semana}` === exKey(c)));
-    openModal(`
-      <div>
-        <div class="flex items-center justify-between gap-3 mb-3">
-          <div>
-            <h3 class="font-headline-md text-headline-md text-primary">Conflictos mensuales</h3>
-            <p class="text-sm text-on-surface-variant">${conflicts.length} conflicto(s) · ${excepciones.length} autorizado(s)</p>
-          </div>
-        </div>
-        ${!conflicts.length ? '<p class="text-on-surface-variant text-sm">No hay conflictos este mes.</p>' : `
-        <div class="max-h-[60vh] overflow-auto rounded-lg border border-outline-variant">
+    const monthLabel = `${MONTHS_ES[Number(mes.slice(5)) - 1]} ${mes.slice(0, 4)}`;
+    app.innerHTML = `
+      <div class="mb-4">
+        <button data-cvolver class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[18px]">arrow_back</span> General
+        </button>
+      </div>
+      <h1 class="font-headline-lg text-headline-lg text-primary mb-1">Conflictos mensuales</h1>
+      <p class="text-on-surface-variant font-body-md mb-4">${monthLabel} · ${conflicts.length} conflicto(s) · ${excepciones.length} autorizado(s). Analiza caso a caso: autoriza excepción o cambia la persona.</p>
+      ${!conflicts.length ? '<p class="text-on-surface-variant text-sm">No hay conflictos este mes.</p>' : `
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
+        <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
             <thead><tr class="bg-surface-container border-b border-outline-variant">
               <th class="p-3 font-label-md text-label-md text-on-surface-variant uppercase">Persona</th>
@@ -6601,12 +6607,10 @@ async function abrirConflictosMensuales(cur) {
             </tr></thead>
             <tbody class="divide-y divide-outline-variant/40">${conflicts.map(c => conflictoFila(c)).join('')}</tbody>
           </table>
-        </div>`}
-        <div class="mt-4 flex justify-end">
-          <button data-close-modal class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
         </div>
-      </div>`);
-    modalEl('[data-close-modal]').onclick = closeModal;
+      </div>`}`;
+
+    app.querySelector('[data-cvolver]').onclick = () => go('general', { monthId: mes });
 
     function conflictoFila(c) {
       const autorizada = excepciones.some(e => e && `${e.personaId}|${e.regla}|${e.semana}` === exKey(c));
@@ -6640,7 +6644,7 @@ async function abrirConflictosMensuales(cur) {
     }
 
     // Autorizar excepción (alcance puntual: persona+regla+semana).
-    modalEl('[data-autorizar]') && [...document.querySelectorAll('[data-autorizar]')].forEach(b => b.onclick = async () => {
+    [...app.querySelectorAll('[data-autorizar]')].forEach(b => b.onclick = async () => {
       if (!(await confirmDialog('¿Autorizar esta excepción? Este conflicto puntual dejará de mostrarse como pendiente.', 'Autorizar excepción'))) return;
       const [pid, regla, semana] = b.dataset.autorizar.split('|');
       excepciones.push({ personaId: pid, regla, semana, autorizadaEn: Date.now() });
@@ -6651,7 +6655,7 @@ async function abrirConflictosMensuales(cur) {
       toast('Excepción autorizada', 'success');
       render();
     });
-    modalEl('[data-desautorizar]') && [...document.querySelectorAll('[data-desautorizar]')].forEach(b => b.onclick = async () => {
+    [...app.querySelectorAll('[data-desautorizar]')].forEach(b => b.onclick = async () => {
       const k = b.dataset.desautorizar;
       const idx = excepciones.findIndex(e => e && `${e.personaId}|${e.regla}|${e.semana}` === k);
       if (idx >= 0) excepciones.splice(idx, 1);
@@ -6663,7 +6667,7 @@ async function abrirConflictosMensuales(cur) {
       render();
     });
     // Cambiar persona: reasigna el slot.
-    [...document.querySelectorAll('[data-cambiar]')].forEach(sel => sel.onchange = async () => {
+    [...app.querySelectorAll('[data-cambiar]')].forEach(sel => sel.onchange = async () => {
       if (!sel.value) return;
       const [pid, regla, semana, rol] = sel.dataset.cambiar.split('|');
       const a = all.find(x => String(x.value) === pid && String(x.rol) === rol && String(x.semana) === semana);

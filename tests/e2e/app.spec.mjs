@@ -485,6 +485,11 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await seedProposalData(page);
     await openApp(page);
 
+    // El botón aparece en la pestaña General embebida (Programas).
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await page.click('[data-tab="general"]');
+    await expect(page.locator('#genConflictsBtn')).toBeVisible();
+
     // Presidente de entre semana vía editor (actualiza catálogo en memoria).
     await page.evaluate(() => { location.hash = '#/midweek/2026-08-03'; });
     await page.selectOption('select[data-mw-presidente]', '1');
@@ -513,26 +518,21 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.evaluate(() => { location.hash = '#/general/2026-08'; });
     await expect(page.locator('#genConflictsBtn')).toBeVisible();
     await page.click('#genConflictsBtn');
-    await expect(page.locator('#modalCard')).toContainText('Conflictos mensuales');
-    await expect(page.locator('#modalCard')).toContainText('E1');
-    await expect(page.locator('#modalCard')).toContainText('Álvaro P.');
-    await expect(page.locator('#modalCard [data-cambiar]').first()).toBeVisible();
+    await expect(page.locator('h1:has-text("Conflictos mensuales")')).toBeVisible();
+    await expect(page.locator('#app')).toContainText('E1');
+    await expect(page.locator('#app')).toContainText('Álvaro P.');
+    await expect(page.locator('#app [data-cambiar]').first()).toBeVisible();
 
     // Autorizar excepción (puntual).
     await page.click('[data-autorizar]');
     await page.click('#mdOk');
-    await expect(page.locator('#modalCard')).toContainText('Quitar autorización');
+    await expect(page.locator('#app')).toContainText('Quitar autorización');
 
-    // Cerrar y volver a abrir: el conflicto sigue autorizado (no pendiente).
-    await page.click('[data-close-modal]');
+    // Volver y reabrir: el conflicto sigue autorizado (no pendiente).
+    await page.click('[data-cvolver]');
+    await expect(page.locator('#generalMonth')).toBeVisible();
     await page.click('#genConflictsBtn');
-    await expect(page.locator('#modalCard')).toContainText('Quitar autorización');
-
-    // El botón también aparece en la pestaña General embebida (Programas).
-    await page.click('[data-close-modal]');
-    await page.evaluate(() => { location.hash = '#/new'; });
-    await page.click('[data-tab="general"]');
-    await expect(page.locator('#genConflictsBtn')).toBeVisible();
+    await expect(page.locator('#app')).toContainText('Quitar autorización');
   });
 
   test('personas: asignación de grupos en lote y avatar con número de grupo', async ({ page }) => {
