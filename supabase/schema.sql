@@ -1,10 +1,63 @@
 -- =============================================================
 -- Reunión+ → Supabase: esquema y políticas RLS
 -- Ejecuta este script en el SQL Editor de tu proyecto Supabase.
+-- Orden: primero las tablas, luego las funciones y las políticas.
 -- =============================================================
 
 -- Modelo de documento: cada tabla tiene id (text PK) + data (jsonb).
 -- El documento completo de la app vive en `data`; updated_at para ordenar.
+
+-- ===== Tablas de datos =====
+create table if not exists public.participantes (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.grupos (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.reuniones (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.programas (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.asignaciones (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.discursos (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.configuracion (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+-- Tabla de usuarios (rol admin/reader). El usuario crea SU fila con rol reader
+-- en el primer login; solo un admin puede cambiar/borrar roles.
+create table if not exists public.usuarios (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+-- ===== Índices útiles para el historial =====
+create index if not exists idx_asignaciones_participante on public.asignaciones ((data->>'participanteId'));
+create index if not exists idx_asignaciones_programa on public.asignaciones ((data->>'programaId'));
+create index if not exists idx_programas_mes on public.programas ((data->>'mes'));
+
+-- ===== Funciones auxiliares =====
 
 -- Rol: es admin quien tiene un registro en usuarios con data->>'rol' = 'admin'.
 -- SECURITY DEFINER para evitar recursión de RLS al consultar usuarios.
@@ -65,57 +118,7 @@ begin
 end;
 $$;
 
--- Tablas de datos
-create table if not exists public.participantes (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-create table if not exists public.grupos (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-create table if not exists public.reuniones (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-create table if not exists public.programas (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-create table if not exists public.asignaciones (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-create table if not exists public.discursos (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-create table if not exists public.configuracion (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-
--- Tabla de usuarios (rol admin/reader). El usuario crea SU fila con rol reader
--- en el primer login; solo un admin puede cambiar/borrar roles.
-create table if not exists public.usuarios (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-
--- Índices útiles para el historial
-create index if not exists idx_asignaciones_participante on public.asignaciones ((data->>'participanteId'));
-create index if not exists idx_asignaciones_programa on public.asignaciones ((data->>'programaId'));
-create index if not exists idx_programas_mes on public.programas ((data->>'mes'));
-
--- Políticas de datos
+-- ===== Políticas de datos =====
 select public.def_policies('participantes');
 select public.def_policies('grupos');
 select public.def_policies('reuniones');
@@ -124,7 +127,7 @@ select public.def_policies('asignaciones');
 select public.def_policies('discursos');
 select public.def_policies('configuracion');
 
--- Políticas de usuarios
+-- ===== Políticas de usuarios =====
 alter table public.usuarios enable row level security;
 
 drop policy if exists "usuarios_lectura" on public.usuarios;
@@ -147,7 +150,7 @@ create policy "usuarios_borrado_admin" on public.usuarios
   for delete to authenticated
   using (public.is_admin());
 
--- Grants (los roles anon/authenticated pueden usar las tablas; RLS decide)
+-- ===== Grants (los roles anon/authenticated pueden usar las tablas; RLS decide) =====
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.usuarios
