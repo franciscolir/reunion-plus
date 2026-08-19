@@ -22,10 +22,10 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#listsTabs')).toContainText('Departamentos');
     await expect(page.locator('#listsTabs')).toContainText('Historial');
     await expect(page.locator('#pList')).toContainText('Sin personas');
-    await expect(page.locator('.quick-chip').first()).toBeVisible();
+    await expect(page.locator('#addMemberBtn')).toBeVisible();
   });
 
-  test('añade un miembro y aparece como tarjeta con chips de labores', async ({ page }) => {
+  test('añade un miembro y aparece como fila con botón Ver perfil', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);
 
@@ -34,34 +34,32 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.check('[data-mr="presidente"]');
     await page.click('#mdForm button[type="submit"]');
 
-    const card = page.locator('.person-card', { hasText: 'Ana Pérez' });
-    await expect(card).toBeVisible();
-    await expect(card.locator('.labor-chip')).toHaveCount(15);
-    await expect(card.locator('.labor-chip[data-plabore="presidente"]').first()).toHaveClass(/is-on/);
+    const row = page.locator('.person-card', { hasText: 'Ana Pérez' });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('Ver perfil');
     await expect(page.locator('#toastRoot')).toContainText('Miembro agregado');
   });
 
-  test('los chips de labor persisten al recargar', async ({ page }) => {
+  test('las labores asignadas persisten al recargar (vía perfil)', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);
 
     await page.click('#addMemberBtn');
     await page.fill('#mdName', 'Juan López');
+    await page.check('[data-mr="audio"]');
     await page.click('#mdForm button[type="submit"]');
 
-    const card = page.locator('.person-card', { hasText: 'Juan López' });
-    await expect(card).toBeVisible();
-
-    // Desbloquear edición y marcar "audio".
-    await page.click('#toggleEditMode');
-    await card.locator('.labor-chip[data-plabore="audio"]').click();
-    await expect(card.locator('.labor-chip[data-plabore="audio"]')).toHaveClass(/is-on/);
+    const row = page.locator('.person-card', { hasText: 'Juan López' });
+    await expect(row).toBeVisible();
 
     // Recargar: el estado persiste en IndexedDB.
     await page.reload();
     await gotoLabores(page);
-    const card2 = page.locator('.person-card', { hasText: 'Juan López' });
-    await expect(card2.locator('.labor-chip.is-on[data-plabore="audio"]')).toHaveCount(1);
+    const row2 = page.locator('.person-card', { hasText: 'Juan López' });
+    await expect(row2).toBeVisible();
+    const pid = await row2.getAttribute('data-pid');
+    await page.click(`[data-profile="${pid}"]`);
+    await expect(page.locator('#pfLabores .labor-chip.is-on[data-plabore="audio"]')).toHaveCount(1);
   });
 
   test('perfil de persona: nombre, labores conmutables e historial', async ({ page }) => {
@@ -87,7 +85,6 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#pfLabores .labor-chip[data-plabore="audio"]');
     await page.click('#pfSave');
     await expect(page.locator('#toastRoot')).toContainText('Perfil actualizado');
-    await expect(page.locator('.person-card .labor-chip.is-on[data-plabore="audio"]')).toHaveCount(1);
   });
 
   test('historial de asignaciones muestra la tabla con las personas', async ({ page }) => {
@@ -111,14 +108,12 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#pList tbody')).toContainText('Sin asignaciones registradas');
   });
 
-  test('filtrar por labor muestra solo quienes tienen esa labor (quick chip)', async ({ page }) => {
+  test('buscar persona filtra la lista (búsqueda)', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);
 
-    // Persona Uno tiene "audio" (Sonido); Persona Dos no tiene labores.
     await page.click('#addMemberBtn');
     await page.fill('#mdName', 'Persona Uno');
-    await page.check('[data-mr="audio"]');
     await page.click('#mdForm button[type="submit"]');
     await expect(page.locator('.person-card')).toHaveCount(1);
 
@@ -127,23 +122,15 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#mdForm button[type="submit"]');
     await expect(page.locator('.person-card')).toHaveCount(2);
 
-    // Activar filtro Sonido → solo se ve la persona con audio.
-    await page.click('[data-quicklabore="audio"]');
+    await page.fill('#pSearch', 'Persona Uno');
     await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(1);
     await expect(page.locator('.person-card:not(.is-hidden)', { hasText: 'Persona Uno' })).toHaveCount(1);
     await expect(page.locator('.person-card.is-hidden', { hasText: 'Persona Dos' })).toHaveCount(1);
 
-    // Filtrar por una labor que nadie tiene → aviso de sin resultados.
-    await page.click('[data-quicklabore="presidente"]');
+    await page.fill('#pSearch', 'zzz-inexistente');
     await expect(page.locator('#pEmpty')).toBeVisible();
-    await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(0);
 
-    // Desactivar el filtro de presidente → vuelve a verse la persona con audio.
-    await page.click('[data-quicklabore="presidente"]');
-    await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(1);
-
-    // Desactivar el filtro de sonido → se ven todas.
-    await page.click('[data-quicklabore="audio"]');
+    await page.fill('#pSearch', '');
     await expect(page.locator('.person-card:not(.is-hidden)')).toHaveCount(2);
   });
 
@@ -158,7 +145,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(card).toBeVisible();
     const pid = await card.getAttribute('data-pid');
 
-    // Quitar → tarjeta desaparece (queda oculta).
+    // Quitar → la fila desaparece (queda oculta).
     await page.click(`[data-pdel="${pid}"]`);
     await page.click('#mdOk');
     await expect(page.locator('.person-card', { hasText: 'Ana Torrado' })).toHaveCount(0, { timeout: 10000 });
@@ -167,7 +154,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#toggleInactive');
     const inactive = page.locator('.person-card.is-inactive', { hasText: 'Ana Torrado' });
     await expect(inactive).toBeVisible();
-    await expect(inactive.locator('.labor-chip').first()).toBeDisabled();
+    await expect(inactive).toContainText('Desactivada');
     await expect(inactive.locator('[data-prestore]')).toBeAttached();
 
     // Restaurar → vuelve a la lista activa.
@@ -500,6 +487,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#sideNavItems button[data-go="lists"]');
     await page.waitForSelector('h1:has-text("Personas y Grupos")', { state: 'visible' });
 
+    await page.click('[data-tab="grupos"]');
     await page.click('#assignGroupBtn');
     await expect(page.locator('#modalCard')).toContainText('Asignar grupos');
     await page.selectOption('#gaGrupo', '1');
@@ -509,8 +497,9 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#modalCard')).toContainText('7 de 7 asignados');
     await expect(page.locator('#modalCard')).toContainText('Volver a asignar');
 
-    // Cerrar: el avatar de la primera persona muestra el número de grupo.
+    // Cerrar: en Personas, el avatar de la primera persona muestra el número de grupo.
     await page.click('#gaClose');
+    await page.click('[data-tab="personas"]');
     const card = page.locator('.person-card').first();
     await expect(card.locator('.rounded-full').first()).toContainText('1');
   });
@@ -521,20 +510,22 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#sideNavItems button[data-go="lists"]');
     await page.waitForSelector('h1:has-text("Personas y Grupos")', { state: 'visible' });
 
-    // Grupos: card del grupo y su interior.
+    // Grupos: card del grupo y su interior (vista completa).
     await page.click('[data-tab="grupos"]');
     await expect(page.locator('[data-grupo="1"]')).toBeVisible();
     await page.click('[data-grupo="1"]');
-    await expect(page.locator('#modalCard')).toContainText('Grupo 1');
-    await expect(page.locator('#modalCard')).toContainText('miembro(s)');
-    await page.click('[data-close-modal]');
+    await expect(page.locator('#pList')).toContainText('Grupo 1');
+    await expect(page.locator('#pList')).toContainText('miembro(s)');
+    await expect(page.locator('#assignGroupBtn')).toBeVisible();
+    await page.click('[data-gvolver]');
 
-    // Departamentos: mini-cards de labor y su interior.
+    // Departamentos: mini-cards de labor y su interior con opción de agregar.
     await page.click('[data-tab="departamentos"]');
+    await expect(page.locator('#manageLaboresBtn')).toBeVisible();
     await expect(page.locator('[data-departamento]').first()).toBeVisible();
     await page.locator('[data-departamento]').first().click();
-    await expect(page.locator('#modalCard')).toBeVisible();
-    await expect(page.locator('#modalCard')).toContainText('persona(s) con esta labor');
+    await expect(page.locator('#pList')).toContainText('persona(s) con esta labor');
+    await page.click('[data-dvolver]');
   });
 
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {

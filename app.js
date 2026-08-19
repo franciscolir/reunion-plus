@@ -3208,18 +3208,10 @@ async function renderLists() {
           ${CARGOS.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}
         </select>
       </div>
-      <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors" id="toggleEditMode">
-        <span class="material-symbols-outlined text-[18px]">lock_open</span>
-        <span id="editText">Desbloquear</span>
-      </button>
       <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border ${state.listsShowInactive ? 'bg-secondary-container text-on-secondary-container border-secondary-container' : 'border-outline text-on-surface-variant'} px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors" id="toggleInactive">
         <span class="material-symbols-outlined text-[18px]">history_toggle_off</span>
         <span>${state.listsShowInactive ? 'Ocultar desactivados' : 'Ver desactivados'}</span>
       </button>
-    </div>
-    <div id="quickLaboresWrap" class="flex flex-wrap items-center gap-2 mb-4">
-      <span class="font-label-md text-label-md text-on-surface-variant">Filtrar por labor:</span>
-      ${state.labores.map(r => `<button type="button" data-quicklabore="${r.id}" class="quick-chip" title="Mostrar solo quienes tienen ${escapeAttr(r.label)}">${escapeHtml(r.label)}</button>`).join('')}
     </div>` : ''}
 
     <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant overflow-hidden">
@@ -3228,8 +3220,9 @@ async function renderLists() {
 
     <div class="mt-6 flex justify-between flex-wrap gap-3">
       <div class="flex flex-wrap gap-3">
-        ${(isPersonas || isHist) ? `<button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores</button>` : ''}
-        ${(isPersonas || isGrupos || isHist) ? `<button id="assignGroupBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">group</span> Asignar Grupos</button>` : ''}
+        ${(isDeptos || isHist) ? `<button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores</button>` : ''}
+        ${isGrupos ? `<button id="assignGroupBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">group</span> Asignar Grupos</button>
+        <button id="manageGroupsBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">settings</span> Gestionar Grupos</button>` : ''}
       </div>
       ${(isPersonas || isHist) ? `<button id="addMemberBtn" data-admin class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">add</span> Añadir Miembro</button>` : ''}
     </div>
@@ -3238,41 +3231,19 @@ async function renderLists() {
   $('#listsTabs').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.listsTab = b.dataset.tab; renderLists(); });
   const agb = $('#assignGroupBtn');
   if (agb) agb.onclick = openGroupAssignmentModal;
+  const mgb = $('#manageGroupsBtn');
+  if (mgb) mgb.onclick = renderGruposConfigModal;
 
   if (isHist) { renderListsHistorial(); return; }
   if (isGrupos) { renderListsGrupos(); return; }
   if (isDeptos) { renderListsDepartamentos(); return; }
 
-  const filterLabores = new Set();
-  app.querySelectorAll('[data-quicklabore]').forEach(btn => btn.onclick = () => {
-    const labore = btn.dataset.quicklabore;
-    if (filterLabores.has(labore)) { filterLabores.delete(labore); btn.classList.remove('is-on'); }
-    else { filterLabores.add(labore); btn.classList.add('is-on'); }
-    applyFilter();
-  });
-
-  let editMode = false;
-  const toggleBtn = $('#toggleEditMode');
-  toggleBtn.onclick = () => {
-    editMode = !editMode;
-    if (editMode) {
-      toggleBtn.classList.remove('border-primary', 'text-primary');
-      toggleBtn.classList.add('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
-      toggleBtn.lastElementChild.textContent = 'Guardar y Bloquear';
-      $('#pList').querySelectorAll('.labor-chip').forEach(cb => { if (!cb.hasAttribute('data-locked')) cb.disabled = false; });
-    } else {
-      toggleBtn.classList.add('border-primary', 'text-primary');
-      toggleBtn.classList.remove('bg-primary', 'text-on-primary', 'hover:bg-primary/90');
-      toggleBtn.lastElementChild.textContent = 'Desbloquear';
-      $('#pList').querySelectorAll('.labor-chip').forEach(cb => cb.disabled = true);
-    }
-  };
-  $('#addMemberBtn').onclick = openAddMemberModal;
-
-  $('#manageLaboresBtn').onclick = renderLaboresModal;
-  const assignGroupBtn = $('#assignGroupBtn');
-  if (assignGroupBtn) assignGroupBtn.onclick = openGroupAssignmentModal;
-  $('#toggleInactive').onclick = () => { state.listsShowInactive = !state.listsShowInactive; renderLists(); };
+  const addMemberBtn = $('#addMemberBtn');
+  if (addMemberBtn) addMemberBtn.onclick = openAddMemberModal;
+  const manageLaboresBtn = $('#manageLaboresBtn');
+  if (manageLaboresBtn) manageLaboresBtn.onclick = renderLaboresModal;
+  const toggleInactiveBtn = $('#toggleInactive');
+  if (toggleInactiveBtn) toggleInactiveBtn.onclick = () => { state.listsShowInactive = !state.listsShowInactive; renderLists(); };
 
   const search = $('#pSearch');
   const genderFilter = $('#pGenderFilter');
@@ -3281,15 +3252,12 @@ async function renderLists() {
     const q = normalizeStr(search.value);
     const gen = genderFilter.value;
     const cargo = cargoFilter.value;
-    const laboresSel = [...filterLabores];
     let anyVisible = false;
     document.querySelectorAll('#pList .person-card').forEach(card => {
       const matchName = card.dataset.norm.includes(q);
       const matchGen = !gen || card.dataset.genero === gen;
       const matchCargo = !cargo || card.dataset.cargo === cargo;
-      const personaLabores = (card.dataset.labores || '').split('|').filter(Boolean);
-      const matchLab = laboresSel.every(l => personaLabores.includes(l));
-      const show = matchName && matchGen && matchCargo && matchLab;
+      const show = matchName && matchGen && matchCargo;
       card.classList.toggle('is-hidden', !show);
       if (show) anyVisible = true;
     });
@@ -3303,15 +3271,25 @@ async function renderLists() {
 
   const pList = $('#pList');
   const inactivos = state.listsShowInactive ? await db.listPeopleInactive() : [];
-  const cards = [
-    ...state.people.map(p => renderPersonCard(p, editMode, false)),
+  const rows = [
+    ...state.people.map(p => renderPersonCard(p, false, false)),
     ...inactivos.map(p => renderPersonCard(p, false, true)),
   ];
-  pList.innerHTML = (cards.length
-    ? cards.join('')
-    : `<div class="col-span-full p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</div>`) +
-    `<div id="pEmpty" class="col-span-full p-6 text-center text-on-surface-variant text-sm hidden">Sin resultados para el filtro actual.</div>`;
-  renderPersonCardBindings(editMode);
+  pList.innerHTML = `<div class="overflow-x-auto">
+    <table class="w-full text-left border-collapse min-w-[720px]">
+      <thead><tr class="bg-surface-container border-b border-outline-variant">
+        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Miembro</th>
+        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Grupo</th>
+        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Género</th>
+        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Calificación</th>
+        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Cargo</th>
+        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase text-right">Acciones</th>
+      </tr></thead>
+      <tbody class="divide-y divide-outline-variant/40">${rows.length ? rows.join('') : '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>'}</tbody>
+    </table>
+  </div>
+  <div id="pEmpty" class="p-6 text-center text-on-surface-variant text-sm hidden">Sin resultados para el filtro actual.</div>`;
+  renderPersonCardBindings(false);
 }
 
 // Refleja el estado "asignado" de un chip de labor en sus clases CSS.
@@ -3453,38 +3431,36 @@ function renderLaborColumns(p, editMode) {
   return `<div class="grid grid-cols-3 gap-3 mt-3">${col('es', 'Entre semana')}${col('fs', 'Fin de semana')}${col('svc', 'Servicio')}</div>`;
 }
 
-// Tarjeta de persona (vista Personas y Grupos → Labores). El nombre es el
-// elemento principal; sus labores se muestran como chips conmutables. Si la
-// persona está desactivada (borrado lógico) se muestra atenuada con botón
-// de restauración.
+// Fila de persona (vista Personas → tabla). Muestra avatar (número de grupo),
+// nombre, grupo, género, calificación, cargo y acciones (ver perfil / borrar).
 function renderPersonCard(p, editMode, isInactive = false) {
   const gen = p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : '—';
-  const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '';
+  const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '—';
   const cargo = cargoOf(p);
-  const badges = [];
-  if (cargo.id !== 'publicador') badges.push(`<span class="px-2 py-0.5 rounded-full bg-primary-fixed text-primary text-[11px] font-label-md">${cargo.label}</span>`);
-  if (p.genero) badges.push(`<span class="px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant text-[11px] font-label-md">${gen}</span>`);
-  if (cal) badges.push(`<span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-label-md">Cal. ${cal}</span>`);
-  if (p.enlace) badges.push(`<span class="px-2 py-0.5 rounded-full bg-primary-container text-on-primary-container text-[11px] font-label-md">Enlazado</span>`);
-  if (isInactive) badges.push(`<span class="px-2 py-0.5 rounded-full bg-error-container text-error text-[11px] font-label-md">Desactivada</span>`);
-  const actions = isInactive
-    ? `
-      <button data-prestore="${p.id}" class="p-1.5 rounded-lg text-primary hover:bg-primary-fixed" title="Restaurar"><span class="material-symbols-outlined text-[18px]">undo</span></button>`
+  const grupo = p.grupoId ? deptNameOf(p.grupoId) : '—';
+  const acciones = isInactive
+    ? `<button data-prestore="${p.id}" class="p-1.5 rounded-lg text-primary hover:bg-primary-fixed" title="Restaurar"><span class="material-symbols-outlined text-[18px]">undo</span></button>`
     : `
-      <button data-profile="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Ver perfil"><span class="material-symbols-outlined text-[18px]">account_circle</span></button>
-      <button data-markall="${p.id}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Marcar/desmarcar todas las labores"><span class="material-symbols-outlined text-[18px]">select_all</span></button>
-      <button data-pdel="${p.id}" data-admin class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
-  return `<div class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-labores="${escapeAttr((Array.isArray(p.labores) ? p.labores : []).slice().sort().join('|'))}" data-pid="${p.id}">
-    <div class="flex items-center gap-3">
-      ${avatarHtml(p, 'w-10 h-10')}
-      <div class="min-w-0 flex-1">
-        <p class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</p>
-        <div class="flex flex-wrap gap-1.5 mt-1">${badges.join('') || '<span class="text-[11px] text-on-surface-variant/60">Sin datos</span>'}</div>
+      <button data-profile="${p.id}" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors" title="Ver perfil">Ver perfil</button>
+      <button data-pdel="${p.id}" data-admin class="inline-flex items-center justify-center p-1.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
+  return `<tr class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-pid="${p.id}">
+    <td class="px-3 py-2">
+      <div class="flex items-center gap-3">
+        ${avatarHtml(p, 'w-9 h-9')}
+        <div class="min-w-0">
+          <p class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</p>
+          ${isInactive ? '<span class="text-[11px] text-error font-label-md">Desactivada</span>' : ''}
+        </div>
       </div>
-      <div class="flex items-center gap-0.5 shrink-0">${actions}</div>
-    </div>
-    ${renderLaborColumns(p, isInactive ? false : editMode)}
-  </div>`;
+    </td>
+    <td class="px-3 py-2 whitespace-nowrap font-medium text-on-surface">${escapeHtml(grupo)}</td>
+    <td class="px-3 py-2 whitespace-nowrap text-on-surface-variant">${gen}</td>
+    <td class="px-3 py-2 whitespace-nowrap">${cal}</td>
+    <td class="px-3 py-2 whitespace-nowrap">${cargo.label}</td>
+    <td class="px-3 py-2 whitespace-nowrap">
+      <div class="flex items-center gap-1 justify-end">${acciones}</div>
+    </td>
+  </tr>`;
 }
 
 function renderPersonCardBindings(editMode) {
@@ -3550,31 +3526,40 @@ function renderListsGrupos() {
       <div class="text-sm text-on-surface-variant">${miembros.length ? miembros.map(m => escapeHtml(m.name.split(' ')[0])).join(' · ') : 'Sin miembros'}</div>
     </button>`;
   }).join('');
-  list.querySelectorAll('[data-grupo]').forEach(b => b.onclick = () => abrirGrupoModal(b.dataset.grupo));
+  list.querySelectorAll('[data-grupo]').forEach(b => b.onclick = () => renderGrupoInterior(b.dataset.grupo));
 }
 
-function abrirGrupoModal(grupoId) {
+// Interior de un grupo: vista completa (no modal) con la lista de miembros.
+function renderGrupoInterior(grupoId) {
   const g = state.departments.find(d => String(d.id) === String(grupoId));
   if (!g) return;
+  const list = $('#pList');
+  list.className = '';
   const miembros = state.people.filter(p => p.activo !== false && String(p.grupoId || '') === String(grupoId));
   const gc = grupoColorFor(grupoId);
-  openModal(`
-    <div>
-      <div class="flex items-center gap-3 mb-4">
-        ${gc ? `<div class="w-12 h-12 rounded-full flex items-center justify-center font-bold shrink-0" style="background:${gc.bg};color:${gc.text}">${String(grupoId)}</div>` : ''}
-        <div>
-          <h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(g.name)}</h3>
-          <p class="text-sm text-on-surface-variant">${miembros.length} miembro(s)</p>
-        </div>
+  list.innerHTML = `
+    <div class="mb-3 flex items-center gap-3 flex-wrap">
+      <button data-gvolver class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">
+        <span class="material-symbols-outlined text-[18px]">arrow_back</span> Grupos
+      </button>
+      ${gc ? `<div class="w-10 h-10 rounded-full flex items-center justify-center font-bold shrink-0" style="background:${gc.bg};color:${gc.text}">${String(grupoId)}</div>` : ''}
+    </div>
+    <h2 class="font-headline-lg text-headline-lg text-primary mb-1">${escapeHtml(g.name)}</h2>
+    <p class="text-on-surface-variant font-body-md mb-4">${miembros.length} miembro(s)</p>
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead><tr class="bg-surface-container border-b border-outline-variant">
+            <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Miembro</th>
+            <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Cargo</th>
+          </tr></thead>
+          <tbody class="divide-y divide-outline-variant/40">
+            ${miembros.length ? miembros.map(m => `<tr><td class="px-3 py-2"><div class="flex items-center gap-3">${avatarHtml(m, 'w-9 h-9')}<span class="font-body-md text-body-md text-on-surface">${escapeHtml(m.name)}</span></div></td><td class="px-3 py-2 text-on-surface-variant">${cargoOf(m).label}</td></tr>`).join('') : '<tr><td colspan="2" class="p-6 text-center text-on-surface-variant text-sm">Sin miembros en este grupo.</td></tr>'}
+          </tbody>
+        </table>
       </div>
-      <div class="max-h-[50vh] overflow-y-auto rounded-lg border border-outline-variant divide-y divide-outline-variant/40">
-        ${miembros.length ? miembros.map(m => `<div class="flex items-center gap-3 px-3 py-2">${avatarHtml(m, 'w-9 h-9')}<span class="font-body-md text-body-md text-on-surface">${escapeHtml(m.name)}</span></div>`).join('') : '<p class="p-4 text-center text-on-surface-variant text-sm">Sin miembros en este grupo.</p>'}
-      </div>
-      <div class="mt-4 flex justify-end">
-        <button data-close-modal class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
-      </div>
-    </div>`);
-  modalEl('[data-close-modal]').onclick = closeModal;
+    </div>`;
+  list.querySelector('[data-gvolver]').onclick = () => renderListsGrupos();
 }
 
 /* ---------- Vista Departamentos (labores) ---------- */
@@ -3592,29 +3577,129 @@ function renderListsDepartamentos() {
       <div class="text-sm text-on-surface-variant">${personas.length ? personas.map(p => escapeHtml(p.name.split(' ')[0])).join(' · ') : 'Nadie asignado'}</div>
     </button>`;
   }).join('');
-  list.querySelectorAll('[data-departamento]').forEach(b => b.onclick = () => abrirDepartamentoModal(b.dataset.departamento));
+  list.querySelectorAll('[data-departamento]').forEach(b => b.onclick = () => renderDepartamentoInterior(b.dataset.departamento));
 }
 
-function abrirDepartamentoModal(laboreId) {
+// Interior de un departamento (labor): vista completa con lista de asignados y
+// la opción de agregar más miembros a esa labor.
+function renderDepartamentoInterior(laboreId) {
   const r = state.labores.find(x => String(x.id) === String(laboreId));
   if (!r) return;
-  const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(String(laboreId)));
-  openModal(`
-    <div>
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(r.label)}</h3>
-          <p class="text-sm text-on-surface-variant">${personas.length} persona(s) con esta labor</p>
+  const list = $('#pList');
+  list.className = '';
+  const render = () => {
+    const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(String(laboreId)));
+    const sinLabor = state.people.filter(p => p.activo !== false && !(Array.isArray(p.labores) && p.labores.includes(String(laboreId))));
+    list.innerHTML = `
+      <div class="mb-3">
+        <button data-dvolver class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[18px]">arrow_back</span> Departamentos
+        </button>
+      </div>
+      <h2 class="font-headline-lg text-headline-lg text-primary mb-1">${escapeHtml(r.label)}</h2>
+      <p class="text-on-surface-variant font-body-md mb-4">${personas.length} persona(s) con esta labor.</p>
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden mb-6">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead><tr class="bg-surface-container border-b border-outline-variant">
+              <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Miembro</th>
+              <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Cargo</th>
+            </tr></thead>
+            <tbody class="divide-y divide-outline-variant/40">
+              ${personas.length ? personas.map(m => `<tr><td class="px-3 py-2"><div class="flex items-center gap-3">${avatarHtml(m, 'w-9 h-9')}<span class="font-body-md text-body-md text-on-surface">${escapeHtml(m.name)}</span></div></td><td class="px-3 py-2 text-on-surface-variant">${cargoOf(m).label}</td></tr>`).join('') : '<tr><td colspan="2" class="p-6 text-center text-on-surface-variant text-sm">Nadie asignado a esta labor.</td></tr>'}
+            </tbody>
+          </table>
         </div>
       </div>
-      <div class="max-h-[50vh] overflow-y-auto rounded-lg border border-outline-variant divide-y divide-outline-variant/40">
-        ${personas.length ? personas.map(p => `<div class="flex items-center gap-3 px-3 py-2">${avatarHtml(p, 'w-9 h-9')}<span class="font-body-md text-body-md text-on-surface">${escapeHtml(p.name)}</span></div>`).join('') : '<p class="p-4 text-center text-on-surface-variant text-sm">Nadie asignado a esta labor.</p>'}
+      ${sinLabor.length ? `
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5">
+        <h3 class="font-headline-md text-headline-md text-primary mb-2">Agregar miembros</h3>
+        <div class="max-h-52 overflow-y-auto rounded-lg border border-outline-variant divide-y divide-outline-variant/40 mb-3">
+          ${sinLabor.map(m => `<label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-container">${avatarHtml(m, 'w-8 h-8')}<span class="flex-1 text-sm text-on-surface truncate">${escapeHtml(m.name)}</span><input type="checkbox" data-agregar="${m.id}" class="accent-primary w-4 h-4 shrink-0"></label>`).join('')}
+        </div>
+        <button id="dlabAdd" data-admin class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-opacity">Agregar seleccionados</button>
+      </div>` : ''}`;
+    list.querySelector('[data-dvolver]').onclick = () => renderListsDepartamentos();
+    const addBtn = $('#dlabAdd');
+    if (addBtn) addBtn.onclick = async () => {
+      const ids = [...list.querySelectorAll('[data-agregar]:checked')].map(cb => cb.dataset.agregar);
+      if (!ids.length) { toast('Marca al menos una persona', 'error'); return; }
+      const btn = addBtn;
+      btn.disabled = true;
+      try {
+        for (const id of ids) {
+          const person = state.people.find(x => String(x.id) === String(id));
+          if (!person) continue;
+          person.labores = Array.isArray(person.labores) ? person.labores : [];
+          if (!person.labores.includes(String(laboreId))) person.labores.push(String(laboreId));
+          await db.updatePerson(person);
+        }
+        state.people = await db.listPeople();
+        toast(`${ids.length} agregado(s) a ${r.label}`, 'success');
+        render();
+      } finally { btn.disabled = false; }
+    };
+  };
+  render();
+}
+
+// Gestión de Grupos (configuración local dentro de la vista Grupos).
+async function renderGruposConfigModal() {
+  const config = await db.getConfig();
+  const n = Number(config.groups?.cantidad) || Math.max(state.departments.length, 1) || 3;
+  openModal(`
+    <div>
+      <h3 class="font-headline-md text-headline-md text-primary mb-1">Gestionar Grupos</h3>
+      <p class="text-on-surface-variant text-sm mb-4">Cantidad de grupos y labores comunes a todos.</p>
+      <div class="space-y-4">
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cantidad de grupos</label>
+          <select id="gcfgCant" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            ${Array.from({ length: 12 }, (_, i) => i + 1).map(x => `<option value="${x}" ${x === n ? 'selected' : ''}>${x} grupo${x > 1 ? 's' : ''}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Labores (comunes a todos los grupos)</label>
+          <input id="gcfgLabores" type="text" value="${escapeAttr(config.groups?.labores || '')}" placeholder="p. ej. Aseo y hospitalidad, sonido, ujieres…" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        </div>
       </div>
-      <div class="mt-4 flex justify-end">
-        <button data-close-modal class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
+      <div class="flex gap-3 justify-end mt-5">
+        <button id="gcfgCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cancelar</button>
+        <button id="gcfgSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-opacity">Guardar</button>
       </div>
     </div>`);
-  modalEl('[data-close-modal]').onclick = closeModal;
+  $('#gcfgCancel').onclick = closeModal;
+  $('#gcfgSave').onclick = async () => {
+    const nn = Math.max(parseInt($('#gcfgCant').value, 10) || n, 1);
+    await ensureGroupCountGlobal(nn);
+    const cfg = await db.getConfig();
+    cfg.groups = { cantidad: nn, labores: $('#gcfgLabores').value.trim() };
+    await db.setConfig(cfg);
+    state.config = cfg;
+    state.departments = await db.listDepartments();
+    closeModal();
+    toast('Grupos guardados', 'success');
+    renderLists();
+  };
+}
+
+// Asegura que existan exactamente `n` grupos activos (numerados "Grupo i" o "i").
+async function ensureGroupCountGlobal(n) {
+  const existing = await db.listDepartmentsAll();
+  const byNum = new Map();
+  for (const d of existing) {
+    const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
+    if (m) byNum.set(parseInt(m[1], 10), d);
+  }
+  for (let i = 1; i <= n; i++) {
+    const d = byNum.get(i);
+    if (!d) await db.addDepartment(`Grupo ${i}`);
+    else if (d.activo === false) await db.restoreDepartment(d.id);
+  }
+  for (const d of existing) {
+    const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
+    if (m && parseInt(m[1], 10) > n && d.activo !== false) await db.deleteDepartment(d.id);
+  }
 }
 
 /* ---------- Vista Historial de asignaciones (Personas) ---------- */
@@ -3637,7 +3722,7 @@ async function renderListsHistorial() {
     return `${d.getDate()} ${MONTHS_ES[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
   };
 
-  const rows = metrics.map(m => {
+  const buildRows = (list) => list.map(m => {
     const canGive = m.canGiveButNot.length
       ? m.canGiveButNot.map(labelOfLabore).join(', ')
       : '<span class="text-on-surface-variant/60">—</span>';
@@ -3658,16 +3743,33 @@ async function renderListsHistorial() {
     <table class="w-full text-left border-collapse">
       <thead>
         <tr class="bg-surface-container border-b border-outline-variant">
-          <th class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[200px]">Miembro</th>
-          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Cantidad de asignaciones en los últimos 30 días">Último mes</th>
-          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Promedio de asignaciones por mes">Promedio / mes</th>
-          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Total de asignaciones registradas">Total</th>
+          <th data-sort="name" class="p-4 font-label-md text-label-md text-on-surface-variant sticky left-0 top-0 bg-surface-container z-30 min-w-[200px] cursor-pointer hover:text-primary">Miembro ⤥</th>
+          <th data-sort="lastMonth" class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap cursor-pointer hover:text-primary" title="Cantidad de asignaciones en los últimos 30 días">Último mes ⤥</th>
+          <th data-sort="perMonth" class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap cursor-pointer hover:text-primary" title="Promedio de asignaciones por mes">Promedio / mes ⤥</th>
+          <th data-sort="total" class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap cursor-pointer hover:text-primary" title="Total de asignaciones registradas">Total ⤥</th>
           <th class="p-4 font-label-md text-label-md text-on-surface-variant text-left" title="Labores que puede dar (las tiene) pero aún no le han tocado">Puede dar, no le ha tocado</th>
-          <th class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap" title="Fecha de su última asignación (orden ascendente = hace más tiempo)">Última asignación</th>
+          <th data-sort="lastDate" class="p-4 font-label-md text-label-md text-on-surface-variant text-center whitespace-nowrap cursor-pointer hover:text-primary" title="Fecha de su última asignación (orden ascendente = hace más tiempo)">Última asignación ⤥</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-outline-variant/50">${rows}</tbody>
+      <tbody class="divide-y divide-outline-variant/50">${buildRows(metrics)}</tbody>
     </table>`;
+
+  // Ordenamiento SOLO de visualización (transitorio): al recargar vuelve al
+  // orden original (última asignación más antigua primero).
+  pList.querySelectorAll('th[data-sort]').forEach(th => {
+    th.onclick = () => {
+      const key = th.dataset.sort;
+      const dir = th.dataset.dir === 'asc' ? 'desc' : 'asc';
+      th.dataset.dir = dir;
+      const sorted = metrics.slice().sort((a, b) => {
+        if (key === 'name') return dir === 'asc' ? a.name.localeCompare(b.name, 'es') : b.name.localeCompare(a.name, 'es');
+        const va = key === 'lastDate' ? (a[key] || '') : Number(a[key] || 0);
+        const vb = key === 'lastDate' ? (b[key] || '') : Number(b[key] || 0);
+        return dir === 'asc' ? (va > vb ? 1 : va < vb ? -1 : 0) : (va < vb ? 1 : va > vb ? -1 : 0);
+      });
+      pList.querySelector('tbody').innerHTML = buildRows(sorted);
+    };
+  });
 
   const search = $('#pSearch');
   if (search) search.addEventListener('input', () => {
