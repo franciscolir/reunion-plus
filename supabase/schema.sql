@@ -22,13 +22,44 @@ as $$
   );
 $$;
 
+-- Whitelist: ¿el correo del usuario está autorizado a leer los datos?
+-- Lee la whitelist de la app (configuracion/general → config.emailsPermitidos).
+-- SECURITY DEFINER para leer configuracion aunque su RLS esté restringida.
+create or replace function public.email_autorizado()
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+stable
+as $$
+declare
+  v_email text := lower(coalesce((auth.jwt() ->> 'email'), ''));
+  v_cfg jsonb;
+begin
+  if v_email = '' then
+    return false;
+  end if;
+  if public.is_admin() then
+    return true;
+  end if;
+  select data into v_cfg from public.configuracion where id = 'general';
+  return exists (
+    select 1
+    from jsonb_array_elements_text(coalesce(v_cfg -> 'config' -> 'emailsPermitidos', '[]'::jsonb)) e
+    where lower(trim(e)) = v_email
+  );
+end;
+$$;
+
 -- Helper: políticas genéricas
+--   Lectura: solo usuarios autenticados Y con correo en la whitelist.
+--   Escritura: solo admin.
 create or replace function public.def_policies(tabla text) returns void
 language plpgsql security definer as $$
 begin
   execute format('alter table public.%I enable row level security;', tabla);
-  execute format('drop policy if exists "lectura_autenticados" on public.%I;', tabla);
-  execute format('create policy "lectura_autenticados" on public.%I for select to authenticated using (true);', tabla);
+  execute format('drop policy if exists "lectura_autorizados" on public.%I;', tabla);
+  execute format('create policy "lectura_autorizados" on public.%I for select to authenticated using (public.email_autorizado());', tabla);
   execute format('drop policy if exists "escritura_admin" on public.%I;', tabla);
   execute format('create policy "escritura_admin" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin());', tabla);
 end;
@@ -84,7 +115,7 @@ create index if not exists idx_asignaciones_participante on public.asignaciones 
 create index if not exists idx_asignaciones_programa on public.asignaciones ((data->>'programaId'));
 create index if not exists idx_programas_mes on public.programas ((data->>'mes'));
 
--- Políticas de datos: cualquier autenticado lee; solo admin escribe.
+-- Políticas de datos
 select public.def_policies('participantes');
 select public.def_policies('grupos');
 select public.def_policies('reuniones');
@@ -122,3 +153,21 @@ grant select, insert, update, delete on public.participantes, public.grupos, pub
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.usuarios
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
+
+-- =============================================================
+-- BOOTSTRAP DEL PRIMER ADMIN
+-- Después de crear el usuario en Auth (Authentication → Users → Add user):
+--   1. Copia su UUID (columna ID de la lista de usuarios).
+--   2. Sustituye <UID> y <EMAIL> en el bloque siguiente y ejecútalo.
+-- Esto lo promueve a admin y añade su correo a la whitelist (sin esto RLS
+-- no deja leer nada a nadie).
+-- =============================================================
+-- insert into public.usuarios (id, data)
+-- values ('<UID>', jsonb_build_object('email', '<EMAIL>', 'rol', 'admin'))
+-- on conflict (id) do update
+--   set data = jsonb_build_object('email', '<EMAIL>', 'rol', 'admin');
+--
+-- insert into public.configuracion (id, data)
+-- values ('general', jsonb_build_object('config', jsonb_build_object('emailsPermitidos', jsonb_build_array('<EMAIL>'))))
+-- on conflict (id) do update
+--   set data = jsonb_build_object('config', jsonb_build_object('emailsPermitidos', jsonb_build_array('<EMAIL>')));
