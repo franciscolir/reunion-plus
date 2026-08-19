@@ -371,15 +371,18 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     const celdas = fila.locator('td');
     await expect(celdas.nth(1)).toContainText('Álvaro P.');
     await expect(celdas.nth(2)).toContainText('Discurso Test');
-    // La columna 1 tiene la etiqueta pequeña "Semana" y la fecha como "día N.".
+    // La columna 1 tiene la etiqueta pequeña "Semana" y el número de día.
     await expect(celdas.nth(0)).toContainText('Semana 1');
-    await expect(celdas.nth(0)).toContainText('día 1.');
+    await expect(celdas.nth(0).locator('.outing-fecha')).toHaveText('1');
 
     // Dos formatos de salida: A4 vertical y Móvil 16:9.
     await expect(page.locator('#outModeSel')).toBeVisible();
     await expect(page.locator('#outingsContent')).toHaveClass(/outings-mode-a4/);
     await page.click('[data-outmode="movil"]');
     await expect(page.locator('#outingsContent')).toHaveClass(/outings-mode-movil/);
+    // En móvil: tarjetas con semana/fecha arriba y discurso a lo ancho.
+    await expect(page.locator('.outings-movil')).toBeVisible();
+    await expect(page.locator('.outings-movil-row').first()).toContainText('Discurso Test');
   });
 
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
