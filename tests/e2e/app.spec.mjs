@@ -357,10 +357,10 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.evaluate(() => { location.hash = '#/outings/2026-08'; });
     await expect(page.locator('#outingsContent')).toBeVisible();
 
-    // Encabezado: Congregaciones + línea "… | Salidas | AGOSTO 2026".
-    await expect(page.locator('#outingsContent')).toContainText('Congregaciones');
-    await expect(page.locator('#outingsContent')).toContainText('Salidas');
+    // Encabezado: "SALIDAS | AGOSTO 2026" y "Congregación Test — Sábados".
+    await expect(page.locator('#outingsContent')).toContainText('SALIDAS');
     await expect(page.locator('#outingsContent')).toContainText('AGOSTO 2026');
+    await expect(page.locator('#outingsContent')).toContainText('Congregación Test');
 
     // Cabecera con las tres columnas.
     const headers = page.locator('#outingsContent thead th');
@@ -383,6 +383,10 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // En móvil: tarjetas con semana/fecha arriba y discurso a lo ancho.
     await expect(page.locator('.outings-movil')).toBeVisible();
     await expect(page.locator('.outings-movil-row').first()).toContainText('Discurso Test');
+
+    // Exportar imagen no debe fallar por canvas contaminado (fuentes externas).
+    await page.click('#outImg');
+    await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
   });
 
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {

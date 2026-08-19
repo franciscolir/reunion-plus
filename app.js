@@ -3098,8 +3098,15 @@ async function imageOutings() {
   const node = $('#outingsContent');
   if (!node) return;
   toast('Generando imagen…', 'info');
-  try { const blob = await nodeToPngBlob(node); downloadBlob(blob, `salidas-${state.month.id}.png`); toast('Imagen descargada', 'success'); }
-  catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
+  try {
+    // Export vía SVG puro: el enfoque SVG+foreignObject contamina el canvas
+    // ("Tainted canvases"), así que el programa de salidas se dibuja con
+    // texto/rect nativos de SVG, que sí se pueden rasterizar a PNG.
+    const svg = outingsExportSvg();
+    const blob = await svgToPngBlob(svg);
+    downloadBlob(blob, `salidas-${state.month.id}.png`);
+    toast('Imagen descargada', 'success');
+  } catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
 }
 
 /* ---------- LISTAS: personas y grupos ---------- */
@@ -6639,6 +6646,7 @@ async function imageProgram() {
 /* Convierte un nodo DOM a PNG usando SVG foreignObject con estilos inlineados. */
 async function nodeToPngBlob(node) {
   const clone = await cloneWithInlineStyles(node);
+  sanitizarClonExport(clone);
   const rect = node.getBoundingClientRect();
   const width = Math.ceil(rect.width);
   const height = Math.ceil(node.scrollHeight);
@@ -6693,6 +6701,37 @@ async function cloneWithInlineStyles(node) {
   return clone;
 }
 
+// Evita que el canvas se contamine ("Tainted canvases") al exportar: el SVG
+// con foreignObject no puede cargar fuentes remotas ni imágenes, así que se
+// fuerza tipografía del sistema, se eliminan fondos con url() y se convierten
+// las <table> a <div> (Chrome contamina el canvas con tablas en foreignObject).
+// Así la imagen queda autocontenida y toBlob no falla.
+function sanitizarClonExport(clone) {
+  const reemplazar = (sel, display) => {
+    clone.querySelectorAll(sel).forEach(el => {
+      const div = document.createElement('div');
+      for (const a of Array.from(el.attributes)) div.setAttribute(a.name, a.value);
+      div.style.boxSizing = 'border-box';
+      while (el.firstChild) div.appendChild(el.firstChild);
+      el.replaceWith(div);
+    });
+  };
+  reemplazar('table', 'table');
+  reemplazar('thead', 'table-header-group');
+  reemplazar('tbody', 'table-row-group');
+  reemplazar('tr', 'table-row');
+  reemplazar('th', 'table-cell');
+  reemplazar('td', 'table-cell');
+
+  for (const el of [clone, ...clone.querySelectorAll('*')]) {
+    el.style.fontFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    for (const p of ['backgroundImage', 'maskImage', 'webkitMaskImage', 'borderImageSource']) {
+      const v = el.style[p];
+      if (v && v.includes('url(')) el.style[p] = 'none';
+    }
+  }
+}
+
 function loadImage(src) {
   return new Promise((res, rej) => {
     const img = new Image();
@@ -6710,6 +6749,183 @@ function downloadBlob(blob, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ---------- Exportación de salidas en SVG puro ---------- */
+// El método SVG+foreignObject contamina el canvas en algunos navegadores
+// ("Tainted canvases may not be exported"). El programa de salidas se dibuja
+// con texto/rect nativos de SVG (sin foreignObject), que sí se rasteriza.
+
+let _svgCtx = null;
+function svgMeasure() {
+  if (!_svgCtx) _svgCtx = document.createElement('canvas').getContext('2d');
+  return _svgCtx;
+}
+function svgEscape(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function svgTextLines(text, size, maxW) {
+  const ctx = svgMeasure();
+  ctx.font = `${size}px system-ui, sans-serif`;
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const test = cur ? cur + ' ' + w : w;
+    if (ctx.measureText(test).width <= maxW || !cur) cur = test;
+    else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+function svgT(x, y, text, size, weight, fill, anchor = 'start') {
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="${size}" font-weight="${weight || 400}" fill="${fill}">${svgEscape(text)}</text>`;
+}
+
+function outingsExportSvg() {
+  const m = state.month;
+  const yNum = Number(state.monthId.slice(0, 4));
+  const mes = Number(state.monthId.slice(5, 7));
+  const mesTxt = `${MONTHS_ES[mes - 1].toUpperCase()} ${yNum}`;
+  const congs = (m.outings || []).filter(c => c.nombre);
+  const congsLine = congs.map(c =>
+    `Congregación ${c.nombre} — ${c.dia === 'domingo' ? 'Domingos' : 'Sábados'} ${c.hora || ''}`).join('  |  ') || 'Sin congregaciones';
+  const weeks = m.weeks || [];
+  const movil = outingsMode === 'movil';
+  const W = movil ? 540 : 900;
+  const PAD = movil ? 22 : 46;
+  const cw = W - PAD * 2;
+  const C = { title: '#3f3a2e', sub: '#6b6454', small: '#9a927f', name: '#2f2a20', line: '#e7e3db', head: '#6b6454', headbg: '#f4f1ec', muted: '#8a8271' };
+
+  // ---- altura total ----
+  const tTitle = movil ? 24 : 32;
+  const tCong = movil ? 15 : 19;
+  let H = PAD + tTitle + 10 + tCong + 12 + 1 + (movil ? 12 : 18);
+  const rows = weeks.map((w) => {
+    const date = new Date(w.saturday + 'T00:00:00');
+    const dia = date.getDate();
+    const weekday = capitalize(date.toLocaleDateString('es', { weekday: 'long' }));
+    const outs = Array.isArray(w.outings) ? w.outings : [];
+    if (movil) {
+      let cardH = 12 + 15 + 6 + 26;
+      if (w.sinSalida) cardH += 24;
+      else if (outs.length) {
+        outs.forEach(o => {
+          cardH += 8 + 22;
+          cardH += svgTextLines(o.tituloDiscurso || '—', 15, cw - 28).length * 20;
+        });
+      } else cardH += 22;
+      H += cardH + 14;
+      return { dia, weekday, outs, cardH };
+    }
+    let rh = 42;
+    if (w.sinSalida) rh = Math.max(rh, 32);
+    else if (outs.length) {
+      let oh = 0, dh = 0;
+      outs.forEach(o => {
+        oh += 24;
+        dh += svgTextLines(o.tituloDiscurso || '—', 16, cw - 150 - 300 - 22).length * 21;
+      });
+      rh = Math.max(rh, Math.max(oh, dh) + 18);
+    } else rh = Math.max(rh, 44);
+    H += rh;
+    return { dia, weekday, outs, rh };
+  });
+  H += PAD;
+
+  const P = [];
+  P.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+  let y = PAD;
+  P.push(svgT(W / 2, y + tTitle, `SALIDAS  |  ${mesTxt}`, tTitle, 600, C.title, 'middle'));
+  y += tTitle + 10;
+  P.push(svgT(W / 2, y + tCong, congsLine, tCong, 400, C.sub, 'middle'));
+  y += tCong + 12;
+  P.push(`<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  y += movil ? 12 : 18;
+
+  if (movil) {
+    const mw = cw - 28;
+    rows.forEach((r, i) => {
+      const w = weeks[i];
+      P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="${r.cardH}" rx="10" fill="#ffffff" stroke="${C.line}" stroke-width="1"/>`);
+      let yy = y + 18;
+      P.push(svgT(PAD + 14, yy, `Semana ${i + 1}`, 11, 600, C.small));
+      yy += 20;
+      P.push(svgT(PAD + 14, yy, `${r.weekday} ${r.dia}`, 21, 600, C.title));
+      yy += 30;
+      if (w.sinSalida) { P.push(svgT(PAD + 14, yy, 'Sin salida esta semana', 15, 400, C.muted, 'start')); }
+      else if (r.outs.length) {
+        r.outs.forEach(o => {
+          P.push(svgT(PAD + 14, yy, personNameOf(o.oradorSalida), 17, 600, C.name));
+          yy += 22;
+          svgTextLines(o.tituloDiscurso || '—', 15, mw).forEach(ln => {
+            P.push(svgT(PAD + 14, yy, ln, 15, 400, C.sub));
+            yy += 20;
+          });
+        });
+      } else { P.push(svgT(PAD + 14, yy, '—', 15, 400, C.muted)); }
+      y += r.cardH + 14;
+    });
+  } else {
+    const col1 = 150, col2 = 300;
+    const x1 = PAD, x2 = PAD + col1, x3 = PAD + col1 + col2;
+    const w3 = cw - col1 - col2 - 22;
+    P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="38" fill="${C.headbg}"/>`);
+    P.push(svgT(x1 + 12, y + 24, 'Semana / Fecha', 13, 600, C.head));
+    P.push(svgT(x2 + 12, y + 24, 'Orador', 13, 600, C.head));
+    P.push(svgT(x3 + 12, y + 24, 'Discurso', 13, 600, C.head));
+    y += 38;
+    rows.forEach((r, i) => {
+      const w = weeks[i];
+      const y0 = y;
+      let yy = y + 26;
+      P.push(svgT(x1 + 12, yy - 12, `Semana ${i + 1}`, 11, 600, C.small));
+      P.push(svgT(x1 + 12, yy + 16, String(r.dia), 22, 600, C.title));
+      yy = y + 26;
+      if (w.sinSalida) {
+        P.push(svgT(x2 + 12, yy, 'Sin salida esta semana', 15, 400, C.muted, 'start'));
+      } else if (r.outs.length) {
+        let oy = y + 26, dy = y + 26;
+        r.outs.forEach(o => {
+          P.push(svgT(x2 + 12, oy, personNameOf(o.oradorSalida), 17, 600, C.name));
+          oy += 24;
+          svgTextLines(o.tituloDiscurso || '—', 16, w3).forEach(ln => {
+            P.push(svgT(x3 + 12, dy, ln, 16, 400, C.sub));
+            dy += 21;
+          });
+        });
+      } else {
+        P.push(svgT(x2 + 12, yy, '—', 15, 400, C.muted));
+      }
+      P.push(`<line x1="${PAD}" y1="${y0 + r.rh}" x2="${W - PAD}" y2="${y0 + r.rh}" stroke="${C.line}" stroke-width="1"/>`);
+      y += r.rh;
+    });
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
+}
+
+function svgToPngBlob(svgStr) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2;
+      const c = document.createElement('canvas');
+      c.width = img.width * scale;
+      c.height = img.height * scale;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => b ? resolve(b) : reject(new Error('toBlob falló')), 'image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG no decodificó')); };
+    img.src = url;
+  });
 }
 
 /* ---------- Utilidades ---------- */
