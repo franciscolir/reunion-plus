@@ -3913,7 +3913,7 @@ async function openPersonProfile(person) {
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
           <select id="pfEnlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${enlOpts}</select>
-          <p class="text-on-surface-variant text-caption mt-1">Si la calificaci�n es D, solo podr� tener asignaci�n en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada tambi�n quedar� enlazada a �l.</p>
+          <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada también quedará enlazada a él.</p>
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Grupo</label>
@@ -3967,7 +3967,7 @@ async function openPersonProfile(person) {
 
 // Vista especial para asignar grupos en lote: elige un grupo, marca participantes
 // y asigna. Los asignados salen de la lista; cuando no queda nadie se ofrece
-// "Volver a asignar" (reasigna desde cero con confirmaci�n).
+// "Volver a asignar" (reasigna desde cero con confirmación).
 async function openGroupAssignmentModal() {
   let pool = state.people.filter(p => p.activo !== false && !String(p.grupoId || ''));
   const renderModal = () => {
@@ -3977,8 +3977,8 @@ async function openGroupAssignmentModal() {
       openModal(`
         <div class="text-center py-4">
           <span class="material-symbols-outlined text-6xl text-tertiary mb-2 inline-block">group</span>
-          <h3 class="font-headline-md text-headline-md text-primary mb-1">Asignaci�n de grupos</h3>
-          <p class="text-on-surface-variant text-sm mb-1">Todos los participantes est�n asignados a un grupo.</p>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Asignación de grupos</h3>
+          <p class="text-on-surface-variant text-sm mb-1">Todos los participantes están asignados a un grupo.</p>
           <p class="text-on-surface-variant text-sm mb-6">${asignados} de ${total} asignados.</p>
           <div class="flex gap-3 justify-center">
             <button id="gaClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
@@ -3987,7 +3987,7 @@ async function openGroupAssignmentModal() {
         </div>`);
       $('#gaClose').onclick = closeModal;
       $('#gaReset').onclick = async () => {
-        if (!(await confirmDialog('�Volver a asignar los grupos desde cero? Se quitar�n los grupos actuales de todos los participantes y podr�s asignarlos de nuevo.', 'Reasignar grupos'))) return;
+        if (!(await confirmDialog('¿Volver a asignar los grupos desde cero? Se quitarán los grupos actuales de todos los participantes y podrás asignarlos de nuevo.', 'Reasignar grupos'))) return;
         for (const p of state.people) {
           if (p.grupoId) { p.grupoId = ''; await db.updatePerson(p); }
         }
@@ -4002,7 +4002,7 @@ async function openGroupAssignmentModal() {
       <div>
         <div class="flex items-center justify-between gap-3 mb-3">
           <h3 class="font-headline-md text-headline-md text-primary">Asignar grupos</h3>
-          <span class="text-sm text-on-surface-variant font-label-md">${pool.length} sin asignar � ${asignados} asignados</span>
+          <span class="text-sm text-on-surface-variant font-label-md">${pool.length} sin asignar · ${asignados} asignados</span>
         </div>
         <div class="mb-3">
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Grupo</label>
