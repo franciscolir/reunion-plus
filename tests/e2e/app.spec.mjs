@@ -481,6 +481,54 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
   });
 
+  test('general: conflictos mensuales con autorizar excepción y cambiar persona', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    // Presidente de entre semana vía editor (actualiza catálogo en memoria).
+    await page.evaluate(() => { location.hash = '#/midweek/2026-08-03'; });
+    await page.selectOption('select[data-mw-presidente]', '1');
+    await page.click('#mwSave');
+    await expect(page.locator('#toastRoot')).toContainText('Asignaciones guardadas');
+
+    // Acomodación de la MISMA semana (atencion sábado 08-08 → domingo 08-09).
+    await page.evaluate(() => new Promise((res, rej) => {
+      const req = indexedDB.open('reunion-plus', 8);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('atencion', 'readwrite');
+        const st = tx.objectStore('atencion');
+        const g = st.get('2026-08');
+        g.onsuccess = () => {
+          g.result.weeks[1].labores = { acomodacion: [1] };
+          st.put(g.result);
+          tx.oncomplete = () => { db.close(); res(); };
+          tx.onerror = () => rej(tx.error);
+        };
+        g.onerror = () => rej(g.error);
+      };
+      req.onerror = () => rej(req.error);
+    }));
+
+    await page.evaluate(() => { location.hash = '#/general/2026-08'; });
+    await expect(page.locator('#genConflictsBtn')).toBeVisible();
+    await page.click('#genConflictsBtn');
+    await expect(page.locator('#modalCard')).toContainText('Conflictos mensuales');
+    await expect(page.locator('#modalCard')).toContainText('E1');
+    await expect(page.locator('#modalCard')).toContainText('Álvaro P.');
+    await expect(page.locator('#modalCard [data-cambiar]').first()).toBeVisible();
+
+    // Autorizar excepción (puntual).
+    await page.click('[data-autorizar]');
+    await page.click('#mdOk');
+    await expect(page.locator('#modalCard')).toContainText('Quitar autorización');
+
+    // Cerrar y volver a abrir: el conflicto sigue autorizado (no pendiente).
+    await page.click('[data-close-modal]');
+    await page.click('#genConflictsBtn');
+    await expect(page.locator('#modalCard')).toContainText('Quitar autorización');
+  });
+
   test('personas: asignación de grupos en lote y avatar con número de grupo', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);

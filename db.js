@@ -430,6 +430,7 @@ export function defaultConfig() {
     groups: { cantidad: 3, start: 1, labores: '' }, // nº de grupos, grupo inicial (1-based), labores comunes
     algorithm: defaultAlgorithmConfig(),
     emailsPermitidos: [], // whitelist de correos autorizados para iniciar sesión
+    excepciones: [], // conflictos autorizados (alcance puntual: persona+regla+semana)
   };
 }
 
@@ -448,6 +449,7 @@ export async function getConfig() {
     groups: { ...def.groups, ...(v.groups || {}) },
     algorithm: { ...defaultAlgorithmConfig(), ...(v.algorithm || {}) },
     emailsPermitidos: Array.isArray(v.emailsPermitidos) ? v.emailsPermitidos.map(e => String(e).trim().toLowerCase()).filter(Boolean) : [],
+    excepciones: Array.isArray(v.excepciones) ? v.excepciones : [],
   };
 }
 export async function setConfig(cfg) {

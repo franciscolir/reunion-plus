@@ -14,6 +14,7 @@ import {
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
+  collectPersonAssignments,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
   automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   camposFinSemana, extractAssignments, assignmentMetrics,
@@ -6190,7 +6191,12 @@ async function renderGeneralMonth(monthId, opts = {}) {
   });
 
   const title = embed ? '' : `
-    <h1 class="font-display-lg text-display-lg text-primary mb-2">Vista Mensual General</h1>
+    <div class="flex flex-wrap items-center gap-3 mb-1">
+      <h1 class="font-headline-lg text-headline-lg text-primary">Vista Mensual General</h1>
+      <button id="genConflictsBtn" data-admin class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container transition-colors">
+        <span class="material-symbols-outlined text-[18px]">warning</span> Conflictos mensuales
+      </button>
+    </div>
     <p class="font-body-lg text-body-lg text-on-surface-variant mb-4">Todas las reuniones del mes, semana por semana.</p>`;
 
   const monthSelBlock = embed ? '' : `
@@ -6215,6 +6221,8 @@ async function renderGeneralMonth(monthId, opts = {}) {
   `;
   const monthSel = $('#generalMonth');
   if (monthSel) monthSel.onchange = (e) => go('general', { monthId: e.target.value });
+  const genConflicts = $('#genConflictsBtn');
+  if (genConflicts) genConflicts.onclick = () => abrirConflictosMensuales(cur);
   // Imagen por semana (SVG puro → PNG; comparte o descarga).
   root.querySelectorAll('[data-week-img]').forEach(btn => {
     btn.onclick = async () => {
@@ -6471,6 +6479,201 @@ function generalWeekExportSvg(data, cur) {
   });
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
+}
+
+/* ---------- CONFLICTOS MENSUALES: análisis caso a caso ---------- */
+const REGLA_TXT = {
+  E1: 'E1 · Más de una asignación (entre semana + acomodación) en la misma semana.',
+  E2: 'E2 · Más de una asignación (fin de semana + acomodación + salidas) en la misma semana.',
+  E3: 'E3 · La misma asignación de entre semana se repite en el mes.',
+  E4: 'E4 · El mismo cargo de fin de semana se repite en el mes.',
+  E5: 'E5 · Más de una salida en el mes.',
+};
+const ATENCION_ROL = { acomodacion: 'acomodador', microfono: 'microf', plataforma: 'plataforma', sonido: 'audio' };
+
+// Tabla de conflictos mensuales: persona, asignaciones con fecha, autorizar
+// excepción (alcance puntual: persona+regla+semana) o cambiar persona, y regla.
+async function abrirConflictosMensuales(cur) {
+  const [months, midweeks, labores, salidas] = await Promise.all([
+    db.listMonths(), db.listMidweeks(), db.listAtencion(), db.listSalidas(),
+  ]);
+  const mwMes = midweeks.filter(m => String(m.id).startsWith(cur));
+  const mesMes = months.filter(m => m.id === cur);
+  const salMes = salidas.filter(p => p.id === cur);
+  const labMes = labores.filter(p => p.id === cur);
+  const ctx = { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes, people: state.people };
+  const conflicts = computeCrossConflicts(ctx);
+  const all = collectPersonAssignments(ctx);
+  const config = await db.getConfig();
+  const excepciones = Array.isArray(config.excepciones) ? config.excepciones : [];
+  const exKey = (c) => `${c.value}|${c.regla}|${c.semana}`;
+
+  const weekSunday = (iso) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6); return isoDate(d); };
+  const mwBySunday = new Map();
+  mwMes.forEach(m => mwBySunday.set(weekSunday(m.id), m));
+  const finBySunday = new Map();
+  mesMes.forEach(mm => (mm.weeks || []).forEach(w => finBySunday.set(weekSunday(w.date), { rec: mm, week: w })));
+  const atencionBySunday = new Map();
+  labMes.forEach(p => (p.weeks || []).forEach(w => atencionBySunday.set(weekSunday(w.saturday), { rec: p, week: w })));
+  const salidasBySunday = new Map();
+  salMes.forEach(p => (p.weeks || []).forEach(w => salidasBySunday.set(weekSunday(w.saturday), { rec: p, week: w })));
+
+  const resolverSlot = (a) => {
+    const key = String(a.rol || '');
+    if (a.programa === 'entre') {
+      const mw = mwBySunday.get(String(a.semana));
+      if (!mw) return null;
+      if (key === 'presidente') return { rec: mw, store: 'midweeks', labore: 'presidente', collector: collectMidweekPersons, get: () => mw.presidente, set: (v) => { mw.presidente = v; } };
+      if (key.startsWith('atencion_')) {
+        const m = key.match(/^atencion_(\w+)_(\d+)$/);
+        if (m) { const d = ATENCION_DEF.find(x => x.key === m[1]); const si = +m[2]; return { rec: mw, store: 'midweeks', labore: ATENCION_ROL[m[1]] || '', get: () => { const l = ensureAtencion(mw).labores; const arr = Array.isArray(l[m[1]]) ? l[m[1]] : [l[m[1]] || '']; return arr[si]; }, set: (v) => { const l = ensureAtencion(mw).labores; if (Array.isArray(l[m[1]])) l[m[1]][si] = v; else l[m[1]] = v; } }; }
+      }
+      const m = key.match(/^parte(\d+)\.(\d+)\.(.+)$/);
+      if (m) {
+        const si = +m[1], num = +m[2], slot = m[3];
+        const sec = mw.sections[si];
+        const part = sec && (sec.parts || []).find(p => p.num === num);
+        const sl = part && mwSlotsFor(sec, part).find(s => s.key === slot);
+        return { rec: mw, store: 'midweeks', labore: sl && sl.labore, collector: collectMidweekPersons, get: () => (part.assignments || {})[slot], set: (v) => { if (!part.assignments) part.assignments = {}; part.assignments[slot] = v; } };
+      }
+    }
+    if (a.programa === 'fin') {
+      const fb = finBySunday.get(String(a.semana));
+      if (!fb) return null;
+      return { rec: fb.rec, store: 'months', labore: FIELD_LABORE[key] || '', collector: collectWeekPersons, get: () => fb.week[key], set: (v) => { fb.week[key] = v; } };
+    }
+    if (a.programa === 'acomodacion') {
+      const ab = atencionBySunday.get(String(a.semana));
+      if (!ab) return null;
+      const m = key.match(/^(\w+)_(\d+)$/);
+      if (m) { const d = ATENCION_DEF.find(x => x.key === m[1]); const si = +m[2]; return { rec: ab.rec, store: 'atencion', labore: ATENCION_ROL[m[1]] || '', get: () => { const l = ensureAtencion(ab.week).labores; const arr = Array.isArray(l[m[1]]) ? l[m[1]] : [l[m[1]] || '']; return arr[si]; }, set: (v) => { const l = ensureAtencion(ab.week).labores; if (Array.isArray(l[m[1]])) l[m[1]][si] = v; else l[m[1]] = v; } }; }
+    }
+    if (a.programa === 'salida') {
+      const sb = salidasBySunday.get(String(a.semana));
+      if (!sb) return null;
+      const m = key.match(/^salida_(\d+)_(\d+)$/);
+      if (m) { const oi = +m[2]; const o = (sb.week.outings || [])[oi]; if (!o) return null; return { rec: sb.rec, store: 'salidas', labore: 'orador', get: () => o.oradorSalida, set: (v) => { o.oradorSalida = v; } }; }
+    }
+    return null;
+  };
+
+  const personasDisponibles = (res) => {
+    const cur = asId(res.get());
+    let pred;
+    if (res.labore === 'presidente' || res.labore === 'orador') pred = res.labore;
+    else if (['audio', 'sonido', 'microf', 'plataforma', 'acomodador'].includes(res.labore)) {
+      const req = { sonido: ['audio', 'sonido'], microfono: ['microf'], plataforma: ['plataforma'], acomodacion: ['acomodador'] }[res.labore] || [res.labore];
+      const male = (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false;
+      pred = (p) => isAtencionPerson(p) && (!male || p.genero !== 'femenino') && (Array.isArray(p.labores) && p.labores.some(r => req.includes(r)));
+    } else pred = res.labore;
+    return eligiblePeople(res.week ? res.week : {}, state.people, pred, cur, res.collector || null);
+  };
+
+  const persistir = async (res) => {
+    if (res.store === 'midweeks') { await db.putMidweek(res.rec); state.midweeks = await db.listMidweeks(); }
+    else if (res.store === 'months') { await db.putMonth(res.rec); }
+    else if (res.store === 'atencion') { await db.putAtencion(res.rec); }
+    else if (res.store === 'salidas') { await db.putSalidas(res.rec); }
+    await syncAssignmentLog();
+  };
+
+  const render = () => {
+    const conflictsVivos = conflicts.filter(c => !excepciones.some(e => e && `${e.personaId}|${e.regla}|${e.semana}` === exKey(c)));
+    openModal(`
+      <div>
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 class="font-headline-md text-headline-md text-primary">Conflictos mensuales</h3>
+            <p class="text-sm text-on-surface-variant">${conflicts.length} conflicto(s) · ${excepciones.length} autorizado(s)</p>
+          </div>
+        </div>
+        ${!conflicts.length ? '<p class="text-on-surface-variant text-sm">No hay conflictos este mes.</p>' : `
+        <div class="max-h-[60vh] overflow-auto rounded-lg border border-outline-variant">
+          <table class="w-full text-left border-collapse">
+            <thead><tr class="bg-surface-container border-b border-outline-variant">
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant uppercase">Persona</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant uppercase">Asignaciones</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant uppercase">Acción</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant uppercase">Regla</th>
+            </tr></thead>
+            <tbody class="divide-y divide-outline-variant/40">${conflicts.map(c => conflictoFila(c)).join('')}</tbody>
+          </table>
+        </div>`}
+        <div class="mt-4 flex justify-end">
+          <button data-close-modal class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
+        </div>
+      </div>`);
+    modalEl('[data-close-modal]').onclick = closeModal;
+
+    function conflictoFila(c) {
+      const autorizada = excepciones.some(e => e && `${e.personaId}|${e.regla}|${e.semana}` === exKey(c));
+      const persona = state.people.find(x => String(x.id) === String(c.value));
+      const asigs = all.filter(a => String(a.value) === String(c.value) && (
+        (c.regla === 'E1' || c.regla === 'E2') ? String(a.semana) === String(c.semana)
+        : c.regla === 'E5' ? (String(a.mes) === String(c.mes) && a.programa === 'salida')
+        : (String(a.mes) === String(c.mes) && String(a.programa) === String(c.programa) && String(a.rol) === String(c.rol))
+      )).slice(0, 4);
+      const asigHtml = asigs.length ? asigs.map(a => {
+        const res = resolverSlot(a);
+        const opts = res ? personasDisponibles(res) : [];
+        return `<div class="py-1 border-b border-outline-variant/30 last:border-0">
+          <div class="text-sm font-medium text-on-surface">${escapeHtml(a.rol.split('_').join(' ').replace('atencion ', ''))} · <span class="text-on-surface-variant">${escapeHtml(a.semana)}</span></div>
+          ${res ? `<select data-cambiar="${c.value}|${c.regla}|${c.semana}|${a.rol}" class="mt-1 w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">
+            <option value="">— Cambiar a —</option>
+            ${opts.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+          </select>` : ''}
+        </div>`;
+      }).join('') : '<span class="text-on-surface-variant text-sm">—</span>';
+      return `<tr class="${autorizada ? 'opacity-60' : ''}">
+        <td class="p-3">${avatarHtml(persona, 'w-8 h-8')}<div class="mt-1 text-sm font-semibold text-on-surface">${escapeHtml(persona ? persona.name : c.value)}</div></td>
+        <td class="p-3 min-w-[220px]">${asigHtml}</td>
+        <td class="p-3">
+          ${autorizada
+            ? `<button data-desautorizar="${exKey(c)}" class="px-2.5 py-1 rounded-lg border border-outline text-on-surface-variant font-label-md text-label-md hover:bg-surface-container">Quitar autorización</button>`
+            : `<button data-autorizar="${exKey(c)}" class="px-2.5 py-1 rounded-lg border border-tertiary text-tertiary font-label-md text-label-md hover:bg-tertiary-fixed/40">Autorizar excepción</button>`}
+        </td>
+        <td class="p-3"><span class="text-xs text-on-surface-variant">${REGLA_TXT[c.regla] || c.regla}</span></td>
+      </tr>`;
+    }
+
+    // Autorizar excepción (alcance puntual: persona+regla+semana).
+    modalEl('[data-autorizar]') && [...document.querySelectorAll('[data-autorizar]')].forEach(b => b.onclick = async () => {
+      if (!(await confirmDialog('¿Autorizar esta excepción? Este conflicto puntual dejará de mostrarse como pendiente.', 'Autorizar excepción'))) return;
+      const [pid, regla, semana] = b.dataset.autorizar.split('|');
+      excepciones.push({ personaId: pid, regla, semana, autorizadaEn: Date.now() });
+      const cfg = await db.getConfig();
+      cfg.excepciones = excepciones;
+      await db.setConfig(cfg);
+      state.config = cfg;
+      toast('Excepción autorizada', 'success');
+      render();
+    });
+    modalEl('[data-desautorizar]') && [...document.querySelectorAll('[data-desautorizar]')].forEach(b => b.onclick = async () => {
+      const k = b.dataset.desautorizar;
+      const idx = excepciones.findIndex(e => e && `${e.personaId}|${e.regla}|${e.semana}` === k);
+      if (idx >= 0) excepciones.splice(idx, 1);
+      const cfg = await db.getConfig();
+      cfg.excepciones = excepciones;
+      await db.setConfig(cfg);
+      state.config = cfg;
+      toast('Autorización retirada', 'success');
+      render();
+    });
+    // Cambiar persona: reasigna el slot.
+    [...document.querySelectorAll('[data-cambiar]')].forEach(sel => sel.onchange = async () => {
+      if (!sel.value) return;
+      const [pid, regla, semana, rol] = sel.dataset.cambiar.split('|');
+      const a = all.find(x => String(x.value) === pid && String(x.rol) === rol && String(x.semana) === semana);
+      const res = a && resolverSlot(a);
+      if (!res) { toast('No se pudo resolver el puesto para cambiarlo.', 'error'); return; }
+      res.set(sel.value ? { id: sel.value, src: 'MANUAL', locked: true } : '');
+      await persistir(res);
+      toast('Asignación cambiada', 'success');
+      render();
+    });
+  };
+
+  render();
 }
 
 /* ---------- MIDWEEK: editor de una semana ---------- */
