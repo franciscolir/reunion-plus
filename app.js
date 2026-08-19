@@ -1141,13 +1141,12 @@ async function renderAutoAsignacion() {
                ${botonAsignar('atencion', 'Asignar')}`,
     }));
 
-    // Card 3: Salidas
+    // Card 3: Salidas (siempre a mano; solo muestra qué falta).
     cards.push(card({
-      id: 'salidas', icono: 'campaign', titulo: 'Salidas', desc: 'Oradores para las salidas a congregaciones',
+      id: 'salidas', icono: 'campaign', titulo: 'Salidas', desc: 'Oradores para las salidas a congregaciones (siempre a mano)',
       faltan: salMissing, pct: pct(salDone, salTotal), done: salMissing.length === 0 && !!d.sal && (d.sal.weeks || []).length > 0,
       resumen: sesion.reportes.salidas ? `${sesion.reportes.salidas.asignados} asignaciones hechas` : '',
-      accion: `<button data-ver="salidas" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>
-               ${botonAsignar('salidas', 'Asignar')}`,
+      accion: `<button data-ver="salidas" class="px-3 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Ver</button>`,
     }));
 
     // Card 4: Fin de semana
@@ -1162,12 +1161,12 @@ async function renderAutoAsignacion() {
     // Barra de estado (pasos)
     const STEPS = [
       { id: 'entre', titulo: 'Entre semana' },
-      { id: 'atencion', titulo: 'Atención y salidas' },
+      { id: 'atencion', titulo: 'Atención' },
       { id: 'fin', titulo: 'Fin de semana' },
     ];
     const pasoDone = {
       entre: !faltaGuia && mwMissing.length === 0,
-      atencion: labMissing.length === 0 && salMissing.length === 0,
+      atencion: labMissing.length === 0,
       fin: finFaltan.length === 0,
     };
     const barra = STEPS.map((s, i) => {
@@ -1268,7 +1267,6 @@ async function renderAutoAsignacion() {
       try {
         if (tipo === 'entre') { sesion.reportes.entre = await etapaEntreSemana(month); sesion.hechos.entre = true; }
         else if (tipo === 'atencion') { sesion.reportes.atencion = await etapaAtencion(month); sesion.hechos.atencion = true; }
-        else if (tipo === 'salidas') { sesion.reportes.salidas = await etapaSalidas(month); sesion.hechos.salidas = true; }
         else if (tipo === 'fin') { sesion.reportes.fin = await etapaFinSemana(month); sesion.hechos.fin = true; }
         await syncAssignmentLog();
         toast('Asignación completada', 'success');
@@ -1415,18 +1413,6 @@ async function etapaAtencion(month) {
   };
 }
 
-async function etapaSalidas(month) {
-  const [midweeks, months, labores, salidas] = await Promise.all([db.listMidweeks(), db.listMonths(), db.listAtencion(), db.listSalidas()]);
-  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
-  const mesMes = months.filter(m => m.id === month);
-  const labMes = labores.filter(p => p.id === month);
-  const salMes = salidas.filter(p => p.id === month);
-  const out = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'salidas' });
-  await Promise.all(out.salidas.map(p => db.putSalidas(p)));
-  const r = out.reportes.salidas || { asignados: 0, vacios: [] };
-  return { asignados: r.asignados, vacios: r.vacios.map(v => ({ semana: v.semana, rol: v.labore })) };
-}
-
 async function etapaFinSemana(month) {
   const [midweeks, months, salidas, labores] = await Promise.all([
     db.listMidweeks(),
@@ -1464,8 +1450,8 @@ async function etapaFinSemana(month) {
 /* ETAPA 4/5: GENERACIÓN POR ÁMBITO DESDE LOS EDITORES                */
 /* ================================================================== */
 
-const TAB_SCOPE = { entre: 'entre', fin: 'fin', salidas: 'salidas', atencion: 'labores' };
-const SCOPE_LABELS = { entre: 'Reunión de entre semana', fin: 'Reunión de fin de semana', salidas: 'Salidas', labores: 'Labores', all: 'programa mensual completo' };
+const TAB_SCOPE = { entre: 'entre', fin: 'fin', atencion: 'labores' };
+const SCOPE_LABELS = { entre: 'Reunión de entre semana', fin: 'Reunión de fin de semana', labores: 'Labores', all: 'programa mensual completo' };
 
 // ¿El ámbito del mes tiene ya alguna asignación? (para decidir si advertir)
 async function scopeTieneAsignaciones(month, scope) {
@@ -1477,7 +1463,7 @@ async function scopeTieneAsignaciones(month, scope) {
   const entries = extractAssignments(
     (scope === 'entre' || scope === 'labores' || scope === 'all') ? mwMes : [],
     (scope === 'fin' || scope === 'all') ? mesMes : [],
-    (scope === 'fin' || scope === 'salidas' || scope === 'all') ? salMes : [],
+    [],
     (scope === 'labores' || scope === 'all') ? labMes : [],
     state.people,
   );
@@ -1522,10 +1508,9 @@ async function generateProgram(month, scope) {
   const base = { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes };
 
   const clearKeys = scope === 'entre' ? ['midweeks']
-    : scope === 'fin' ? ['months', 'salidas']
-    : scope === 'salidas' ? ['salidas']
+    : scope === 'fin' ? ['months']
     : scope === 'labores' ? ['atencion', 'midweeks']
-    : ['midweeks', 'months', 'salidas', 'atencion'];
+    : ['midweeks', 'months', 'atencion'];
   const limpio = { ...base };
   for (const k of clearKeys) limpio[k] = clearAutoSlots({ [k]: base[k] })[k];
 
@@ -1546,7 +1531,7 @@ async function generateProgram(month, scope) {
     atencionOpts: { serviceRolesOnlyMale: algo.serviceRolesOnlyMale !== false, months: limpio.months },
   });
 
-  const persist = { entre: ['midweeks'], fin: ['months', 'salidas'], salidas: ['salidas'], labores: ['atencion', 'midweeks'], all: ['midweeks', 'months', 'salidas', 'atencion'] }[scope] || [];
+  const persist = { entre: ['midweeks'], fin: ['months'], labores: ['atencion', 'midweeks'], all: ['midweeks', 'months', 'atencion'] }[scope] || [];
   const writes = [];
   if (persist.includes('midweeks')) out.midweeks.forEach(w => writes.push(db.putMidweek(w)));
   if (persist.includes('months')) out.months.forEach(m => writes.push(db.putMonth(m)));

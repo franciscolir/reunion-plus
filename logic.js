@@ -377,6 +377,8 @@ export function changedManualKeys(before, after) {
 
 // Ejecuta los motores según `opts.scope` ('entre'|'fin'|'labores'|'all').
 // Devuelve { midweeks, months, salidas, atencion, reportes } ya envueltos.
+// NOTA: el programa de SALIDAS no se automatiza (siempre se hace a mano); los
+// motores solo lo LEEN como contexto (p. ej. para el conductor permanente).
 export function runEngine(people, programs, opts = {}) {
   const scope = opts.scope || 'all';
   const manualKeys = manualSlotKeys(programs);
@@ -388,10 +390,6 @@ export function runEngine(people, programs, opts = {}) {
   }
   if (scope === 'all' || scope === 'fin') {
     reportes.fin = automatizarFinSemana(people, p.months, p.salidas, p.atencion, p.midweeks, opts.finOpts || {});
-    reportes.salidas = automatizarSalidas(people, p.salidas, { midweeks: p.midweeks, months: p.months, atencion: p.atencion });
-  }
-  if (scope === 'salidas') {
-    reportes.salidas = automatizarSalidas(people, p.salidas, { midweeks: p.midweeks, months: p.months, atencion: p.atencion });
   }
   if (scope === 'all' || scope === 'labores') {
     reportes.atencion = automatizarAtencion(people, p.atencion, p.midweeks, opts.atencionOpts || {});

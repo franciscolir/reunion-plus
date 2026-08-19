@@ -1800,8 +1800,9 @@ console.log('[runEngine (motor único con envoltorio)]');
   ok('runEngine rellena la parte AUTO', parte && parte.src === 'AUTO');
   const fin = out.months[0].weeks[0];
   ok('runEngine asigna fin de semana AUTO', fin.presidente && fin.presidente.src === 'AUTO');
+  // Salidas NO se automatizan (siempre a mano): el motor no las toca.
   const sal = out.salidas[0].weeks[0].outings[0];
-  ok('runEngine asigna orador de salida AUTO', sal.oradorSalida && sal.oradorSalida.src === 'AUTO');
+  ok('runEngine no genera salidas (se hacen a mano)', sal.oradorSalida === '' || asStr(sal.oradorSalida) === '', JSON.stringify(sal.oradorSalida));
 
   // Un presidente puesto a mano (MANUAL) debe conservarse al regenerar.
   const manual = { ...program, months: [{ id: '2026-08', weeks: [{ date: '2026-08-01', type: 'normal', presidente: { id: 1, src: 'MANUAL', locked: true }, conductor: '', lector: '' }] }] };
