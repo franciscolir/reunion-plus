@@ -2884,7 +2884,7 @@ async function renderOutings() {
   const mes = Number(state.monthId.slice(5, 7));
   const outs = program.congregations || [];
   app.innerHTML = `
-    <div class="mb-10 text-center md:text-left">
+    <div class="outings-head mb-10 text-center md:text-left">
       <div class="flex items-center gap-3 mb-2 justify-center md:justify-start">
         <span class="editorial-line w-12 hidden md:block"></span>
         <p class="font-label-md text-label-md text-[#6b6454] uppercase tracking-widest">Programa de Salidas</p>
@@ -2948,12 +2948,12 @@ function renderOutingsContent() {
       <div class="flex flex-wrap gap-2">${congsHtml || '<span class="text-on-surface-variant text-sm">Sin congregaciones</span>'}</div>
     </div>
     <div class="overflow-x-auto">
-      <table class="w-full text-left border-collapse min-w-[760px]">
+      <table class="w-full text-left border-collapse min-w-[640px]">
         <thead>
           <tr class="bg-[#f4f1ec] text-[#6b6454]">
-            <th class="px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em]">Semana / Fecha</th>
-            <th class="px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em]">Orador</th>
-            <th class="px-6 py-4 text-xs font-semibold uppercase tracking-[0.18em]">Discurso</th>
+            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em]">Semana / Fecha</th>
+            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em]">Orador</th>
+            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em]">Discurso</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-[#e7e3db]">${weekRows}</tbody>
@@ -2964,27 +2964,25 @@ function renderOutingsContent() {
 
 function outingWeekRow(w, i) {
   const date = new Date(w.saturday + 'T00:00:00');
-  const dayStr = capitalize(date.toLocaleDateString('es', { weekday: 'long' }));
-  const dateStr = date.toLocaleDateString('es', { day: 'numeric', month: 'long' });
+  const dia = date.getDate();
   const outs = Array.isArray(w.outings) ? w.outings : [];
   const celdaSemana = `
-    <div class="text-[10px] uppercase tracking-[0.22em] text-[#9a927f] mb-1">Semana ${i + 1}</div>
-    <div class="text-xl md:text-2xl font-semibold text-[#3f3a2e] leading-tight">${dayStr}</div>
-    <div class="text-lg md:text-xl text-[#6b6454]">${dateStr}</div>`;
+    <div class="outing-semana text-[10px] uppercase tracking-[0.22em] text-[#9a927f] mb-1">Semana ${i + 1}</div>
+    <div class="outing-fecha text-2xl md:text-3xl font-semibold text-[#3f3a2e] leading-tight">día ${dia}.</div>`;
   if (w.sinSalida) {
     return `<tr class="align-top">
-      <td class="px-6 py-5">${celdaSemana}</td>
-      <td class="px-6 py-5 text-[#8a8271] italic" colspan="2">Sin salida esta semana</td>
+      <td class="px-4 py-3">${celdaSemana}</td>
+      <td class="px-4 py-3 text-[#8a8271] italic" colspan="2">Sin salida esta semana</td>
     </tr>`;
   }
   const names = outs.map(o =>
-    `<div class="py-1.5 font-medium text-[#3f3a2e]">${escapeHtml(personNameOf(o.oradorSalida))}</div>`).join('');
+    `<div class="py-1 font-medium text-[#3f3a2e]">${escapeHtml(personNameOf(o.oradorSalida))}</div>`).join('');
   const talks = outs.map(o =>
-    `<div class="py-1.5 text-[#6b6454]">${escapeHtml(o.tituloDiscurso || '—')}</div>`).join('');
+    `<div class="py-1 text-[#6b6454]">${escapeHtml(o.tituloDiscurso || '—')}</div>`).join('');
   return `<tr class="align-top">
-    <td class="px-6 py-5 w-[220px]">${celdaSemana}</td>
-    <td class="px-6 py-5 w-2/5">${names || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
-    <td class="px-6 py-5 w-2/5">${talks || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
+    <td class="px-4 py-3 w-[170px]">${celdaSemana}</td>
+    <td class="px-4 py-3 w-2/5">${names || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
+    <td class="px-4 py-3 w-2/5">${talks || '<span class="text-[#8a8271] italic text-sm">—</span>'}</td>
   </tr>`;
 }
 

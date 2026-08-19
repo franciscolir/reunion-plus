@@ -159,6 +159,21 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
   .tabla-programa tr { page-break-inside: avoid !important; }
   .tabla-programa thead { display: table-header-group !important; }
   .tabla-programa tbody { display: table-row-group !important; }
+
+  /* Vista de salidas: caber en una sola hoja (A4 horizontal) */
+  #outingsContent .outing-fecha { font-size: 15px !important; line-height: 1.15 !important; }
+  #outingsContent .outing-semana { font-size: 8px !important; margin-bottom: 2px !important; }
+  #outingsContent table th, #outingsContent table td { padding: 3px 6px !important; }
+  #outingsContent thead th { font-size: 8px !important; letter-spacing: .12em !important; }
+  #outingsContent tbody tr > td { font-size: 11px !important; line-height: 1.25 !important; }
+  #outingsContent tbody tr { page-break-inside: avoid !important; }
+  #outingsContent .mb-8 { margin-bottom: 4px !important; }
+  #outingsContent .pb-6 { margin-bottom: 4px !important; padding-bottom: 4px !important; }
+  #outingsContent .mb-3 { margin-bottom: 3px !important; }
+  #outingsContent .flex-wrap .gap-2 span { font-size: 9px !important; padding: 2px 8px !important; }
+  .outings-head { margin-bottom: 6px !important; }
+  .outings-head h1 { font-size: 18px !important; margin-bottom: 2px !important; }
+  .outings-head p { font-size: 10px !important; margin-bottom: 2px !important; max-width: none !important; }
 }
 .print-only { display: none; }
 

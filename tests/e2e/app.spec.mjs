@@ -366,9 +366,9 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     const celdas = fila.locator('td');
     await expect(celdas.nth(1)).toContainText('Álvaro P.');
     await expect(celdas.nth(2)).toContainText('Discurso Test');
-    // La columna 1 tiene la etiqueta pequeña "Semana" y la fecha grande.
+    // La columna 1 tiene la etiqueta pequeña "Semana" y la fecha como "día N.".
     await expect(celdas.nth(0)).toContainText('Semana 1');
-    await expect(celdas.nth(0)).toContainText('agosto');
+    await expect(celdas.nth(0)).toContainText('día 1.');
   });
 
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
