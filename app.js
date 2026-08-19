@@ -3222,6 +3222,9 @@ async function renderLists() {
         <button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
           <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores
         </button>
+        <button id="assignGroupBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">group</span> Asignar Grupos
+        </button>
       </div>
       <button id="addMemberBtn" data-admin class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2">
         <span class="material-symbols-outlined text-[18px]">add</span> Añadir Miembro
@@ -3263,6 +3266,8 @@ async function renderLists() {
   $('#addMemberBtn').onclick = openAddMemberModal;
 
   $('#manageLaboresBtn').onclick = renderLaboresModal;
+  const assignGroupBtn = $('#assignGroupBtn');
+  if (assignGroupBtn) assignGroupBtn.onclick = openGroupAssignmentModal;
   $('#toggleInactive').onclick = () => { state.listsShowInactive = !state.listsShowInactive; renderLists(); };
 
   const search = $('#pSearch');
@@ -3363,6 +3368,32 @@ function avatarClassFor(name) {
   return s % 2 ? 'bg-secondary-container text-on-secondary-container' : 'bg-primary-container text-on-primary-container';
 }
 
+// Paleta sutil de colores por grupo (1..N).
+const GRUPO_COLORES = [
+  { bg: '#e7e5f4', text: '#4c3f9e' },
+  { bg: '#d8efe2', text: '#1f7a4d' },
+  { bg: '#fde8d7', text: '#a85b1a' },
+  { bg: '#fde3e3', text: '#b23b3b' },
+  { bg: '#dbeaf6', text: '#1f6fa8' },
+  { bg: '#f3e2f7', text: '#8b3f9e' },
+  { bg: '#f4ead1', text: '#8a6d1f' },
+  { bg: '#e2edf0', text: '#2f7f8f' },
+];
+function grupoColorFor(grupoId) {
+  const n = Number(String(grupoId).replace(/\D/g, ''));
+  if (!isFinite(n) || n <= 0) return null;
+  return GRUPO_COLORES[(n - 1) % GRUPO_COLORES.length];
+}
+// Avatar: si la persona tiene grupo asignado muestra su NÚMERO con el color del
+// grupo; si no, las iniciales (estilo actual).
+function avatarHtml(p, size = 'w-10 h-10') {
+  const gc = p && p.grupoId ? grupoColorFor(p.grupoId) : null;
+  const text = gc ? String(p.grupoId) : initialsOf(p && p.name);
+  const cls = gc ? '' : avatarClassFor(p && p.name);
+  const style = gc ? ` style="background:${gc.bg};color:${gc.text}"` : '';
+  return `<div class="${size} rounded-full ${cls} flex items-center justify-center font-label-md text-label-md font-bold shrink-0"${style}>${text}</div>`;
+}
+
 // Mapa de labores a categoría para la presentación en 3 columnas.
 // La presidencia aparece en ambas columnas (ES y FS) porque son cargos distintos.
 const LABOR_CATEGORY = {
@@ -3441,7 +3472,7 @@ function renderPersonCard(p, editMode, isInactive = false) {
       <button data-pdel="${p.id}" data-admin class="p-1.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
   return `<div class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-labores="${escapeAttr((Array.isArray(p.labores) ? p.labores : []).slice().sort().join('|'))}" data-pid="${p.id}">
     <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(p.name)}</div>
+      ${avatarHtml(p, 'w-10 h-10')}
       <div class="min-w-0 flex-1">
         <p class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</p>
         <div class="flex flex-wrap gap-1.5 mt-1">${badges.join('') || '<span class="text-[11px] text-on-surface-variant/60">Sin datos</span>'}</div>
@@ -3523,7 +3554,7 @@ async function renderListsHistorial() {
       : '<span class="text-on-surface-variant/60">—</span>';
     return `<tr class="hover:bg-surface-container-low transition-colors" data-norm="${escapeAttr(normalizeStr(m.name))}">
       <td class="p-4 font-body-md text-body-md font-medium text-on-surface flex items-center gap-3 sticky left-0 bg-surface-container-lowest group-hover:bg-surface-container-low transition-colors z-10">
-        <div class="w-8 h-8 rounded-full ${avatarClassFor(m.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(m.name)}</div>
+        ${avatarHtml(m, 'w-8 h-8')}
         <span class="truncate">${escapeHtml(m.name)}</span>
       </td>
       <td class="p-4 text-center font-body-md text-body-md ${m.lastMonth ? 'text-primary font-semibold' : 'text-on-surface-variant'}">${m.lastMonth}</td>
@@ -3559,6 +3590,8 @@ async function renderListsHistorial() {
 
   $('#manageLaboresBtn').onclick = renderLaboresModal;
   $('#addMemberBtn').onclick = openAddMemberModal;
+  const assignGroupBtn2 = $('#assignGroupBtn');
+  if (assignGroupBtn2) assignGroupBtn2.onclick = openGroupAssignmentModal;
 }
 
 /* ---------- Atributos de colaborador (género, calificación, enlace) ---------- */
@@ -3664,7 +3697,7 @@ async function openPersonProfile(person) {
   openModal(`
     <div>
       <div class="flex items-start gap-3 mb-4">
-        <div class="w-12 h-12 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-headline-md text-headline-md font-bold shrink-0">${initialsOf(p.name)}</div>
+        ${avatarHtml(p, 'w-12 h-12')}
         <div class="flex-1 min-w-0">
           <input id="pfName" type="text" value="${escapeAttr(p.name)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-headline-md text-headline-md text-primary focus:border-primary" autocomplete="off">
           <p class="text-on-surface-variant text-sm mt-1">${p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador'} · ${cargoOf(p).label} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
@@ -3688,7 +3721,15 @@ async function openPersonProfile(person) {
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
           <select id="pfEnlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${enlOpts}</select>
-          <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada también quedará enlazada a él.</p>
+          <p class="text-on-surface-variant text-caption mt-1">Si la calificaci�n es D, solo podr� tener asignaci�n en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada tambi�n quedar� enlazada a �l.</p>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Grupo</label>
+          <select id="pfGrupo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            <option value="">Sin grupo</option>
+            ${state.departments.map(d => `<option value="${d.id}" ${String(d.id) === String(p.grupoId || '') ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
+          </select>
+          <p class="text-on-surface-variant text-caption mt-1">Asigna la persona a un grupo (programa de aseo).</p>
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores asignadas</label>
@@ -3719,14 +3760,102 @@ async function openPersonProfile(person) {
     p.calificacion = $('#pfCalif').value;
     p.cargo = $('#pfCargo').value;
     p.cargos = [p.cargo];
+    p.grupoId = $('#pfGrupo').value || '';
     p.labores = [...$('#pfLabores').querySelectorAll('.labor-chip.is-on')].map(c => c.dataset.plabore);
     await applyEnlace(p, $('#pfEnlace').value);
     const orig = state.people.find(x => String(x.id) === String(p.id));
     if (orig) Object.assign(orig, p);
+    await db.updatePerson(p);
+    state.people = await db.listPeople();
     closeModal();
     toast('Perfil actualizado', 'success');
     renderLists();
   };
+}
+
+// Vista especial para asignar grupos en lote: elige un grupo, marca participantes
+// y asigna. Los asignados salen de la lista; cuando no queda nadie se ofrece
+// "Volver a asignar" (reasigna desde cero con confirmaci�n).
+async function openGroupAssignmentModal() {
+  let pool = state.people.filter(p => p.activo !== false && !String(p.grupoId || ''));
+  const renderModal = () => {
+    const total = state.people.filter(p => p.activo !== false).length;
+    const asignados = total - pool.length;
+    if (!pool.length) {
+      openModal(`
+        <div class="text-center py-4">
+          <span class="material-symbols-outlined text-6xl text-tertiary mb-2 inline-block">group</span>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Asignaci�n de grupos</h3>
+          <p class="text-on-surface-variant text-sm mb-1">Todos los participantes est�n asignados a un grupo.</p>
+          <p class="text-on-surface-variant text-sm mb-6">${asignados} de ${total} asignados.</p>
+          <div class="flex gap-3 justify-center">
+            <button id="gaClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
+            <button id="gaReset" class="px-5 py-2.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors">Volver a asignar</button>
+          </div>
+        </div>`);
+      $('#gaClose').onclick = closeModal;
+      $('#gaReset').onclick = async () => {
+        if (!(await confirmDialog('�Volver a asignar los grupos desde cero? Se quitar�n los grupos actuales de todos los participantes y podr�s asignarlos de nuevo.', 'Reasignar grupos'))) return;
+        for (const p of state.people) {
+          if (p.grupoId) { p.grupoId = ''; await db.updatePerson(p); }
+        }
+        state.people = await db.listPeople();
+        pool = state.people.filter(x => x.activo !== false && !String(x.grupoId || ''));
+        renderLists();
+        renderModal();
+      };
+      return;
+    }
+    openModal(`
+      <div>
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <h3 class="font-headline-md text-headline-md text-primary">Asignar grupos</h3>
+          <span class="text-sm text-on-surface-variant font-label-md">${pool.length} sin asignar � ${asignados} asignados</span>
+        </div>
+        <div class="mb-3">
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Grupo</label>
+          <select id="gaGrupo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            <option value="">Elegir grupo</option>
+            ${state.departments.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="max-h-[50vh] overflow-y-auto rounded-lg border border-outline-variant divide-y divide-outline-variant/40">
+          ${pool.map(p => `
+            <label class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-container">
+              ${avatarHtml(p, 'w-9 h-9')}
+              <span class="flex-1 font-body-md text-body-md text-on-surface truncate">${escapeHtml(p.name)}</span>
+              <input type="checkbox" data-gapid="${p.id}" class="accent-primary w-4 h-4 shrink-0">
+            </label>`).join('')}
+        </div>
+        <div class="flex flex-wrap gap-3 justify-between mt-4">
+          <button id="gaAll" class="px-4 py-2 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Marcar todos</button>
+          <button id="gaAsign" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-opacity">Asignar seleccionados</button>
+        </div>
+      </div>`);
+    $('#gaAll').onclick = () => { document.querySelectorAll('#modalCard [data-gapid]').forEach(cb => cb.checked = true); };
+    $('#gaAsign').onclick = async () => {
+      const grupo = $('#gaGrupo').value;
+      if (!grupo) { toast('Elige un grupo primero', 'error'); return; }
+      const seleccionados = [...document.querySelectorAll('#modalCard [data-gapid]:checked')].map(cb => cb.dataset.gapid);
+      if (!seleccionados.length) { toast('Marca al menos una persona', 'error'); return; }
+      const btn = $('#gaAsign');
+      btn.disabled = true;
+      try {
+        for (const id of seleccionados) {
+          const person = state.people.find(x => String(x.id) === String(id));
+          if (!person) continue;
+          person.grupoId = grupo;
+          await db.updatePerson(person);
+        }
+        state.people = await db.listPeople();
+        pool = state.people.filter(x => x.activo !== false && !String(x.grupoId || ''));
+        toast(`${seleccionados.length} asignado(s) al grupo`, 'success');
+        renderLists();
+        renderModal();
+      } finally { btn.disabled = false; }
+    };
+  };
+  renderModal();
 }
 
 // Construye el historial de asignaciones de una persona a partir del log.
@@ -4098,7 +4227,7 @@ async function openPeopleListModal() {
   const body = people.map(p => `
     <li class="flex items-center justify-between gap-3 py-2.5 border-b border-outline-variant/40 group">
       <div class="flex items-center gap-3 min-w-0">
-        <div class="w-8 h-8 rounded-full ${avatarClassFor(p.name)} flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${initialsOf(p.name)}</div>
+        ${avatarHtml(p, 'w-8 h-8')}
         <div class="min-w-0">
           <p class="font-body-md text-body-md font-medium truncate">${escapeHtml(p.name)}</p>
           <p class="text-caption text-on-surface-variant truncate">${(p.labores || []).map(l => (state.labores.find(r => r.id === l) || {}).label || l).join(', ') || 'Sin labores'}</p>
@@ -5385,7 +5514,7 @@ async function renderAtencion(monthId, opts = {}) {
         </select>
       </div>`;
 
-    const toolbar = embed ? '' : `
+    const toolbar = `
       <div class="flex flex-wrap items-center gap-2 mb-4 no-print">
         <button id="labPrint" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
           <span class="material-symbols-outlined text-[20px]">print</span> Imprimir
@@ -5434,13 +5563,11 @@ async function renderAtencion(monthId, opts = {}) {
     if (monthSel) monthSel.onchange = (e) => go('atencion', { monthId: e.target.value });
     const createBtn = root.querySelector('#laboresCreate');
     if (createBtn) createBtn.onclick = createProgram;
-    if (!embed) {
-      const bindBtn = (id, fn) => { const bEl = root.querySelector('#' + id); if (bEl) bEl.onclick = fn; };
-      bindBtn('labPrint', () => window.print());
-      bindBtn('labPdf', () => window.print());
-      bindBtn('labImg', () => imageAtencion(cur));
-      bindBtn('labWa', () => waAtencion(cur));
-    }
+    const bindBtn2 = (id, fn) => { const bEl = root.querySelector('#' + id); if (bEl) bEl.onclick = fn; };
+    bindBtn2('labPrint', () => window.print());
+    bindBtn2('labPdf', () => window.print());
+    bindBtn2('labImg', () => imageAtencion(cur));
+    bindBtn2('labWa', () => waAtencion(cur));
     if (!program) return;
 
     root.querySelectorAll('select[data-atencion-wi]').forEach(sel => {
@@ -5536,7 +5663,10 @@ async function renderAtencionGrupo(monthId, opts = {}) {
     // resto se muestra asignado en correlativo.
     const weeks = (aseo && aseo.weeks) || [];
     const rows = weeks.map((w, i) => {
-      const range = `${shortDate(w.monday)} – ${shortDate(w.sunday)}`;
+      // Compatibilidad: algunos datos solo traen `saturday`; se deriva lunes/domingo.
+      const monday = w.monday || addDays(w.saturday, -5);
+      const sunday = w.sunday || addDays(w.saturday, 1);
+      const range = `${shortDate(monday)} – ${shortDate(sunday)}`;
       let cell;
       if (i === 0) {
         cell = `<select data-wgroup="0" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${groupOpts(w.group)}</select>`;
@@ -5844,14 +5974,15 @@ async function renderGeneralMonth(monthId, opts = {}) {
     ...aseoBySunday.keys(), ...salidasBySunday.keys(), ...laboresBySunday.keys(),
   ])].filter(s => s.startsWith(cur)).sort();
 
-  const boxes = sundays.map((sunday, i) => {
+  const boxes = [];
+  const weekDatas = sundays.map((sunday, i) => {
     const fin = finBySunday.get(sunday) || null;
     const mw = mwBySunday.get(sunday) || null;
     const aseoWeek = aseoBySunday.get(sunday) || null;
     const salidasWeek = salidasBySunday.get(sunday) || null;
     const laboresWeek = laboresBySunday.get(sunday) || null;
     const saturday = fin ? fin.date : (aseoWeek ? aseoWeek.saturday : (laboresWeek ? laboresWeek.saturday : (salidasWeek ? salidasWeek.saturday : null)));
-    return generalWeekBox({
+    const data = {
       fin,
       mw,
       i,
@@ -5861,7 +5992,9 @@ async function renderGeneralMonth(monthId, opts = {}) {
       finLabores: laboresWeek || null,
       sunday,
       saturday,
-    });
+    };
+    boxes.push(generalWeekBox(data));
+    return data;
   });
 
   const title = embed ? '' : `
@@ -5890,6 +6023,19 @@ async function renderGeneralMonth(monthId, opts = {}) {
   `;
   const monthSel = $('#generalMonth');
   if (monthSel) monthSel.onchange = (e) => go('general', { monthId: e.target.value });
+  // Imagen por semana (SVG puro → PNG; comparte o descarga).
+  root.querySelectorAll('[data-week-img]').forEach(btn => {
+    btn.onclick = async () => {
+      const idx = parseInt(btn.dataset.weekImg, 10);
+      btn.disabled = true;
+      try {
+        const blob = await svgToPngBlob(generalWeekExportSvg(weekDatas[idx], cur));
+        const compartido = await compartirPng(blob, `semana-${cur}-${idx + 1}.png`);
+        if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
+      } catch (err) { console.error(err); toast('No se pudo generar la imagen.', 'error'); }
+      finally { btn.disabled = false; }
+    };
+  });
 }
 
 // Cuadro de una semana en la vista mensual general.
@@ -5900,16 +6046,21 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
   <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
     <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
       <h3 class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</h3>
-      <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
+        <button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
+          <span class="material-symbols-outlined text-[16px]">image</span> Imagen
+        </button>
+      </div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="rounded-lg border border-outline-variant p-4">
+      <div class="rounded-lg border border-outline-variant p-4 bg-indigo-50/50">
         <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
           <span class="material-symbols-outlined text-[18px]">auto_stories</span> Entre Semana
         </p>
         ${mw ? generalEsContent(mw) : '<p class="text-sm text-on-surface-variant">Sin reunión de entre semana.</p>'}
       </div>
-      <div class="rounded-lg border border-outline-variant p-4">
+      <div class="rounded-lg border border-outline-variant p-4 bg-amber-50/50">
         <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
           <span class="material-symbols-outlined text-[18px]">record_voice_over</span> Fin de Semana
         </p>
@@ -5917,8 +6068,8 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
       </div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-      <div class="rounded-lg border border-outline-variant p-4">${generalLabores({ fin, mw, finLabores })}</div>
-      <div class="rounded-lg border border-outline-variant p-4 flex flex-col justify-center">${generalGroup(fin, aseoGroup)}</div>
+      <div class="rounded-lg border border-outline-variant p-4 bg-emerald-50/50">${generalLabores({ fin, mw, finLabores })}</div>
+      <div class="rounded-lg border border-outline-variant p-4 bg-violet-50/50 flex flex-col justify-center">${generalGroup(fin, aseoGroup)}</div>
     </div>
   </div>`;
 }
@@ -5947,13 +6098,14 @@ function generalEsContent(w) {
     <div class="text-center mb-2">
       <div class="font-bold text-on-surface text-sm">${escapeHtml(w.header)}</div>
       <div class="text-xs text-on-surface-variant">Lectura: ${escapeHtml(w.reading || '—')}</div>
-      <div class="text-xs text-on-surface-variant">Presidente: ${escapeHtml(personNameOf(w.presidente))}</div>
+      <div class="text-sm text-on-surface font-semibold mt-0.5">Presidente: <span class="font-bold">${escapeHtml(personNameOf(w.presidente))}</span></div>
       <div class="text-[11px] text-on-surface-variant mt-1">♪ ${escapeHtml(introSong || '—')} · ${escapeHtml(w.introTitle || '')} (${w.introMins || 1} min.)</div>
     </div>
     ${section((w.sections || []).find(s => s.id === 'tesoros'))}
     ${section((w.sections || []).find(s => s.id === 'maestros'))}
     ${section((w.sections || []).find(s => s.id === 'vida'))}
-    <div class="text-[11px] text-on-surface-variant border-t border-outline-variant/30 pt-1 mt-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')} (${w.closingMins || 3} mins.) · ♪ ${escapeHtml(w.songOut || '—')}</div>`;
+    <div class="text-[11px] text-on-surface-variant border-t border-outline-variant/30 pt-1 mt-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')} (${w.closingMins || 3} mins.) · ♪ ${escapeHtml(w.songOut || '—')}</div>
+    <div class="text-[11px] text-on-surface-variant mt-0.5">Oración final: <span class="font-semibold text-on-surface">${escapeHtml(mwConductorEstudio(w) || 'el conductor del Estudio Bíblico')}</span></div>`;
 }
 
 // Reunión de fin de semana compacta para el cuadro semanal.
@@ -5973,7 +6125,7 @@ function generalFsContent(w, outings, sinSalida) {
       rows.push(['Salida', 'Sin salida esta semana']);
     } else {
       const salidas = outings != null ? outings : (w.outings || []);
-      salidas.forEach((o, j) => rows.push([`Salida ${j + 1}`, `${personNameOf(o.oradorSalida)}${o.tituloDiscurso ? ' · ' + o.tituloDiscurso : ''}`]));
+      salidas.forEach((o, j) => rows.push([`Salida ${j + 1}`, personNameOf(o.oradorSalida)]));
     }
   } else if (w.type === 'supervisor') {
     rows.push(['Presidente', personNameOf(w.presidente)]);
@@ -6035,6 +6187,98 @@ function generalGroup(fin, aseoGroup) {
       <div class="font-headline-lg text-[40px] leading-none text-primary">${escapeHtml(grupo)}</div>
       ${desc ? `<p class="text-xs text-on-surface-variant mt-2">${escapeHtml(desc)}</p>` : ''}
     </div>`;
+}
+
+/* ---------- Exportación de una semana (vista general) en SVG puro ---------- */
+function generalWeekExportSvg(data, cur) {
+  const { fin, mw, i, aseoGroup, outings, sinSalida, finLabores } = data;
+  const W = 900, PAD = 40, cw = W - PAD * 2;
+  const C = { title: '#3f3a2e', sub: '#6b6454', line: '#e7e3db', name: '#2f2a20' };
+  const mesTxt = `${MONTHS_ES[Number(cur.slice(5)) - 1].toUpperCase()} ${cur.slice(0, 4)}`;
+  const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+  const header = mw ? mw.header : (fin ? fmt(fin.date) : (data.saturday ? fmt(data.saturday) : (data.sunday ? fmt(data.sunday) : '')));
+
+  const rows = [];
+
+  const esLines = [];
+  esLines.push({ t: `Lectura: ${mw ? (mw.reading || '—') : '—'}`, s: 14, w: 400, f: C.sub });
+  esLines.push({ t: `Presidente: ${personNameOf(mw ? mw.presidente : null)}`, s: 16, w: 700, f: C.name });
+  (mw ? (mw.sections || []) : []).forEach(sec => (sec.parts || []).forEach(p => {
+    const nm = mwSlotsFor(sec, p).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+    esLines.push({ t: `${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, s: 13, w: 400, f: C.name });
+  }));
+  if (mw) {
+    esLines.push({ t: `${mw.closingTitle || 'Palabras de conclusión'} (${mw.closingMins || 3} mins.) · ♪ ${mw.songOut || '—'}`, s: 13, w: 400, f: C.sub });
+    esLines.push({ t: `Oración final: ${mwConductorEstudio(mw) || 'el conductor del Estudio Bíblico'}`, s: 13, w: 600, f: C.name });
+  }
+  rows.push({ label: 'ENTRE SEMANA', fill: '#eef2ff', lines: esLines });
+
+  const fsLines = [];
+  if (fin && fin.type === 'assembly') fsLines.push({ t: 'Asamblea · sin reunión local', s: 14, w: 400, f: C.sub });
+  else if (fin) {
+    if (fin.type === 'normal') {
+      fsLines.push({ t: `Presidente: ${personNameOf(fin.presidente)}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Discurso: ${fin.tituloDiscurso || '—'}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Orador: ${fin.orador || '—'}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Conductor: ${personNameOf(fin.conductor)}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Lector: ${personNameOf(fin.lector)}`, s: 14, w: 400, f: C.name });
+      if (sinSalida) fsLines.push({ t: 'Salida: Sin salida esta semana', s: 14, w: 400, f: C.sub });
+      else { const sals = outings != null ? outings : (fin.outings || []); sals.forEach((o, j) => fsLines.push({ t: `Salida ${j + 1}: ${personNameOf(o.oradorSalida)}`, s: 14, w: 400, f: C.name })); }
+    } else if (fin.type === 'supervisor') {
+      fsLines.push({ t: `Presidente: ${personNameOf(fin.presidente)}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Superintendente: ${fin.nombreSupervisor || '—'}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Discurso público: ${fin.discursoSupervisor1 || '—'}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Estudio: ${personNameOf(fin.estudioSinLectura)}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Discurso de servicio: ${fin.discursoSupervisor2 || '—'}`, s: 14, w: 400, f: C.name });
+    } else {
+      fsLines.push({ t: `Discurso: ${fin.tituloDiscurso || '—'}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Presidente: ${personNameOf(fin.presidente)}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Orador: ${fin.orador || '—'}`, s: 14, w: 400, f: C.name });
+    }
+  }
+  rows.push({ label: 'FIN DE SEMANA', fill: '#fffbeb', lines: fsLines });
+
+  const labLines = [];
+  const slotN = (week, key, si) => { const l = ensureAtencion(week).labores; return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || ''; };
+  const fsWeek = finLabores || fin;
+  ATENCION_DEF.forEach(({ key, label, count }) => {
+    for (let si = 0; si < count; si++) {
+      const fsN = fsWeek ? slotN(fsWeek, key, si) : '';
+      const mwN = mw ? slotN(mw, key, si) : '';
+      const parts = [];
+      if (fsN) parts.push(personNameOf(fsN) + ' (FS)');
+      if (mwN) parts.push(personNameOf(mwN) + ' (ES)');
+      labLines.push({ t: `${label}${count > 1 ? ' ' + (si + 1) : ''}: ${parts.length ? parts.join(' · ') : '—'}`, s: 13, w: 400, f: C.name });
+    }
+  });
+  rows.push({ label: 'LABORES', fill: '#ecfdf5', lines: labLines });
+
+  const grupo = aseoGroup ? deptNameOf(aseoGroup) : ((fin && fin.departamento) ? deptNameOf(fin.departamento) : '—');
+  rows.push({ label: 'GRUPO', fill: '#f5f3ff', lines: [{ t: grupo, s: 22, w: 700, f: C.title }] });
+
+  let H = PAD + 32 + 20 + 10;
+  rows.forEach(r => H += 44 + r.lines.length * 24 + 12);
+  H += PAD;
+
+  const P = [];
+  P.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+  let y = PAD;
+  P.push(svgT(W / 2, y + 22, `Semana ${i + 1} · ${mesTxt}`, 20, 700, C.title, 'middle'));
+  y += 32;
+  P.push(svgT(W / 2, y + 16, header, 14, 400, C.sub, 'middle'));
+  y += 20;
+  P.push(`<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  y += 10;
+  rows.forEach(r => {
+    const bh = 44 + r.lines.length * 24 + 12;
+    P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="${bh}" rx="10" fill="${r.fill}" stroke="${C.line}" stroke-width="1"/>`);
+    P.push(svgT(PAD + 16, y + 26, r.label, 12, 700, C.sub));
+    let yy = y + 44;
+    r.lines.forEach(ln => { P.push(svgT(PAD + 16, yy, ln.t, ln.s, ln.w, ln.f)); yy += 24; });
+    y += bh + 12;
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
 }
 
 /* ---------- MIDWEEK: editor de una semana ---------- */
@@ -6223,6 +6467,7 @@ function mwCurrentDupKeys(editor) {
   const pres = editor.querySelector('select[data-mw-presidente]');
   if (pres && pres.value) persons.push({ value: String(pres.value), key: 'mw_presidente' });
   editor.querySelectorAll('select.mwSel').forEach(sel => {
+    if (sel.hasAttribute('data-mw-presidente')) return; // ya se cuenta como mw_presidente
     if (sel.value) persons.push({
       value: String(sel.value),
       key: `mw_${sel.dataset.sec}_${sel.dataset.part}_${sel.dataset.slot}`,
@@ -6348,6 +6593,12 @@ async function renderMidweekPreview(id) {
         <button id="mwPdf" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
           <span class="material-symbols-outlined text-[20px]">picture_as_pdf</span> Exportar PDF
         </button>
+        <button id="mwImg" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">image</span> Guardar Imagen
+        </button>
+        <button id="mwWa" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">share</span> WhatsApp
+        </button>
       </div>
     </div>
     <div id="mwPreviewContent"></div>
@@ -6355,6 +6606,8 @@ async function renderMidweekPreview(id) {
   $('[data-back]').onclick = () => go('midweek', { monthId: id });
   $('#mwPrint').onclick = () => window.print();
   $('#mwPdf').onclick = () => window.print();
+  $('#mwImg').onclick = () => imageMidweek(id);
+  $('#mwWa').onclick = () => waMidweek(id);
 
   $('#mwPreviewContent').innerHTML = midweekPreviewDocument(week);
 }
@@ -6418,6 +6671,7 @@ function midweekBlockContent(w) {
     ${sectionBlock((w.sections || []).find(s => s.id === 'tesoros'), { strong: '#0f7685', icon: '◆' })}
     ${sectionBlock((w.sections || []).find(s => s.id === 'maestros'), { strong: '#b8860b', icon: '✚' })}
     ${sectionBlock((w.sections || []).find(s => s.id === 'vida'), { strong: '#9e2a2b', icon: '▦' })}
+    ${previewLaboresBox(ensureAtencion(w).labores)}
     <footer>
       <div class="mw-sep mb-3"></div>
       <div class="flex items-center text-sm mb-1">
@@ -6463,6 +6717,12 @@ async function renderMidweekMonthPreview(monthId) {
         <button id="mwMPdf" class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
           <span class="material-symbols-outlined text-[20px]">picture_as_pdf</span> Exportar PDF
         </button>
+        <button id="mwMImg" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">image</span> Guardar Imagen
+        </button>
+        <button id="mwMWa" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-fixed transition-all active:scale-95">
+          <span class="material-symbols-outlined text-[20px]">share</span> WhatsApp
+        </button>
       </div>
     </div>
     <div id="mwMonthContent"></div>
@@ -6470,6 +6730,8 @@ async function renderMidweekMonthPreview(monthId) {
   $('[data-back]').onclick = () => go('midweeks');
   $('#mwMPrint').onclick = () => window.print();
   $('#mwMPdf').onclick = () => window.print();
+  $('#mwMImg').onclick = () => imageMidweekMonth(cur);
+  $('#mwMWa').onclick = () => waMidweekMonth(cur);
   $('#mwMonthContent').innerHTML = midweekMonthDocument(weeks, monthLabel);
 }
 
@@ -6985,6 +7247,98 @@ async function compartirPng(pngBlob, filename) {
   }
   downloadBlob(pngBlob, filename);
   return false;
+}
+
+/* ---------- Exportación de entre semana en SVG puro (semanal y mensual) ---------- */
+function midweekSvgLayout(w, y0) {
+  const W = 760, PAD = 40, cw = W - PAD * 2;
+  const C = { title: '#3f3a2e', sub: '#6b6454', name: '#2f2a20', line: '#d8d4cc' };
+  const P = [];
+  let y = y0;
+  P.push(svgT(W / 2, y + 24, w.header || w.id, 20, 700, C.title, 'middle'));
+  y += 30;
+  P.push(svgT(W / 2, y + 14, `Lectura: ${w.reading || '—'}`, 13, 400, C.sub, 'middle'));
+  y += 20;
+  P.push(svgT(W / 2, y + 16, `Presidente: ${personNameOf(w.presidente)}`, 15, 700, C.name, 'middle'));
+  y += 26;
+  (w.sections || []).forEach(sec => {
+    P.push(svgT(PAD, y + 14, sec.title, 13, 700, C.sub));
+    y += 18;
+    (sec.parts || []).forEach(p => {
+      const nm = mwSlotsFor(sec, p).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+      svgTextLines(`${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 400, C.name)); y += 18; });
+    });
+  });
+  const l = ensureAtencion(w).labores;
+  P.push(svgT(PAD, y + 14, 'ATENCIÓN · TRAS BAMBALINAS', 11, 700, C.sub));
+  y += 18;
+  ATENCION_DEF.forEach(({ key, label, count }) => {
+    const arr = Array.isArray(l[key]) ? l[key] : [l[key] || ''];
+    const names = Array.from({ length: count }, (_, si) => { const v = asId(arr[si]); return v ? personNameOf(v) : null; }).filter(Boolean);
+    P.push(svgT(PAD, y + 14, `${label}: ${names.length ? names.join(' · ') : '—'}`, 12, 400, C.name));
+    y += 17;
+  });
+  P.push(`<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  y += 14;
+  P.push(svgT(PAD, y + 14, `${w.closingTitle || 'Palabras de conclusión'} (${w.closingMins || 3} mins.)`, 13, 400, C.name));
+  y += 18;
+  P.push(svgT(PAD, y + 14, `Oración final: ${mwConductorEstudio(w) || 'el conductor del Estudio Bíblico'}`, 13, 600, C.name));
+  y += 24;
+  return { parts: P, nextY: y, W };
+}
+
+function midweekExportSvg(w) {
+  const { parts, nextY, W } = midweekSvgLayout(w, 40);
+  const H = nextY + 40;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#ffffff"/>${parts.join('')}</svg>`;
+}
+
+function midweekMonthExportSvg(weeks) {
+  const W = 760, PAD = 40;
+  const C = { title: '#3f3a2e', sub: '#6b6454' };
+  const P = [];
+  P.push(svgT(W / 2, 62, 'REUNIONES DE ENTRE SEMANA', 20, 700, C.title, 'middle'));
+  let y = 88;
+  weeks.forEach((w, i) => {
+    if (i > 0) y += 14;
+    const lay = midweekSvgLayout(w, y);
+    P.push(...lay.parts);
+    y = lay.nextY + 18;
+  });
+  const H = y + PAD;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#ffffff"/>${P.join('')}</svg>`;
+}
+
+async function imageMidweek(id) {
+  const w = state.midweeks.find(x => String(x.id) === String(id));
+  if (!w) return;
+  toast('Generando imagen…', 'info');
+  try { const blob = await svgToPngBlob(midweekExportSvg(w)); downloadBlob(blob, `entre-semana-${id}.png`); toast('Imagen descargada', 'success'); }
+  catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
+}
+
+async function waMidweek(id) {
+  const w = state.midweeks.find(x => String(x.id) === String(id));
+  if (!w) return;
+  toast('Generando imagen…', 'info');
+  try { const blob = await svgToPngBlob(midweekExportSvg(w)); const c = await compartirPng(blob, `entre-semana-${id}.png`); if (!c) toast('Imagen descargada: adjúntala en WhatsApp.', 'success'); }
+  catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
+}
+
+async function imageMidweekMonth(cur) {
+  const weeks = state.midweeks.filter(m => String(m.id).startsWith(cur)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  if (!weeks.length) return;
+  toast('Generando imagen…', 'info');
+  try { const blob = await svgToPngBlob(midweekMonthExportSvg(weeks)); downloadBlob(blob, `entre-semana-${cur}.png`); toast('Imagen descargada', 'success'); }
+  catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
+}
+
+async function waMidweekMonth(cur) {
+  const weeks = state.midweeks.filter(m => String(m.id).startsWith(cur)).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  if (!weeks.length) return;
+  toast('Generando imagen…', 'info');
+  try { const blob = await svgToPngBlob(midweekMonthExportSvg(weeks)); const c = await compartirPng(blob, `entre-semana-${cur}.png`); if (!c) toast('Imagen descargada: adjúntala en WhatsApp.', 'success'); }
+  catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
 }
 
 /* ---------- Exportación del programa de fin de semana en SVG puro ---------- */

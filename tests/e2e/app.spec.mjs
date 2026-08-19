@@ -449,6 +449,70 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
   });
 
+  test('general: semana con presidente, oración final, salida sin discurso e imagen por semana', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    // Salida con orador y discurso (se escribe directo en la BD).
+    await page.evaluate(() => new Promise((res, rej) => {
+      const req = indexedDB.open('reunion-plus', 8);
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('salidas', 'readwrite');
+        const st = tx.objectStore('salidas');
+        const g = st.get('2026-08');
+        g.onsuccess = () => {
+          g.result.weeks[0].outings[0].oradorSalida = 1;
+          g.result.weeks[0].outings[0].tituloDiscurso = 'Discurso Test';
+          st.put(g.result);
+          tx.oncomplete = () => { db.close(); res(); };
+          tx.onerror = () => rej(tx.error);
+        };
+        g.onerror = () => rej(g.error);
+      };
+      req.onerror = () => rej(req.error);
+    }));
+
+    // Presidente de entre semana vía el editor (actualiza el catálogo en memoria).
+    await page.evaluate(() => { location.hash = '#/midweek/2026-08-03'; });
+    await page.selectOption('select[data-mw-presidente]', '1');
+    await page.click('#mwSave');
+    await expect(page.locator('#toastRoot')).toContainText('Asignaciones guardadas');
+
+    await page.evaluate(() => { location.hash = '#/general/2026-08'; });
+    await expect(page.locator('#generalMonth')).toBeVisible();
+    await expect(page.locator('#app')).toContainText('Presidente: Álvaro P.');
+    await expect(page.locator('#app')).toContainText('Oración final');
+    // Salida solo muestra el nombre del orador (no el discurso).
+    await expect(page.locator('#app')).toContainText('Álvaro P.');
+    await expect(page.locator('#app')).not.toContainText('Discurso Test');
+
+    // Imagen por semana.
+    await page.click('[data-week-img="0"]');
+    await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
+  });
+
+  test('personas: asignación de grupos en lote y avatar con número de grupo', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+    await page.click('#sideNavItems button[data-go="lists"]');
+    await page.waitForSelector('h1:has-text("Personas y Grupos")', { state: 'visible' });
+
+    await page.click('#assignGroupBtn');
+    await expect(page.locator('#modalCard')).toContainText('Asignar grupos');
+    await page.selectOption('#gaGrupo', '1');
+    await page.click('#gaAll');
+    await page.click('#gaAsign');
+    await expect(page.locator('#toastRoot')).toContainText('asignado(s) al grupo');
+    await expect(page.locator('#modalCard')).toContainText('7 de 7 asignados');
+    await expect(page.locator('#modalCard')).toContainText('Volver a asignar');
+
+    // Cerrar: el avatar de la primera persona muestra el número de grupo.
+    await page.click('#gaClose');
+    const card = page.locator('.person-card').first();
+    await expect(card.locator('.rounded-full').first()).toContainText('1');
+  });
+
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
