@@ -1001,8 +1001,8 @@ console.log('[automatizarAtencion · cargo]');
   ok('publicador se repite en sonido para completar el mes', String(s2) === '3', `got=${s2}`);
 }
 {
-  // Anciano como único candidato de sonido: cubre hasta 2 veces al mes y, si
-  // quedan semanas, sonido nunca queda vacío (último recurso).
+  // Anciano como único candidato de sonido: cubre hasta 2 veces al mes; la
+  // tercera semana NO se relaja la labor: el puesto queda vacío y se reporta.
   const people = [
     { id: 1, name: 'UnicoAnciano', labores: ['audio'], cargos: ['anciano'], genero: 'masculino' },
   ];
@@ -1014,11 +1014,11 @@ console.log('[automatizarAtencion · cargo]');
   const rep = automatizarAtencion(people, [lab], []);
   const ss = lab.weeks.map(w => String(w.labores.sonido));
   ok('anciano cubre sonido hasta 2 veces al mes', ss[0] === '1' && ss[1] === '1', `got=${ss.join(',')}`);
-  ok('sonido nunca queda vacío si el anciano es el único candidato', ss[2] === '1' && !rep.vacios.some(v => v.labore === 'sonido_0'), `got=${ss.join(',')} vacios=${rep.vacios.length}`);
+  ok('sin candidato libre, sonido queda vacío y se reporta (no relaja labor)', ss[2] === '' && rep.vacios.some(v => v.labore === 'sonido_0'), `got=${ss.join(',')} vacios=${rep.vacios.length}`);
 }
 {
-  // Sonido siempre se asigna: si el único candidato está ocupado esa semana en la
-  // reunión de entre semana, se relaja la restricción y se le asigna igualmente.
+  // Sonido exige la labor: si el único candidato está ocupado esa semana en la
+  // reunión de entre semana, el puesto queda vacío y se reporta.
   const people = [
     { id: 1, name: 'PubAudio', labores: ['audio'], cargos: ['publicador'], genero: 'masculino' },
   ];
@@ -1027,7 +1027,22 @@ console.log('[automatizarAtencion · cargo]');
     { saturday: '2026-08-08', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
   ] };
   const rep = automatizarAtencion(people, [lab], mw);
-  ok('sonido se asigna aunque el candidato esté ocupado en la semana', String(lab.weeks[0].labores.sonido) === '1' && !rep.vacios.some(v => v.labore === 'sonido_0'), `got=${lab.weeks[0].labores.sonido} vacios=${rep.vacios.length}`);
+  ok('si el único candidato está ocupado, sonido queda vacío y se reporta', String(lab.weeks[0].labores.sonido) === '' && rep.vacios.some(v => v.labore === 'sonido_0'), `got=${lab.weeks[0].labores.sonido} vacios=${rep.vacios.length}`);
+}
+{
+  // Sonido se completa PRIMERO que el resto de labores: una persona con audio
+  // + acomodador se reserva para sonido; la acomodación usa a quien no tiene audio.
+  const people = [
+    { id: 1, name: 'AudioYAcomoda', labores: ['audio', 'acomodador'], genero: 'masculino' },
+    { id: 2, name: 'SoloAcomoda',    labores: ['acomodador'], genero: 'masculino' },
+  ];
+  const lab = { id: '2026-08', weeks: [
+    { saturday: '2026-08-01', labores: { acomodacion: ['', ''], microfono: ['', ''], plataforma: '', sonido: '' } },
+  ] };
+  automatizarAtencion(people, [lab], []);
+  const w = lab.weeks[0].labores;
+  ok('sonido se prioriza y toma al que tiene audio', String(w.sonido) === '1', `got=${w.sonido}`);
+  ok('la acomodación usa a quien no tiene audio', String(w.acomodacion[0]) === '2', `got=${JSON.stringify(w.acomodacion)}`);
 }
 {
   // La acomodación del fin de semana evita asignar a quien ya tiene cargo de fin

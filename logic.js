@@ -1967,20 +1967,21 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
         const cur = Array.isArray(v) ? v[si] : (si === 0 ? v : '');
         if (cur) continue;
         const claveLabore = `${prefijo}${d.key}_${si}`;
-        // Sonido: si no hay candidato perfecto se relajan progresivamente las
-        // restricciones (ocupados de la semana, repetición en el mes y, en último
-        // caso, sin exigir la labor) para que el puesto nunca quede vacío.
-        const elegir = (relajaOcup, ultimoRecurso) => people
-          .filter(p => ultimoRecurso || laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
-          .filter(x => relajaOcup ? (ultimoRecurso ? (!serviceRolesOnlyMale || x.genero !== 'femenino') : true) : !ocup.has(String(x.id)))
+        // Solo se asignan personas con la labor exacta del puesto y libres esa
+        // semana. Sonido ya NO relaja la exigencia de labor: si no hay candidato,
+        // el puesto queda vacío y se reporta (como el resto de labores).
+        const elegir = () => people
+          .filter(p => laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
+          .filter(x => !serviceRolesOnlyMale || x.genero !== 'femenino')
+          .filter(x => !ocup.has(String(x.id)))
           .filter(x => {
             // En labores de servicio, los publicadores pueden repetirse todo lo
             // necesario; los ministeriales/ancianos no repiten el mismo puesto en
             // el mes (para que no acaparen). En sonido, el anciano además se limita
             // a 2 veces al mes.
-            if (esSonido && esAnciano(x)) return ultimoRecurso || (sonidoMes.get(String(x.id)) || 0) < 2;
+            if (esSonido && esAnciano(x)) return (sonidoMes.get(String(x.id)) || 0) < 2;
             if (esPublicador(x)) return true;
-            return ultimoRecurso || !((laboreMes.get(String(x.id)) || new Set()).has(claveLabore));
+            return !((laboreMes.get(String(x.id)) || new Set()).has(claveLabore));
           })
           .sort((a, b) => {
             // Prioridad: publicadores primero → luego ministerial → por último anciano.
@@ -1989,9 +1990,7 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
             // Equilibrio: quien menos atenciones tiene en el mes, primero.
             return (cargaMes.get(String(a.id)) || 0) - (cargaMes.get(String(b.id)) || 0);
           })[0];
-        const cand = esSonido
-          ? (elegir(false, false) || elegir(true, false) || elegir(true, true))
-          : elegir(false, false);
+        const cand = elegir();
         if (!cand) { reporte.vacios.push({ semana: sat, labore: `${d.key}_${si}` }); continue; }
         if (Array.isArray(v)) v[si] = cand.id;
         else l[d.key] = cand.id;
