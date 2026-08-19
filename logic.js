@@ -1325,6 +1325,44 @@ export function convertPdfMidweeks(text) {
   return { data: { weeks }, warnings };
 }
 
+// Normaliza las cabeceras de semana de la Guía de Actividades al formato que
+// entiende convertPdfMidweeks ("D-D DE MES" o "D DE MES A D DE MES"). El PDF ya
+// trae ese formato; el EPUB suele traer "Semana del 28 de septiembre al 4 de
+// octubre" y variantes. Las líneas que ya están en formato válido no se tocan.
+export function normalizeMidweekHeaders(text) {
+  const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const MES = months.join('|');
+  const reShort = new RegExp(`^(\\d{1,2})-\\d{1,2}\\s+DE\\s+(${MES})(?:\\s+.+)?$`, 'i');
+  const reExt = new RegExp(`^(\\d{1,2})\\s+DE\\s+(${MES})\\s+A\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+.+)?$`, 'i');
+  const reDelAl = new RegExp(`^(?:SEMANA\\s+)?DEL\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+DE\\s+\\d{4})?\\s+AL\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+DE\\s+\\d{4})?(?:\\s+.+)?$`, 'i');
+  const reDelA = new RegExp(`^(?:SEMANA\\s+)?DEL\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+DE\\s+\\d{4})?\\s+A\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+DE\\s+\\d{4})?(?:\\s+.+)?$`, 'i');
+  const reDelAlShort = new RegExp(`^(?:SEMANA\\s+)?DEL\\s+(\\d{1,2})\\s+(?:A|AL)\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+.+)?$`, 'i');
+  const reDelSingle = new RegExp(`^(?:SEMANA\\s+)?DEL\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+DE\\s+\\d{4})?(?:\\s+.+)?$`, 'i');
+  const reSemanaShort = new RegExp(`^SEMANA\\s+(\\d{1,2})[-–—](\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+.+)?$`, 'i');
+  const reSemanaExt = new RegExp(`^SEMANA\\s+(\\d{1,2})\\s+DE\\s+(${MES})\\s+A\\s+(\\d{1,2})\\s+DE\\s+(${MES})(?:\\s+.+)?$`, 'i');
+  const out = [];
+  for (const raw of String(text).split('\n')) {
+    const c = String(raw).replace(/\s+/g, ' ').trim();
+    if (!c) { out.push(raw); continue; }
+    const u = c.toUpperCase().replace(/[´`]/g, '');
+    if (reShort.test(u) || reExt.test(u)) { out.push(c); continue; }
+    let m = reDelAl.exec(u);
+    if (m) { const [, d1, mes1, d2, mes2] = m; out.push(mes1 === mes2 ? `${d1}-${d2} DE ${mes1}` : `${d1} DE ${mes1} A ${d2} DE ${mes2}`); continue; }
+    m = reDelA.exec(u);
+    if (m) { const [, d1, mes1, d2, mes2] = m; out.push(mes1 === mes2 ? `${d1}-${d2} DE ${mes1}` : `${d1} DE ${mes1} A ${d2} DE ${mes2}`); continue; }
+    m = reDelAlShort.exec(u);
+    if (m) { out.push(`${m[1]}-${m[2]} DE ${m[3]}`); continue; }
+    m = reDelSingle.exec(u);
+    if (m) { out.push(`${m[1]}-${m[1]} DE ${m[2]}`); continue; }
+    m = reSemanaShort.exec(u);
+    if (m) { out.push(`${m[1]}-${m[2]} DE ${m[3]}`); continue; }
+    m = reSemanaExt.exec(u);
+    if (m) { const [, d1, mes1, d2, mes2] = m; out.push(mes1 === mes2 ? `${d1}-${d2} DE ${mes1}` : `${d1} DE ${mes1} A ${d2} DE ${mes2}`); continue; }
+    out.push(c);
+  }
+  return out.join('\n');
+}
+
 // ¿El texto contiene los títulos de las tres secciones de la Guía de Actividades?
 function guideSectionsInText(text) {
   const c = String(text || '').replace(/[\s\u0002\u0003´`]/g, '').toUpperCase();

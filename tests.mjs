@@ -10,7 +10,7 @@ import {
   ATENCION_DEF, ATENCION_ROLES, isAtencionPerson, splitWords,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
-  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders,
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
@@ -25,6 +25,8 @@ import {
   manualSlotKeys, clearAutoSlots, unwrapPrograms, wrapGeneratedPrograms,
   wrapManualPrograms, changedManualKeys, runEngine, estadoProgramas,
 } from './logic.js';
+import { extractEpubText, xhtmlToLines, decodeEntities, resolvePath } from './epub.js';
+import JSZip from 'jszip';
 
 let pass = 0, fail = 0;
 function ok(name, cond, extra = '') {
@@ -1828,6 +1830,76 @@ console.log('[estadoProgramas]');
 
   const vacio = estadoProgramas({ midweeks: [], months: [], salidas: [], atencion: [] });
   ok('vacío → BORRADOR 0%', vacio.entre.estado === 'BORRADOR' && vacio.entre.pct === 0 && vacio.fin.estado === 'BORRADOR' && vacio.labores.estado === 'BORRADOR');
+}
+
+console.log('[normalizeMidweekHeaders]');
+{
+  const n = normalizeMidweekHeaders;
+  eq('Semana del D DE MES al D DE MES', n('Semana del 28 de septiembre al 4 de octubre'), '28 DE SEPTIEMBRE A 4 DE OCTUBRE');
+  eq('Semana del D DE MES DE AÑO al D DE MES DE AÑO', n('Semana del 28 de septiembre de 2026 al 4 de octubre de 2026'), '28 DE SEPTIEMBRE A 4 DE OCTUBRE');
+  eq('Del D DE MES al D DE MES (sin SEMANA)', n('Del 28 de septiembre al 4 de octubre'), '28 DE SEPTIEMBRE A 4 DE OCTUBRE');
+  eq('Del D DE MES a D DE MES (con A)', n('Del 28 de septiembre a 4 de octubre'), '28 DE SEPTIEMBRE A 4 DE OCTUBRE');
+  eq('mismo mes → formato corto', n('Del 28 de septiembre al 4 de septiembre'), '28-4 DE SEPTIEMBRE');
+  eq('día único → D-D', n('Del 28 de septiembre'), '28-28 DE SEPTIEMBRE');
+  eq('día único con SEMANA', n('Semana del 28 de septiembre'), '28-28 DE SEPTIEMBRE');
+  eq('Semana D-D ya válido', n('28-4 DE SEPTIEMBRE'), '28-4 DE SEPTIEMBRE');
+  eq('Formato extendido ya válido', n('28 DE SEPTIEMBRE A 4 DE OCTUBRE'), '28 DE SEPTIEMBRE A 4 DE OCTUBRE');
+  eq('Semana D-D con guion', n('Semana 28-4 de septiembre'), '28-4 DE SEPTIEMBRE');
+  eq('Semana D–D con guión largo', n('Semana 28–4 de septiembre'), '28-4 DE SEPTIEMBRE');
+  eq('Semana D DE MES a D DE MES', n('Semana 28 de septiembre a 4 de octubre'), '28 DE SEPTIEMBRE A 4 DE OCTUBRE');
+  eq('línea normal intacta', n('1. Preguntas y respuestas (5 mins.)'), '1. Preguntas y respuestas (5 mins.)');
+
+  // Round-trip: cabecera normalizada debe detectarse como semana del 28 sept al 4 oct.
+  const texto = [
+    'SEMANA DEL 28 DE SEPTIEMBRE AL 4 DE OCTUBRE',
+    'TESOROS DE LA BIBLIA',
+    '1. Texto clave (10 mins.)',
+    'CANCIÓN 1',
+    'SEAMOS MEJORES MAESTROS',
+    '2. Conversación (4 mins.)',
+    'NUESTRA VIDA CRISTIANA',
+    '3. Discurso (5 mins.)',
+    'CANCIÓN 2',
+    'SEMANA DEL 5 AL 11 DE OCTUBRE',
+    'TESOROS DE LA BIBLIA',
+    '4. Joyas (10 mins.)',
+    'CANCIÓN 3',
+  ].join('\n');
+  const norm = n(texto);
+  const { data } = convertPdfMidweeks(norm);
+  ok('round-trip convierte 2 semanas', data && data.weeks && data.weeks.length === 2, JSON.stringify(data && data.weeks.map(w => w.header)));
+  ok('primera semana con mes de fin (octubre)', data && data.weeks[0].header === '28-4 DE OCTUBRE', JSON.stringify(data && data.weeks[0].header));
+  ok('segunda semana corta', data && data.weeks[1].header === '5-11 DE OCTUBRE', JSON.stringify(data && data.weeks[1].header));
+  ok('partes asignadas a Tesoros', data && data.weeks[0].sections.find(s => s.id === 'tesoros').parts.length >= 1);
+}
+
+console.log('[epub]');
+{
+  ok('decodeEntities básicas', decodeEntities('a&nbsp;b &amp; c &#65; &#x42;') === 'a b & c A B', decodeEntities('a&nbsp;b &amp; c &#65; &#x42;'));
+  const lines = xhtmlToLines('<html><head><title>x</title></head><body><h2>Tesoros de la Biblia</h2><p>1. Preguntas y respuestas (5 mins.)</p><span>hola</span><p>2. Joyas (10 mins.)</p></body></html>');
+  eq('cabecera en mayúsculas', lines[0], 'TESOROS DE LA BIBLIA');
+  ok('párrafos en líneas', lines.includes('1. Preguntas y respuestas (5 mins.)') && lines.includes('2. Joyas (10 mins.)'), JSON.stringify(lines));
+  ok('no quedan tags ni head', !lines.some(l => l.includes('<') || l.includes('>')), JSON.stringify(lines));
+  eq('resolvePath relativo', resolvePath('OEBPS', 'text/c1.xhtml'), 'OEBPS/text/c1.xhtml');
+  eq('resolvePath con ..', resolvePath('OEBPS', '../text/c1.xhtml'), 'text/c1.xhtml');
+}
+
+console.log('[extractEpubText]');
+{
+  const zip = new JSZip();
+  zip.file('mimetype', 'application/epub+zip');
+  zip.file('META-INF/container.xml', '<?xml version="1.0"?><container version="1.0"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+  zip.file('OEBPS/content.opf', '<?xml version="1.0"?><package><manifest><item id="c1" href="text/c1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>');
+  zip.file('OEBPS/text/c1.xhtml', '<html><head><title>Guía</title></head><body><h2>Semana del 28 de septiembre al 4 de octubre</h2><h3>Tesoros de la Biblia</h3><p>1. Preguntas y respuestas (5 mins.)</p><p>2. Joyas espirituales (10 mins.)</p><h3>Seamos Mejores Maestros</h3><p>3. Conversación (4 mins.)</p></body></html>');
+  const buf = await zip.generateAsync({ type: 'arraybuffer' });
+  const text = await extractEpubText(buf, JSZip);
+  ok('extrae cabecera de semana', text.includes('SEMANA DEL 28 DE SEPTIEMBRE AL 4 DE OCTUBRE'), text);
+  ok('extrae secciones en mayúsculas', text.includes('TESOROS DE LA BIBLIA') && text.includes('SEAMOS MEJORES MAESTROS'), text);
+  ok('extrae partes', text.includes('1. Preguntas y respuestas (5 mins.)'), text);
+  const norm = normalizeMidweekHeaders(text);
+  ok('normaliza la cabecera del EPUB', norm.includes('28 DE SEPTIEMBRE A 4 DE OCTUBRE'), norm);
+  const { data } = convertPdfMidweeks(norm);
+  ok('EPUB parsea la semana', data && data.weeks && data.weeks[0].header === '28-4 DE OCTUBRE', JSON.stringify(data && data.weeks.map(w => w.header)));
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);

@@ -12,7 +12,7 @@ import {
   dedupPersons, eligiblePeople, isAtencionPerson, ATENCION_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
-  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords,
+  convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   collectPersonAssignments,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
@@ -26,6 +26,7 @@ import {
   asId, asStr, slotOf, runEngine, changedManualKeys, wrapManualPrograms,
   clearAutoSlots, manualSlotKeys, estadoProgramas,
 } from './logic.js';
+import { extractEpubText } from './epub.js';
 
 /* ---------- Estado ---------- */
 const state = {
@@ -4171,7 +4172,7 @@ const UPLOAD_TYPES = [
     title: 'Guía de Actividades',
     icon: 'auto_stories',
     desc: 'Programa de las reuniones de entre semana. Se acumulan las guías por fecha; las fechas ya cargadas se pueden reescribir.',
-    pdfHint: 'Se extrae el programa de la guía y se añade semana a semana por su fecha.',
+    pdfHint: 'Se extrae el programa de la guía (PDF o EPUB) y se añade semana a semana por su fecha.',
   },
 ];
 
@@ -4197,11 +4198,11 @@ async function renderUploads() {
         </div>` : ''}
       <div data-slot="pdf">
         <label for="upl-pdf-${t.key}" class="block w-full cursor-pointer border-2 border-dashed border-outline-variant rounded-lg p-5 text-center hover:border-primary hover:bg-primary-fixed/10 transition-colors">
-          <span class="material-symbols-outlined text-4xl text-on-surface-variant block mx-auto mb-2">picture_as_pdf</span>
-          <span class="font-label-md text-label-md text-primary">Seleccionar archivo PDF</span>
+          <span class="material-symbols-outlined text-4xl text-on-surface-variant block mx-auto mb-2">${t.key === 'midweeks' ? 'auto_stories' : 'picture_as_pdf'}</span>
+          <span class="font-label-md text-label-md text-primary">${t.key === 'midweeks' ? 'Seleccionar archivo PDF o EPUB' : 'Seleccionar archivo PDF'}</span>
           <span class="block text-caption text-on-surface-variant mt-1">${t.pdfHint}</span>
         </label>
-        <input id="upl-pdf-${t.key}" type="file" accept=".pdf,application/pdf" class="hidden" data-upload-pdf="${t.key}">
+        <input id="upl-pdf-${t.key}" type="file" accept="${t.key === 'midweeks' ? '.pdf,application/pdf,.epub,application/epub+zip' : '.pdf,application/pdf'}" class="hidden" data-upload-pdf="${t.key}">
       </div>
       <p id="upl-status-${t.key}" class="mt-3 font-label-md text-label-md text-on-surface-variant hidden"></p>
     </div>
@@ -4210,7 +4211,7 @@ async function renderUploads() {
   app.innerHTML = `
     <div class="mb-10">
       <h1 class="font-display-lg text-display-lg text-primary mb-2">Carga de Archivos</h1>
-      <p class="font-body-lg text-body-lg text-on-surface-variant">Suba un archivo PDF y la app extraerá la información para revisar antes de guardarla.</p>
+      <p class="font-body-lg text-body-lg text-on-surface-variant">Suba un archivo PDF (o EPUB para la Guía de Actividades) y la app extraerá la información para revisar antes de guardarla.</p>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">${cards}</div>
     <div id="uploadSummary" class="mt-8"></div>
@@ -4225,14 +4226,21 @@ async function renderUploads() {
       if (!file) return;
       const type = input.dataset.uploadPdf;
       const status = $(`#upl-status-${type}`);
-      showStatus(status, `Extrayendo ${file.name} con OCR/pdf.js…`, 'text-on-surface-variant');
+      const isEpub = /\.epub$/i.test(file.name) || file.type === 'application/epub+zip';
+      showStatus(status, isEpub ? `Extrayendo ${file.name} (EPUB)…` : `Extrayendo ${file.name} con pdf.js…`, 'text-on-surface-variant');
       try {
-        const text = await extractPdfText(file);
+        let text;
+        if (isEpub) {
+          const buffer = await file.arrayBuffer();
+          text = normalizeMidweekHeaders(await extractEpubText(buffer));
+        } else {
+          text = await extractPdfText(file);
+        }
 
         if (type === 'midweeks') {
           const summary = midweekGuideSummary(text);
           if (!summary) {
-            showStatus(status, 'Este PDF no se reconoce como una Guía de Actividades. Se esperan los títulos "Tesoros de la Biblia", "Seamos Mejores Maestros" y "Nuestra Vida Cristiana", o cabeceras de semanas "D-D DE MES".', 'text-error');
+            showStatus(status, 'Este archivo no se reconoce como una Guía de Actividades. Se esperan los títulos "Tesoros de la Biblia", "Seamos Mejores Maestros" y "Nuestra Vida Cristiana", o cabeceras de semanas "D-D DE MES".', 'text-error');
             return;
           }
           if (!summary.weeksCount) {

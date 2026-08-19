@@ -13,6 +13,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
-    "fake-indexeddb": "^6.2.5"
+    "fake-indexeddb": "^6.2.5",
+    "jszip": "^3.10.1"
   }
 }
