@@ -1,51 +1,23 @@
-// firebase-config.js - Configuración de Firebase
+// firebase-config.js - Puente de compatibilidad
 // ==============================================
-// Esta aplicación usa IndexedDB como almacenamiento local (db.js). Firebase se
-// añade como capa de sincronización/seguridad en la nube. La app sigue
-// funcionando 100% offline con IndexedDB aunque Firebase esté configurado.
+// Este archivo conserva el nombre y las exportaciones que usaban auth.js,
+// firestore.js y sync.js, pero ahora apunta a SUPABASE. La configuración real
+// vive en supabase-config.js (no versionada).
 //
-// PROYECTO ACTIVO: reunion-b6f14
-// Credenciales de la app Web (Fase 2 completada).
-// Ver también: firestore.rules (seguridad) y firebase.json (deploy).
+// Mientras Supabase no esté configurado, isFirebaseConfigured() devuelve false
+// y la app funciona 100% offline con IndexedDB.
 
-export const FIREBASE_CONFIG = {
-  apiKey: "completar",
-  authDomain: "completar",
-  projectId: "completar",
-  storageBucket: "completar",
-  messagingSenderId: "completar",
-  appId: "completar"
-};
+import { SUPABASE_URL, SUPABASE_ANON_KEY, isSupabaseConfigured, getSupabase } from './supabase-config.js?v=210';
 
-// URL base del SDK de Firebase (módulos ES). Se usa el mismo que el script de
-// la consola (v12.17.1).
-export const FIREBASE_SDK_BASE = 'https://www.gstatic.com/firebasejs/12.17.1/';
+export const FIREBASE_CONFIG = { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY };
+export const FIREBASE_SDK_BASE = ''; // Supabase se carga desde supabase-config.js
 
-// true si el usuario completó las credenciales reales (no placeholders).
+// true si el usuario completó las credenciales de Supabase.
 export function isFirebaseConfigured() {
-  return Boolean(
-    FIREBASE_CONFIG.apiKey &&
-    FIREBASE_CONFIG.apiKey !== 'TU_API_KEY_AQUI' &&
-    FIREBASE_CONFIG.projectId &&
-    FIREBASE_CONFIG.projectId !== 'TU_PROYECTO'
-  );
+  return isSupabaseConfigured();
 }
 
-let _app = null;
-
-// Devuelve la app de Firebase inicializada UNA sola vez. auth.js y firestore.js
-// la comparten para evitar el error "Firebase App named '[DEFAULT]' already
-// exists" (initializeApp llamado dos veces). Devuelve null si no hay
-// configuración o si no se puede cargar el SDK (sin red).
+// Devuelve el cliente de Supabase (compatibilidad con getFirebaseApp()).
 export async function getFirebaseApp() {
-  if (_app) return _app;
-  if (!isFirebaseConfigured()) return null;
-  try {
-    const { initializeApp } = await import(/* @vite-ignore */ FIREBASE_SDK_BASE + 'firebase-app.js');
-    _app = initializeApp(FIREBASE_CONFIG);
-    return _app;
-  } catch (e) {
-    console.warn('[Reunión+] No se pudo inicializar Firebase', e);
-    return null;
-  }
+  return getSupabase();
 }
