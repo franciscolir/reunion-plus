@@ -125,9 +125,9 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
   body { background: #fff !important; font-size: 11px !important; }
   .print-only { display: block !important; }
 
-  /* Forzar orientación horizontal y ajustar a una sola página */
+  /* Forzar orientación horizontal (carta/letter) y ajustar a una sola página */
   @page {
-    size: A4 landscape;
+    size: letter landscape;
     margin: 8mm;
   }
 
@@ -164,8 +164,8 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
   #outingsContent { padding: 3mm !important; }
   .outings-doc { max-width: none !important; }
   .outings-head { text-align: center !important; margin-bottom: 6px !important; padding-bottom: 4px !important; }
-  .outings-congs-label { font-size: 9px !important; letter-spacing: .2em !important; margin-bottom: 2px !important; }
-  .outings-congs-line { font-size: 14px !important; }
+  .outings-title { font-size: 15px !important; letter-spacing: .08em !important; margin-bottom: 2px !important; }
+  .outings-congs-line { font-size: 13px !important; }
   .outings-sufijo { font-size: 10px !important; }
   #outingsContent .outing-fecha { font-size: 14px !important; line-height: 1.15 !important; }
   #outingsContent .outing-semana { font-size: 8px !important; margin-bottom: 2px !important; }
@@ -182,10 +182,10 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
 .outings-mode-a4 { max-width: 190mm; margin: 0 auto; }
 .outings-mode-movil { max-width: 420px; margin: 0 auto; }
 .outings-head { text-align: center; }
-.outings-congs-label {
-  font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: #9a927f; margin-bottom: 4px;
+.outings-title {
+  font-size: 17px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #3f3a2e; margin-bottom: 4px;
 }
-.outings-congs-line { font-size: 15px; color: #3f3a2e; }
+.outings-congs-line { font-size: 15px; color: #6b6454; }
 .outings-sufijo { font-size: 12px; color: #6b6454; }
 .outings-tabla { min-width: 0; }
 .outings-tabla th, .outings-tabla td { vertical-align: top; }

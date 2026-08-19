@@ -62,8 +62,10 @@ export async function seedProposalData(page) {
   };
   const salidas = [{ id: '2026-08', congregations: [{ nombre: 'Test' }], weeks: fsDates.map(saturday => ({ saturday, outings: [{ oradorSalida: '', tituloDiscurso: '' }] })) }];
   const atencion = [{ id: '2026-08', weeks: fsDates.map(saturday => ({ saturday, labores: {} })) }];
+  const departments = [{ id: 1, name: 'Grupo 1', activo: true }];
+  const aseos = [{ id: '2026-08', weeks: fsDates.map(saturday => ({ saturday, group: 1 })) }];
 
-  await page.addInitScript(({ people, midweeks, month, salidas, atencion }) => {
+  await page.addInitScript(({ people, midweeks, month, salidas, atencion, departments, aseos }) => {
     (async () => {
       const DB = 'reunion-plus';
       await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
@@ -79,17 +81,19 @@ export async function seedProposalData(page) {
         req.onsuccess = () => res(req.result);
         req.onerror = () => rej(req.error);
       });
-      const tx = db.transaction(['people', 'midweeks', 'months', 'salidas', 'atencion', 'settings'], 'readwrite');
+      const tx = db.transaction(['people', 'midweeks', 'months', 'salidas', 'atencion', 'settings', 'departments', 'aseos'], 'readwrite');
       people.forEach(p => tx.objectStore('people').add(p));
       midweeks.forEach(w => tx.objectStore('midweeks').put(w));
       tx.objectStore('months').put(month);
       salidas.forEach(s => tx.objectStore('salidas').put(s));
       atencion.forEach(a => tx.objectStore('atencion').put(a));
+      departments.forEach(d => tx.objectStore('departments').put(d));
+      aseos.forEach(a => tx.objectStore('aseos').put(a));
       tx.objectStore('settings').put({ congregation: 'Congregación Test', lastMonthId: '2026-08' }, 'congregation');
       await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
       db.close();
     })();
-  }, { people, midweeks, month, salidas, atencion });
+  }, { people, midweeks, month, salidas, atencion, departments, aseos });
 }
 
 // Seed mínimo para probar el filtro por labor en los selectores de atención:

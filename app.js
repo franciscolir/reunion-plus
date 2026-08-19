@@ -44,6 +44,7 @@ const state = {
   progMonth: null,        // mes seleccionado en Programas (selector global)
   listsTab: 'labores',    // 'labores' | 'historial' (vista Personas)
   listsShowInactive: false, // mostrar también las personas desactivadas (borrado lógico)
+  aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
 };
 
 /* ---------- INIT ---------- */
@@ -2669,6 +2670,9 @@ async function renderPreview() {
   if (!m) { toast('Programa no encontrado', 'error'); go('home'); return; }
   applyConfigWeekTypes(m.weeks, true); // el tipo de reunión se determina por los eventos
   state.month = m;
+  // Programa de aseo del mes: para mostrar el grupo asignado en la columna Grupo.
+  const aseo = await db.getAseo(state.monthId).catch(() => null);
+  state.aseoWeeks = (aseo && aseo.weeks) || [];
   renderTop();
   const app = $('#app');
   app.innerHTML = `
@@ -2794,6 +2798,10 @@ function weekCardList(w, i) {
 }
 
 function previewTabla() {
+  const aseoGroupFor = (sat) => {
+    const w = (state.aseoWeeks || []).find(x => String(x.saturday) === String(sat));
+    return (w && w.group) ? String(w.group) : '';
+  };
   const rows = state.month.weeks.map((w, i) => {
     const date = new Date(w.date + 'T00:00:00');
     const dateStr = date.toLocaleDateString('es', { day: '2-digit' });
@@ -2806,6 +2814,8 @@ function previewTabla() {
           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
         </div></td></tr>`;
     }
+    const grupoAseo = aseoGroupFor(w.date);
+    const grupoTxt = grupoAseo ? deptNameOf(grupoAseo) : deptNameOf(w.departamento);
     let cells = {
       title: '—', chairman: '—', speaker: '—', conductor: '—', reader: '—', attendance: '—',
     };
@@ -2815,14 +2825,14 @@ function previewTabla() {
       cells.speaker = escapeHtml(w.orador || '—');
       cells.conductor = escapeHtml(personNameOf(w.conductor));
       cells.reader = escapeHtml(personNameOf(w.lector));
-      cells.attendance = escapeHtml(deptNameOf(w.departamento));
+      cells.attendance = escapeHtml(grupoTxt);
     } else if (w.type === 'supervisor') {
       cells.title = `${escapeHtml(w.discursoSupervisor1 || '—')}<div class="text-caption text-secondary mt-0.5">Discurso público</div>${w.discursoSupervisor2 ? `<div class="mt-1.5">${escapeHtml(w.discursoSupervisor2)}<div class="text-caption text-secondary">Discurso de servicio</div></div>` : ''}`;
       cells.chairman = escapeHtml(personNameOf(w.presidente));
       cells.speaker = `${escapeHtml(w.nombreSupervisor || '—')}<div class="text-caption text-on-surface-variant">Superintendente</div>`;
       cells.conductor = escapeHtml(personNameOf(w.estudioSinLectura));
       cells.reader = 'Sin lectura';
-      cells.attendance = escapeHtml(deptNameOf(w.departamento));
+      cells.attendance = escapeHtml(grupoTxt);
     } else if (w.type === 'commemoration') {
       cells.title = escapeHtml(w.tituloDiscurso || '—');
       cells.chairman = escapeHtml(personNameOf(w.presidente));
@@ -2836,7 +2846,7 @@ function previewTabla() {
     return `<tr class="transition-colors">
       <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
       <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
-      <td class="p-4 align-top ${highlight} max-w-[340px]"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
+      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
       <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md font-semibold ${big ? 'text-lg pt-3' : ''}">${cells.speaker}</div></td>
       <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.conductor}</div></td>
       <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.reader}</div></td>
@@ -2844,15 +2854,15 @@ function previewTabla() {
     </tr>`;
   }).join('');
   return `<div class="tabla-programa overflow-x-auto">
-    <table class="w-full text-left" style="border-collapse: separate; border-spacing: 0 0.75rem;">
+    <table class="w-full text-left" style="border-collapse: separate; border-spacing: 0 0.75rem; min-width:0;">
       <colgroup>
-        <col class="w-[6%]">
+        <col class="w-[7%]">
         <col class="w-[14%]">
-        <col class="w-[28%]">
+        <col class="w-[30%]">
         <col class="w-[14%]">
         <col class="w-[14%]">
         <col class="w-[14%]">
-        <col class="w-[10%]">
+        <col class="w-[7%]">
       </colgroup>
       <thead>
         <tr class="bg-surface-container-low border-b border-outline-variant">
@@ -3090,9 +3100,13 @@ async function shareOutings() {
   try { await navigator.clipboard.writeText(text); toast('Programa copiado al portapapeles', 'success'); }
   catch { toast('No se pudo compartir', 'error'); }
 }
-function waOutings() {
-  const text = buildOutingsText();
-  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+async function waOutings() {
+  toast('Generando imagen…', 'info');
+  try {
+    const blob = await svgToPngBlob(outingsExportSvg());
+    const compartido = await compartirPng(blob, `salidas-${state.month.id}.png`);
+    if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
+  } catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
 }
 async function imageOutings() {
   const node = $('#outingsContent');
@@ -6623,18 +6637,20 @@ async function shareProgram() {
   } catch { toast('No se pudo compartir', 'error'); }
 }
 
-function waProgram() {
-  const text = buildShareText();
-  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-  window.open(url, '_blank');
+// WhatsApp comparte el programa como IMAGEN (SVG puro → PNG), no como texto.
+async function waProgram() {
+  toast('Generando imagen…', 'info');
+  try {
+    const blob = await svgToPngBlob(programaExportSvg());
+    const compartido = await compartirPng(blob, `programa-${state.month.id}.png`);
+    if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
+  } catch (err) { console.error(err); toast('No se pudo generar la imagen. Use Imprimir > Guardar como PDF.', 'error'); }
 }
 
 async function imageProgram() {
-  const node = $('#previewContent');
-  if (!node) return;
   toast('Generando imagen…', 'info');
   try {
-    const blob = await nodeToPngBlob(node);
+    const blob = await svgToPngBlob(programaExportSvg());
     downloadBlob(blob, `programa-${state.month.id}.png`);
     toast('Imagen descargada', 'success');
   } catch (err) {
@@ -6926,6 +6942,107 @@ function svgToPngBlob(svgStr) {
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG no decodificó')); };
     img.src = url;
   });
+}
+
+// Comparte un PNG como archivo (WhatsApp vía menú del sistema en móvil) o, si no
+// es posible, lo descarga para adjuntarlo.
+async function compartirPng(pngBlob, filename) {
+  const file = new File([pngBlob], filename, { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: filename }); return true; }
+    catch (e) { if (e.name === 'AbortError') return true; }
+  }
+  downloadBlob(pngBlob, filename);
+  return false;
+}
+
+/* ---------- Exportación del programa de fin de semana en SVG puro ---------- */
+// Carta horizontal (11×8.5"), columna ancha de discurso y grupo desde el
+// programa de aseo. Sin foreignObject para no contaminar el canvas.
+
+function programaExportSvg() {
+  const m = state.month;
+  const W = 1056, PAD = 44;
+  const cw = W - PAD * 2;
+  const frac = [0.07, 0.14, 0.30, 0.14, 0.14, 0.14, 0.07]; // Fecha Pres. Discurso Orador Estudio Lector Grupo
+  const xs = [], ws = [];
+  let acc = 0;
+  for (const f of frac) { ws.push(cw * f); xs.push(PAD + acc); acc += cw * f; }
+  const C = { title: '#3f3a2e', sub: '#6b6454', line: '#e7e3db', head: '#6b6454', headbg: '#f4f1ec', name: '#2f2a20' };
+  const mesTxt = `${MONTHS_ES[m.month - 1].toUpperCase()} ${m.year}`;
+  const aseoGroupFor = (sat) => {
+    const w = (state.aseoWeeks || []).find(x => String(x.saturday) === String(sat));
+    return (w && w.group) ? String(w.group) : '';
+  };
+  const grupoTxt = (w) => { const g = aseoGroupFor(w.date); return g ? deptNameOf(g) : deptNameOf(w.departamento); };
+
+  const rowsInfo = m.weeks.map((w) => {
+    const date = new Date(w.date + 'T00:00:00');
+    const dia = String(date.getDate());
+    if (w.type === 'assembly' || w.type === 'commemoration') {
+      const label = w.type === 'assembly' ? 'ASAMBLEA' : 'CONMEMORACIÓN';
+      const fechaLarga = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
+      return { band: true, label: `${label} — ${fechaLarga}` };
+    }
+    const celdas = { f: dia, p: '', d: [], o: '', e: '', l: '', g: '', rh: 50 };
+    if (w.type === 'normal') {
+      celdas.p = personNameOf(w.presidente);
+      celdas.d = svgTextLines(w.tituloDiscurso || '—', 15, ws[2] - 22);
+      celdas.o = w.orador || '—';
+      celdas.e = personNameOf(w.conductor);
+      celdas.l = personNameOf(w.lector);
+      celdas.g = grupoTxt(w);
+    } else if (w.type === 'supervisor') {
+      celdas.p = personNameOf(w.presidente);
+      celdas.d = svgTextLines(w.discursoSuperior1 || '—', 15, ws[2] - 22)
+        .concat(w.discursoSupervisor2 ? ['', ...svgTextLines(w.discursoSupervisor2 || '—', 15, ws[2] - 22)] : []);
+      celdas.o = w.nombreSupervisor || '—';
+      celdas.e = personNameOf(w.estudioSinLectura);
+      celdas.l = 'Sin lectura';
+      celdas.g = grupoTxt(w);
+    }
+    celdas.rh = Math.max(50, celdas.d.length * 20 + 34);
+    return celdas;
+  });
+
+  let H = PAD + 18 + 34 + 40 + 14 + 38;
+  rowsInfo.forEach(r => H += (r.band ? 52 : r.rh));
+  H += PAD;
+
+  const P = [];
+  P.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+  let y = PAD;
+  P.push(svgT(W / 2, y + 16, 'REUNION PUBLICA', 14, 600, C.sub, 'middle'));
+  y += 34;
+  P.push(svgT(W / 2, y + 30, mesTxt, 34, 700, C.title, 'middle'));
+  y += 44;
+  P.push(`<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
+  y += 14;
+  const heads = ['Fecha', 'Presidente', 'Discurso', 'Orador', 'Estudio', 'Lector', 'Grupo'];
+  P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="38" fill="${C.headbg}"/>`);
+  heads.forEach((h, i) => P.push(svgT(xs[i] + 12, y + 24, h, 13, 600, C.head)));
+  y += 38;
+
+  rowsInfo.forEach((r) => {
+    if (r.band) {
+      P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="50" fill="#f7f4ef"/>`);
+      P.push(svgT(W / 2, y + 31, r.label, 17, 700, C.title, 'middle'));
+      y += 52;
+      return;
+    }
+    const y0 = y;
+    P.push(svgT(xs[0] + 12, y0 + 26, r.f, 22, 700, C.title));
+    P.push(svgT(xs[1] + 12, y0 + 26, r.p, 16, 400, C.name));
+    r.d.forEach((ln, li) => P.push(svgT(xs[2] + 12, y0 + 26 + li * 20, ln, 15, 400, C.title)));
+    P.push(svgT(xs[3] + 12, y0 + 26, r.o, 16, 600, C.name));
+    P.push(svgT(xs[4] + 12, y0 + 26, r.e, 16, 400, C.name));
+    P.push(svgT(xs[5] + 12, y0 + 26, r.l, 16, 400, C.name));
+    P.push(svgT(xs[6] + 12, y0 + 26, r.g, 15, 700, C.title));
+    P.push(`<line x1="${PAD}" y1="${y0 + r.rh}" x2="${W - PAD}" y2="${y0 + r.rh}" stroke="${C.line}" stroke-width="1"/>`);
+    y += r.rh;
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
 }
 
 /* ---------- Utilidades ---------- */

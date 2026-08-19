@@ -389,6 +389,27 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
   });
 
+  test('fin de semana tabla: columnas con anchos, grupo desde aseo y WhatsApp comparte imagen', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/preview/2026-08?mode=tabla'; });
+    await expect(page.locator('#previewContent thead th')).toHaveText(['Fecha', 'Presidente', 'Discurso', 'Orador', 'Estudio', 'Lector', 'Grupo']);
+
+    // Anchos de columna: Fecha 7%, Discurso 30%, Grupo 7%.
+    const cols = page.locator('#previewContent col');
+    await expect(cols.nth(0)).toHaveClass(/w-\[7%\]/);
+    await expect(cols.nth(2)).toHaveClass(/w-\[30%\]/);
+    await expect(cols.nth(6)).toHaveClass(/w-\[7%\]/);
+
+    // Grupo desde el programa de aseo.
+    await expect(page.locator('#previewContent tbody tr').first()).toContainText('Grupo 1');
+
+    // WhatsApp comparte como imagen.
+    await page.click('#waProgram');
+    await expect(page.locator('#toastRoot')).toContainText('Imagen descargada', { timeout: 15000 });
+  });
+
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
