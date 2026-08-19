@@ -42,7 +42,7 @@ const state = {
   toastsOpen: new Set(),
   mwMonth: null,          // mes seleccionado en la vista mensual de entre semana
   progMonth: null,        // mes seleccionado en Programas (selector global)
-  listsTab: 'labores',    // 'labores' | 'historial' (vista Personas)
+  listsTab: 'personas',   // 'personas' | 'grupos' | 'departamentos' | 'historial' (vista Personas)
   listsShowInactive: false, // mostrar también las personas desactivadas (borrado lógico)
   aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
   atencionWeeks: [],      // labores de atención del mes activo (vista previa)
@@ -3167,51 +3167,60 @@ async function renderLists() {
   renderTop();
   await refreshCatalogs();
   const app = $('#app');
+  const tab = state.listsTab;
+  const isPersonas = tab === 'personas';
+  const isGrupos = tab === 'grupos';
+  const isDeptos = tab === 'departamentos';
+  const isHist = tab === 'historial';
+  const tabCls = (t) => `px-4 py-2 font-label-md text-label-md rounded-lg transition-colors ${tab === t ? 'bg-primary text-on-primary shadow' : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest'}`;
   app.innerHTML = `
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
       <div>
         <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Personas y Grupos</h1>
-        <p class="text-on-surface-variant font-body-md text-body-md">Asignar y gestionar responsabilidades del equipo.</p>
+        <p class="text-on-surface-variant font-body-md text-body-md">Personas, grupos, departamentos (labores) e historial del equipo.</p>
       </div>
-      <div class="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-        <div class="flex bg-surface-container-high p-1 rounded-lg" id="listsTabs">
-          <button data-tab="labores" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.listsTab === 'labores' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Labores</button>
-          <button data-tab="historial" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.listsTab === 'historial' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Historial</button>
-        </div>
-        <div class="relative w-full sm:w-64">
-          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="search">search</span>
-          <input id="pSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md" placeholder="Buscar miembro..." type="text">
-        </div>
-        <div class="relative w-full sm:w-40">
-          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="filter">filter_alt</span>
-          <select id="pGenderFilter" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md ${state.listsTab === 'historial' ? 'hidden' : ''}">
-            <option value="">Todos</option>
-            <option value="masculino">Hombre</option>
-            <option value="femenino">Mujer</option>
-          </select>
-        </div>
-        <div class="relative w-full sm:w-44">
-          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline" data-icon="badge">badge</span>
-          <select id="pCargoFilter" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md ${state.listsTab === 'historial' ? 'hidden' : ''}">
-            <option value="">Todos los cargos</option>
-            ${CARGOS.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}
-          </select>
-        </div>
-        <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleEditMode">
-          <span class="material-symbols-outlined text-[18px]">lock_open</span>
-          <span id="editText">Desbloquear</span>
-        </button>
-        <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border ${state.listsShowInactive ? 'bg-secondary-container text-on-secondary-container border-secondary-container' : 'border-outline text-on-surface-variant'} w-full sm:w-auto px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors ${state.listsTab === 'historial' ? 'hidden' : ''}" id="toggleInactive">
-          <span class="material-symbols-outlined text-[18px]">history_toggle_off</span>
-          <span>${state.listsShowInactive ? 'Ocultar desactivados' : 'Ver desactivados'}</span>
-        </button>
+      <div class="flex flex-wrap gap-2" id="listsTabs">
+        <button data-tab="personas" class="${tabCls('personas')}">Personas</button>
+        <button data-tab="grupos" class="${tabCls('grupos')}">Grupos</button>
+        <button data-tab="departamentos" class="${tabCls('departamentos')}">Departamentos</button>
+        <button data-tab="historial" class="${tabCls('historial')}">Historial</button>
       </div>
     </div>
 
-    <div id="quickLaboresWrap" class="${state.listsTab === 'historial' ? 'hidden' : ''} flex flex-wrap items-center gap-2 mb-4">
+    ${isPersonas ? `
+    <div class="flex flex-col sm:flex-row items-center gap-4 mb-4 flex-wrap">
+      <div class="relative w-full sm:w-64">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
+        <input id="pSearch" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md" placeholder="Buscar miembro..." type="text">
+      </div>
+      <div class="relative w-full sm:w-40">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">filter_alt</span>
+        <select id="pGenderFilter" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md">
+          <option value="">Todos</option>
+          <option value="masculino">Hombre</option>
+          <option value="femenino">Mujer</option>
+        </select>
+      </div>
+      <div class="relative w-full sm:w-44">
+        <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">badge</span>
+        <select id="pCargoFilter" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md">
+          <option value="">Todos los cargos</option>
+          ${CARGOS.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}
+        </select>
+      </div>
+      <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border border-primary text-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors" id="toggleEditMode">
+        <span class="material-symbols-outlined text-[18px]">lock_open</span>
+        <span id="editText">Desbloquear</span>
+      </button>
+      <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border ${state.listsShowInactive ? 'bg-secondary-container text-on-secondary-container border-secondary-container' : 'border-outline text-on-surface-variant'} px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors" id="toggleInactive">
+        <span class="material-symbols-outlined text-[18px]">history_toggle_off</span>
+        <span>${state.listsShowInactive ? 'Ocultar desactivados' : 'Ver desactivados'}</span>
+      </button>
+    </div>
+    <div id="quickLaboresWrap" class="flex flex-wrap items-center gap-2 mb-4">
       <span class="font-label-md text-label-md text-on-surface-variant">Filtrar por labor:</span>
       ${state.labores.map(r => `<button type="button" data-quicklabore="${r.id}" class="quick-chip" title="Mostrar solo quienes tienen ${escapeAttr(r.label)}">${escapeHtml(r.label)}</button>`).join('')}
-    </div>
+    </div>` : ''}
 
     <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant overflow-hidden">
       <div id="pList" class="overflow-auto max-h-[68vh] p-3 sm:p-4 grid grid-cols-1 xl:grid-cols-2 gap-3 content-start"></div>
@@ -3219,25 +3228,20 @@ async function renderLists() {
 
     <div class="mt-6 flex justify-between flex-wrap gap-3">
       <div class="flex flex-wrap gap-3">
-        <button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
-          <span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores
-        </button>
-        <button id="assignGroupBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2">
-          <span class="material-symbols-outlined text-[18px]">group</span> Asignar Grupos
-        </button>
+        ${(isPersonas || isHist) ? `<button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores</button>` : ''}
+        ${(isPersonas || isGrupos || isHist) ? `<button id="assignGroupBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">group</span> Asignar Grupos</button>` : ''}
       </div>
-      <button id="addMemberBtn" data-admin class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2">
-        <span class="material-symbols-outlined text-[18px]">add</span> Añadir Miembro
-      </button>
+      ${(isPersonas || isHist) ? `<button id="addMemberBtn" data-admin class="bg-primary text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md hover:opacity-90 transition-opacity flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">add</span> Añadir Miembro</button>` : ''}
     </div>
   `;
 
   $('#listsTabs').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.listsTab = b.dataset.tab; renderLists(); });
+  const agb = $('#assignGroupBtn');
+  if (agb) agb.onclick = openGroupAssignmentModal;
 
-  if (state.listsTab === 'historial') {
-    renderListsHistorial();
-    return;
-  }
+  if (isHist) { renderListsHistorial(); return; }
+  if (isGrupos) { renderListsGrupos(); return; }
+  if (isDeptos) { renderListsDepartamentos(); return; }
 
   const filterLabores = new Set();
   app.querySelectorAll('[data-quicklabore]').forEach(btn => btn.onclick = () => {
@@ -3526,6 +3530,91 @@ function renderPersonCardBindings(editMode) {
     person.labores = labores;
     setChipOn(cb, willOn);
   });
+}
+
+/* ---------- Vista Grupos (Personas) ---------- */
+function renderListsGrupos() {
+  const list = $('#pList');
+  list.className = 'overflow-auto max-h-[68vh] p-3 sm:p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start';
+  const grupos = state.departments;
+  if (!grupos.length) { list.innerHTML = '<p class="text-on-surface-variant text-sm col-span-full">No hay grupos creados.</p>'; return; }
+  list.innerHTML = grupos.map(g => {
+    const miembros = state.people.filter(p => p.activo !== false && String(p.grupoId || '') === String(g.id));
+    const gc = grupoColorFor(g.id);
+    const color = gc ? { background: gc.bg, color: gc.text } : { background: '#f4f1ec', color: '#6b6454' };
+    return `<button data-grupo="${g.id}" class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary hover:shadow-lg transition-all">
+      <div class="flex items-center justify-between mb-2 gap-2">
+        <span class="font-headline-md text-headline-md" style="color:${color.color}">${escapeHtml(g.name)}</span>
+        <span class="px-2 py-0.5 rounded-full font-label-md text-label-md shrink-0" style="background:${color.background};color:${color.color}">${miembros.length}</span>
+      </div>
+      <div class="text-sm text-on-surface-variant">${miembros.length ? miembros.map(m => escapeHtml(m.name.split(' ')[0])).join(' · ') : 'Sin miembros'}</div>
+    </button>`;
+  }).join('');
+  list.querySelectorAll('[data-grupo]').forEach(b => b.onclick = () => abrirGrupoModal(b.dataset.grupo));
+}
+
+function abrirGrupoModal(grupoId) {
+  const g = state.departments.find(d => String(d.id) === String(grupoId));
+  if (!g) return;
+  const miembros = state.people.filter(p => p.activo !== false && String(p.grupoId || '') === String(grupoId));
+  const gc = grupoColorFor(grupoId);
+  openModal(`
+    <div>
+      <div class="flex items-center gap-3 mb-4">
+        ${gc ? `<div class="w-12 h-12 rounded-full flex items-center justify-center font-bold shrink-0" style="background:${gc.bg};color:${gc.text}">${String(grupoId)}</div>` : ''}
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(g.name)}</h3>
+          <p class="text-sm text-on-surface-variant">${miembros.length} miembro(s)</p>
+        </div>
+      </div>
+      <div class="max-h-[50vh] overflow-y-auto rounded-lg border border-outline-variant divide-y divide-outline-variant/40">
+        ${miembros.length ? miembros.map(m => `<div class="flex items-center gap-3 px-3 py-2">${avatarHtml(m, 'w-9 h-9')}<span class="font-body-md text-body-md text-on-surface">${escapeHtml(m.name)}</span></div>`).join('') : '<p class="p-4 text-center text-on-surface-variant text-sm">Sin miembros en este grupo.</p>'}
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button data-close-modal class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
+      </div>
+    </div>`);
+  modalEl('[data-close-modal]').onclick = closeModal;
+}
+
+/* ---------- Vista Departamentos (labores) ---------- */
+function renderListsDepartamentos() {
+  const list = $('#pList');
+  list.className = 'overflow-auto max-h-[68vh] p-3 sm:p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start';
+  if (!state.labores.length) { list.innerHTML = '<p class="text-on-surface-variant text-sm col-span-full">No hay departamentos (labores) definidos.</p>'; return; }
+  list.innerHTML = state.labores.map(r => {
+    const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(r.id));
+    return `<button data-departamento="${r.id}" class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary hover:shadow-lg transition-all">
+      <div class="flex items-center justify-between mb-1 gap-2">
+        <span class="font-headline-md text-headline-md text-primary">${escapeHtml(r.label)}</span>
+        <span class="px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant font-label-md text-label-md shrink-0">${personas.length}</span>
+      </div>
+      <div class="text-sm text-on-surface-variant">${personas.length ? personas.map(p => escapeHtml(p.name.split(' ')[0])).join(' · ') : 'Nadie asignado'}</div>
+    </button>`;
+  }).join('');
+  list.querySelectorAll('[data-departamento]').forEach(b => b.onclick = () => abrirDepartamentoModal(b.dataset.departamento));
+}
+
+function abrirDepartamentoModal(laboreId) {
+  const r = state.labores.find(x => String(x.id) === String(laboreId));
+  if (!r) return;
+  const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(String(laboreId)));
+  openModal(`
+    <div>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(r.label)}</h3>
+          <p class="text-sm text-on-surface-variant">${personas.length} persona(s) con esta labor</p>
+        </div>
+      </div>
+      <div class="max-h-[50vh] overflow-y-auto rounded-lg border border-outline-variant divide-y divide-outline-variant/40">
+        ${personas.length ? personas.map(p => `<div class="flex items-center gap-3 px-3 py-2">${avatarHtml(p, 'w-9 h-9')}<span class="font-body-md text-body-md text-on-surface">${escapeHtml(p.name)}</span></div>`).join('') : '<p class="p-4 text-center text-on-surface-variant text-sm">Nadie asignado a esta labor.</p>'}
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button data-close-modal class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cerrar</button>
+      </div>
+    </div>`);
+  modalEl('[data-close-modal]').onclick = closeModal;
 }
 
 /* ---------- Vista Historial de asignaciones (Personas) ---------- */

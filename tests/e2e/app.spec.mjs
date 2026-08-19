@@ -17,7 +17,9 @@ test.describe('Reunión+ PWA (modo offline)', () => {
   test('navega a Personas y Grupos y muestra el estado vacío', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);
-    await expect(page.locator('#listsTabs')).toContainText('Labores');
+    await expect(page.locator('#listsTabs')).toContainText('Personas');
+    await expect(page.locator('#listsTabs')).toContainText('Grupos');
+    await expect(page.locator('#listsTabs')).toContainText('Departamentos');
     await expect(page.locator('#listsTabs')).toContainText('Historial');
     await expect(page.locator('#pList')).toContainText('Sin personas');
     await expect(page.locator('.quick-chip').first()).toBeVisible();
@@ -511,6 +513,28 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#gaClose');
     const card = page.locator('.person-card').first();
     await expect(card.locator('.rounded-full').first()).toContainText('1');
+  });
+
+  test('personas: carpetas de grupos y departamentos (interior y métricas)', async ({ page }) => {
+    await seedProposalData(page);
+    await openApp(page);
+    await page.click('#sideNavItems button[data-go="lists"]');
+    await page.waitForSelector('h1:has-text("Personas y Grupos")', { state: 'visible' });
+
+    // Grupos: card del grupo y su interior.
+    await page.click('[data-tab="grupos"]');
+    await expect(page.locator('[data-grupo="1"]')).toBeVisible();
+    await page.click('[data-grupo="1"]');
+    await expect(page.locator('#modalCard')).toContainText('Grupo 1');
+    await expect(page.locator('#modalCard')).toContainText('miembro(s)');
+    await page.click('[data-close-modal]');
+
+    // Departamentos: mini-cards de labor y su interior.
+    await page.click('[data-tab="departamentos"]');
+    await expect(page.locator('[data-departamento]').first()).toBeVisible();
+    await page.locator('[data-departamento]').first().click();
+    await expect(page.locator('#modalCard')).toBeVisible();
+    await expect(page.locator('#modalCard')).toContainText('persona(s) con esta labor');
   });
 
   test('nube: el botón guardar avisa cuando Firebase no está configurado', async ({ page }) => {
