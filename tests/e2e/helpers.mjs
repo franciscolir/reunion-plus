@@ -18,10 +18,10 @@ export async function openApp(page) {
   await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
 }
 
-// Navega a la vista Personas y Grupos y espera a que cargue.
+// Navega a la vista Congregación y espera a que cargue.
 export async function gotoLabores(page) {
   await page.click('#sideNavItems button[data-go="lists"]');
-  await page.waitForSelector('h1:has-text("Personas y Grupos")', { state: 'visible' });
+  await page.waitForSelector('h1:has-text("Congregación")', { state: 'visible' });
 }
 
 // Seed directo en IndexedDB (mismo esquema v7 de db.js) con un equipo y una guía

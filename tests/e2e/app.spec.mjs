@@ -10,16 +10,16 @@ test.describe('Reunión+ PWA (modo offline)', () => {
   test('carga el tablero con navegación lateral', async ({ page }) => {
     await openApp(page);
     await expect(page.locator('#sideNavItems button')).toHaveCount(6);
-    await expect(page.locator('#sideNavItems')).toContainText('Personas y Deptos.');
+    await expect(page.locator('#sideNavItems')).toContainText('Congregación');
     await expect(page.locator('#app')).not.toBeEmpty();
   });
 
-  test('navega a Personas y Grupos y muestra el estado vacío', async ({ page }) => {
+  test('navega a Congregación y muestra el estado vacío', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);
     await expect(page.locator('#listsTabs')).toContainText('Personas');
     await expect(page.locator('#listsTabs')).toContainText('Grupos');
-    await expect(page.locator('#listsTabs')).toContainText('Departamentos');
+    await expect(page.locator('#listsTabs')).toContainText('Labores');
     await expect(page.locator('#listsTabs')).toContainText('Historial');
     await expect(page.locator('#pList')).toContainText('Sin personas');
     await expect(page.locator('#addMemberBtn')).toBeVisible();
@@ -572,7 +572,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await seedProposalData(page);
     await openApp(page);
     await page.click('#sideNavItems button[data-go="lists"]');
-    await page.waitForSelector('h1:has-text("Personas y Grupos")', { state: 'visible' });
+    await page.waitForSelector('h1:has-text("Congregación")', { state: 'visible' });
 
     await page.click('[data-tab="grupos"]');
     await page.click('#assignGroupBtn');
@@ -595,7 +595,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await seedProposalData(page);
     await openApp(page);
     await page.click('#sideNavItems button[data-go="lists"]');
-    await page.waitForSelector('h1:has-text("Personas y Grupos")', { state: 'visible' });
+    await page.waitForSelector('h1:has-text("Congregación")', { state: 'visible' });
 
     // Grupos: card del grupo y su interior (vista completa).
     await page.click('[data-tab="grupos"]');

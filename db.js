@@ -427,7 +427,6 @@ export function defaultConfig() {
     schedule: { day: 6, time: '10:00' }, // día (0=domingo..6=sábado) y hora de comienzo
     midweek: { day: 2, time: '19:00' }, // reunión de entre semana: día y hora
     events: { commemorations: [], visits: [], assemblies: [] },
-    groups: { cantidad: 3, start: 1, labores: '' }, // nº de grupos, grupo inicial (1-based), labores comunes
     algorithm: defaultAlgorithmConfig(),
     emailsPermitidos: [], // whitelist de correos autorizados para iniciar sesión
     excepciones: [], // conflictos autorizados (alcance puntual: persona+regla+semana)
@@ -446,7 +445,6 @@ export async function getConfig() {
       visits: Array.isArray(v.events?.visits) ? v.events.visits : [],
       assemblies: Array.isArray(v.events?.assemblies) ? v.events.assemblies : [],
     },
-    groups: { ...def.groups, ...(v.groups || {}) },
     algorithm: { ...defaultAlgorithmConfig(), ...(v.algorithm || {}) },
     emailsPermitidos: Array.isArray(v.emailsPermitidos) ? v.emailsPermitidos.map(e => String(e).trim().toLowerCase()).filter(Boolean) : [],
     excepciones: Array.isArray(v.excepciones) ? v.excepciones : [],

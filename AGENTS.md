@@ -40,7 +40,7 @@ GUIA-DESPLIEGUE.md  Documentación de despliegue Firebase
 |---|---|---|
 | `months` | `id` ("YYYY-MM") | Programas mensuales completos |
 | `people` | `id` (auto) | Participantes |
-| `departments` | `id` (auto) | Departamentos/grupos |
+| `departments` | `id` (auto) | Grupos de la congregación (fuente única: la cantidad se deriva de los grupos activos; `config.groups` fue eliminado) |
 | `settings` | string | Configuración |
 | `talks` | `num` | Discursos (n° y título) |
 | `midweeks` | `id` ("YYYY-MM-DD") | Reuniones de entre semana |

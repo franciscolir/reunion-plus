@@ -562,7 +562,7 @@ function renderSide() {
   const items = [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
-    { id: 'lists', icon: 'group', label: 'Personas y Deptos.', view: 'lists' },
+    { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
     { id: 'uploads', icon: 'upload_file', label: 'Carga de Archivos', view: 'uploads' },
     { id: 'eventos', icon: 'event', label: 'Eventos', view: 'eventos' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
@@ -3180,13 +3180,13 @@ async function renderLists() {
   app.innerHTML = `
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
       <div>
-        <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Personas y Grupos</h1>
-        <p class="text-on-surface-variant font-body-md text-body-md">Personas, grupos, departamentos (labores) e historial del equipo.</p>
+        <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Congregación</h1>
+        <p class="text-on-surface-variant font-body-md text-body-md">Personas, grupos, labores e historial del equipo.</p>
       </div>
       <div class="flex flex-wrap gap-2" id="listsTabs">
         <button data-tab="personas" class="${tabCls('personas')}">Personas</button>
         <button data-tab="grupos" class="${tabCls('grupos')}">Grupos</button>
-        <button data-tab="departamentos" class="${tabCls('departamentos')}">Departamentos</button>
+        <button data-tab="departamentos" class="${tabCls('departamentos')}">Labores</button>
         <button data-tab="historial" class="${tabCls('historial')}">Historial</button>
       </div>
     </div>
@@ -3548,6 +3548,14 @@ function renderGrupoInterior(grupoId) {
         <span class="material-symbols-outlined text-[18px]">arrow_back</span> Grupos
       </button>
       ${gc ? `<div class="w-10 h-10 rounded-full flex items-center justify-center font-bold shrink-0" style="background:${gc.bg};color:${gc.text}">${String(grupoId)}</div>` : ''}
+      <div class="flex items-center gap-2 ml-auto" data-admin>
+        <button data-grenombrar class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[18px]">edit</span> Renombrar
+        </button>
+        <button data-gocultar class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-error/40 text-error font-label-md text-label-md hover:bg-error-container transition-colors">
+          <span class="material-symbols-outlined text-[18px]">visibility_off</span> Ocultar
+        </button>
+      </div>
     </div>
     <h2 class="font-headline-lg text-headline-lg text-primary mb-1">${escapeHtml(g.name)}</h2>
     <p class="text-on-surface-variant font-body-md mb-4">${miembros.length} miembro(s)</p>
@@ -3565,6 +3573,24 @@ function renderGrupoInterior(grupoId) {
       </div>
     </div>`;
   list.querySelector('[data-gvolver]').onclick = () => renderListsGrupos();
+  const renombrar = list.querySelector('[data-grenombrar]');
+  if (renombrar) renombrar.onclick = async () => {
+    const nuevo = promptText('Renombrar grupo', g.name);
+    if (nuevo == null) return;
+    if (!nuevo.trim()) { toast('Nombre vacío', 'error'); return; }
+    await db.updateDepartment({ ...g, name: nuevo.trim() });
+    await refreshCatalogs();
+    toast('Grupo actualizado', 'success');
+    renderListsGrupos();
+  };
+  const ocultar = list.querySelector('[data-gocultar]');
+  if (ocultar) ocultar.onclick = async () => {
+    if (!await confirmDialog(`¿Ocultar el grupo "${g.name}"? Se quita de las listas y puede restaurarse después.`, 'Ocultar')) return;
+    await db.deleteDepartment(g.id);
+    await refreshCatalogs();
+    toast('Grupo oculto', 'success');
+    renderListsGrupos();
+  };
 }
 
 /* ---------- Vista Departamentos (labores) ---------- */
@@ -3598,7 +3624,7 @@ function renderDepartamentoInterior(laboreId) {
     list.innerHTML = `
       <div class="mb-3">
         <button data-dvolver class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-[18px]">arrow_back</span> Departamentos
+          <span class="material-symbols-outlined text-[18px]">arrow_back</span> Labores
         </button>
       </div>
       <h2 class="font-headline-lg text-headline-lg text-primary mb-1">${escapeHtml(r.label)}</h2>
@@ -3648,14 +3674,15 @@ function renderDepartamentoInterior(laboreId) {
   render();
 }
 
-// Gestión de Grupos (configuración local dentro de la vista Grupos).
+// Gestión de Grupos (única: vista Congregación → pestaña Grupos).
+// La cantidad de grupos es el nº de departamentos activos; al guardar, crea u
+// oculta grupos en la DB (store departments) y eso se propaga al resto de la app.
 async function renderGruposConfigModal() {
-  const config = await db.getConfig();
-  const n = Number(config.groups?.cantidad) || Math.max(state.departments.length, 1) || 3;
+  const n = Math.max(state.departments.length, 1);
   openModal(`
     <div>
       <h3 class="font-headline-md text-headline-md text-primary mb-1">Gestionar Grupos</h3>
-      <p class="text-on-surface-variant text-sm mb-4">Cantidad de grupos y labores comunes a todos.</p>
+      <p class="text-on-surface-variant text-sm mb-4">Indique cuántos grupos de atención hay en la congregación. Se crean (o se ocultan) los grupos necesarios y el cambio se propaga a toda la app.</p>
       <div class="space-y-4">
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cantidad de grupos</label>
@@ -3663,12 +3690,9 @@ async function renderGruposConfigModal() {
             ${Array.from({ length: 12 }, (_, i) => i + 1).map(x => `<option value="${x}" ${x === n ? 'selected' : ''}>${x} grupo${x > 1 ? 's' : ''}</option>`).join('')}
           </select>
         </div>
-        <div>
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Labores (comunes a todos los grupos)</label>
-          <input id="gcfgLabores" type="text" value="${escapeAttr(config.groups?.labores || '')}" placeholder="p. ej. Aseo y hospitalidad, sonido, ujieres…" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-        </div>
       </div>
-      <div class="flex gap-3 justify-end mt-5">
+      <div class="flex flex-wrap gap-3 justify-end mt-5">
+        <button id="gcfgRotate" class="px-5 py-2.5 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container">Aplicar rotación a todos los programas</button>
         <button id="gcfgCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">Cancelar</button>
         <button id="gcfgSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-opacity">Guardar</button>
       </div>
@@ -3677,15 +3701,36 @@ async function renderGruposConfigModal() {
   $('#gcfgSave').onclick = async () => {
     const nn = Math.max(parseInt($('#gcfgCant').value, 10) || n, 1);
     await ensureGroupCountGlobal(nn);
-    const cfg = await db.getConfig();
-    cfg.groups = { cantidad: nn, labores: $('#gcfgLabores').value.trim() };
-    await db.setConfig(cfg);
-    state.config = cfg;
-    state.departments = await db.listDepartments();
+    await refreshCatalogs();
     closeModal();
     toast('Grupos guardados', 'success');
     renderLists();
   };
+  $('#gcfgRotate').onclick = async () => {
+    const nn = Math.max(parseInt($('#gcfgCant').value, 10) || n, 1);
+    const { meses, semanas } = await aplicarRotacionAseos(nn);
+    toast(`Rotación aplicada a ${meses} programa(s) de aseo · ${semanas} semana(s)`, 'success');
+  };
+}
+
+// Re-aplica la rotación correlativa de grupos a todos los programas de aseo.
+async function aplicarRotacionAseos(n) {
+  const aseos = await db.listAseos();
+  aseos.sort((a, b) => a.id.localeCompare(b.id)); // cronológico
+  let semanas = 0;
+  for (const a of aseos) {
+    if (!Array.isArray(a.weeks) || !a.weeks.length) continue;
+    const start = await nextAseoStart(a.id, n); // continúa del mes anterior
+    let prev = start;
+    for (const w of a.weeks) {
+      if (prev == null) { w.group = ''; continue; }
+      w.group = groupDeptForNum(prev);
+      prev = (prev % n) + 1;
+      semanas++;
+    }
+    await db.putAseo(a);
+  }
+  return { meses: aseos.length, semanas };
 }
 
 // Asegura que existan exactamente `n` grupos activos (numerados "Grupo i" o "i").
@@ -4991,28 +5036,6 @@ async function renderSettings() {
         </div>
       </div>
 
-      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
-        <div>
-          <h3 class="font-headline-md text-headline-md text-primary mb-1">Gestión de Grupos</h3>
-          <p class="text-on-surface-variant text-sm">Indique la cantidad de grupos de atención. Los grupos se asignan en rotación correlativa de un mes al siguiente; las labores son comunes a todos los grupos.</p>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Cantidad de grupos</label>
-            <select id="grpCant" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary"></select>
-          </div>
-        </div>
-        <div>
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores (comunes a todos los grupos)</label>
-          <input id="grpLabores" type="text" value="${escapeAttr(config.groups?.labores || '')}" placeholder="p. ej. Aseo y hospitalidad, sonido, ujieres…" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-          <p class="text-on-surface-variant text-caption mt-1">Esta descripción es la misma para todos los grupos y se usará como referencia en los programas; modifíquela aquí cuando cambie.</p>
-        </div>
-        <div class="flex gap-3 pt-2">
-          <button id="grpSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar grupos</button>
-          <button id="grpAuto" class="px-5 py-2.5 rounded-lg border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary-container">Aplicar rotación a todos los programas</button>
-        </div>
-      </div>
-
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6" data-admin>
         <div>
           <h3 class="font-headline-md text-headline-md text-primary mb-1">Acceso de usuarios</h3>
@@ -5131,55 +5154,11 @@ async function renderSettings() {
         time: $('#cfgMwTime').value || '19:00',
       },
       events: prev.events,
-      groups: prev.groups,
     };
     await db.setConfig(cfg);
     state.config = cfg;
     toast('Configuración guardada', 'success');
   };
-
-  // ---- Gestión de Grupos: cantidad + labores comunes ----
-  const grpCant = $('#grpCant');
-  const curCant = Number(config.groups?.cantidad) || Math.max(state.departments.length, 1) || 3;
-
-  const fillGrpCant = () => {
-    grpCant.innerHTML = Array.from({ length: 12 }, (_, i) => i + 1)
-      .map(n => `<option value="${n}" ${n === curCant ? 'selected' : ''}>${n} grupo${n > 1 ? 's' : ''}</option>`).join('');
-  };
-  fillGrpCant();
-
-  // Asegura que existan exactamente `n` grupos activos (numerados "Grupo i" o "i")
-  // en la DB, reutilizando los ya existentes (incluso ocultos) para no perder
-  // referencias. Los grupos fuera de rango se ocultan (borrado lógico).
-  async function ensureGroupCount(n) {
-    const existing = await db.listDepartmentsAll();
-    const byNum = new Map();
-    for (const d of existing) {
-      const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
-      if (m) byNum.set(parseInt(m[1], 10), d);
-    }
-    for (let i = 1; i <= n; i++) {
-      const d = byNum.get(i);
-      if (!d) await db.addDepartment(`Grupo ${i}`);
-      else if (d.activo === false) await db.restoreDepartment(d.id);
-    }
-    for (const d of existing) {
-      const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
-      if (m && parseInt(m[1], 10) > n && d.activo !== false) await db.deleteDepartment(d.id);
-    }
-    state.departments = await db.listDepartments();
-  }
-
-  const saveGroups = async () => {
-    const n = Math.max(parseInt(grpCant.value, 10) || curCant, 1);
-    await ensureGroupCount(n);
-    const cfg = await db.getConfig();
-    cfg.groups = { cantidad: n, labores: $('#grpLabores').value.trim() };
-    await db.setConfig(cfg);
-    state.config = cfg;
-    toast('Grupos guardados', 'success');
-  };
-  $('#grpSave').onclick = saveGroups;
 
   // ---- Acceso de usuarios: guardar whitelist de correos ----
   $('#cfgEmailsSave').onclick = async () => {
@@ -5243,30 +5222,6 @@ async function renderSettings() {
     renderSettings();
   };
 
-  $('#grpAuto').onclick = async () => {
-    await saveGroups();
-    const n = Math.max(parseInt(grpCant.value, 10) || curCant, 1);
-    const aseos = await db.listAseos();
-    aseos.sort((a, b) => a.id.localeCompare(b.id)); // cronológico
-    let total = 0;
-    for (const a of aseos) {
-      if (!Array.isArray(a.weeks) || !a.weeks.length) continue;
-      const start = await nextAseoStart(a.id, n); // continúa del mes anterior
-      let prev = start;
-      for (const w of a.weeks) {
-        if (prev == null) { w.group = ''; continue; }
-        w.group = groupDeptForNum(prev);
-        prev = (prev % n) + 1;
-        total++;
-      }
-      await db.putAseo(a);
-    }
-    toast(`Rotación aplicada a ${aseos.length} programa(s) de aseo · ${total} semana(s) asignada(s)`, 'success');
-  };
-  $('#setSave').onclick = async () => {
-    await db.setSetting('congregation', $('#setCong').value.trim());
-    toast('Ajustes guardados', 'success');
-  };
   $('#setSave').onclick = async () => {
     await db.setSetting('congregation', $('#setCong').value.trim());
     toast('Ajustes guardados', 'success');
@@ -5841,7 +5796,7 @@ async function renderAtencionGrupo(monthId, opts = {}) {
   const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
   let aseo = await db.getAseo(cur);
 
-  const n = Number(state.config?.groups?.cantidad) || Math.max(state.departments.length, 1) || 1;
+  const n = Math.max(state.departments.length, 1);
   const groupOpts = (curVal) => `<option value="">Elegir grupo</option>` +
     state.departments.map(d => `<option value="${d.id}" ${String(d.id) === String(curVal) ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
   const shortDate = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
