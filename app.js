@@ -755,11 +755,23 @@ function finWeekAssign() {
   const { saturday } = currentWeekDates();
   for (const a of _homeAseos) {
     const w = (a.weeks || []).find(x => x.saturday === saturday);
-    if (w && w.group) return deptNameOf(w.group);
+    if (w && w.group) {
+      const num = aseoWeekGroupNum(w);
+      return num != null ? String(num) : deptNameOf(w.group);
+    }
   }
   return 'Sin asignar';
 }
 function finWeekAssignDetail() {
+  const { saturday } = currentWeekDates();
+  for (const a of _homeAseos) {
+    const w = (a.weeks || []).find(x => x.saturday === saturday);
+    if (w && w.group) {
+      const d = state.departments.find(x => String(x.id) === String(w.group));
+      if (d && d.labores) return d.labores;
+      break;
+    }
+  }
   const labores = state.config?.groups?.labores;
   if (labores) return labores;
   const cur = findCurrentFinWeek();
@@ -3331,9 +3343,18 @@ function openAddMemberModal() {
       </div>
     </form>
   </div>`);
-  $('#mdLabores').innerHTML = state.labores.map(r =>
-    `<label class="flex items-center gap-1.5 cursor-pointer text-[12px] font-label-md text-on-surface-variant"><input type="checkbox" data-mr="${r.id}" class="text-primary accent-primary"> ${r.label}</label>`
-  ).join('');
+  // Las labores visibles dependen del género elegido: las mujeres solo pueden
+  // participar en presentaciones (asignacion2), igual que en los chips del perfil.
+  const renderLabores = () => {
+    const genero = document.querySelector('[data-attr="genero"]').value;
+    const visibles = genero === 'femenino' ? state.labores.filter(r => r.id === 'asignacion2') : state.labores;
+    const marcadas = new Set(Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr));
+    $('#mdLabores').innerHTML = visibles.map(r =>
+      `<label class="flex items-center gap-1.5 cursor-pointer text-[12px] font-label-md text-on-surface-variant"><input type="checkbox" data-mr="${r.id}" class="text-primary accent-primary" ${marcadas.has(r.id) ? 'checked' : ''}> ${r.label}</label>`
+    ).join('');
+  };
+  renderLabores();
+  document.querySelector('[data-attr="genero"]').addEventListener('change', renderLabores);
   $('#mdCancel2').onclick = closeModal;
   $('#mdForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -3341,8 +3362,11 @@ function openAddMemberModal() {
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     const labores = Array.from(document.querySelectorAll('[data-mr]:checked')).map(c => c.dataset.mr);
     const attrs = readPersonAttrs();
+    // Defensa en profundidad: descartar labores no permitidas para el género.
+    const persona = { genero: attrs.genero };
+    const laboresFiltradas = attrs.genero === 'femenino' ? labores.filter(l => laboreAllowedForPerson(persona, l)) : labores;
     try {
-      const newId = await db.addPerson({ name, labores, ...attrs });
+      const newId = await db.addPerson({ name, labores: laboresFiltradas, ...attrs });
       // Enlace bidireccional: si el nuevo miembro no es D y tiene enlace, la
       // persona enlazada pasa a tenerlo como enlace a él.
       if (attrs.enlace && attrs.calificacion !== 'D') {
@@ -3737,16 +3761,28 @@ function renderDepartamentoInterior(laboreId) {
 // oculta grupos en la DB (store departments) y eso se propaga al resto de la app.
 async function renderGruposConfigModal() {
   const n = Math.max(state.departments.length, 1);
+  const grupos = state.departments
+    .map(d => { const m = /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim()); return { d, num: m ? Number(m[1]) : null }; })
+    .sort((a, b) => (a.num ?? 999) - (b.num ?? 999));
+  const rows = grupos.map(({ d }) => `
+    <div class="flex items-center gap-2">
+      <span class="w-16 shrink-0 font-label-md text-label-md text-on-surface-variant">${escapeHtml(d.name)}</span>
+      <input type="text" data-glab="${d.id}" value="${escapeAttr(d.labores || '')}" placeholder="Labor del grupo (p. ej. Aseo)" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary" autocomplete="off">
+    </div>`).join('');
   openModal(`
     <div>
       <h3 class="font-headline-md text-headline-md text-primary mb-1">Gestionar Grupos</h3>
-      <p class="text-on-surface-variant text-sm mb-4">Indique cuántos grupos de atención hay en la congregación. Se crean (o se ocultan) los grupos necesarios y el cambio se propaga a toda la app.</p>
+      <p class="text-on-surface-variant text-sm mb-4">Indique cuántos grupos de atención hay en la congregación y asigne la labor de cada grupo. Se crean (o se ocultan) los grupos necesarios y el cambio se propaga a toda la app.</p>
       <div class="space-y-4">
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cantidad de grupos</label>
           <select id="gcfgCant" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             ${Array.from({ length: 12 }, (_, i) => i + 1).map(x => `<option value="${x}" ${x === n ? 'selected' : ''}>${x} grupo${x > 1 ? 's' : ''}</option>`).join('')}
           </select>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores de grupo</label>
+          <div class="space-y-2 max-h-[40vh] overflow-y-auto">${rows}</div>
         </div>
       </div>
       <div class="flex flex-wrap gap-3 justify-end mt-5">
@@ -3759,6 +3795,15 @@ async function renderGruposConfigModal() {
   $('#gcfgSave').onclick = async () => {
     const nn = Math.max(parseInt($('#gcfgCant').value, 10) || n, 1);
     await ensureGroupCountGlobal(nn);
+    const inputs = [...document.querySelectorAll('#modalCard [data-glab]')];
+    for (const inp of inputs) {
+      const d = state.departments.find(x => String(x.id) === String(inp.dataset.glab));
+      if (!d) continue;
+      const lab = inp.value.trim();
+      if ((d.labores || '') !== lab) {
+        await db.updateDepartment({ ...d, labores: lab });
+      }
+    }
     await refreshCatalogs();
     closeModal();
     toast('Grupos guardados', 'success');

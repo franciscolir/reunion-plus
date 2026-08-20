@@ -41,6 +41,28 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Miembro agregado');
   });
 
+  test('añadir mujer solo ofrece presentación (asignacion2)', async ({ page }) => {
+    await openApp(page);
+    await gotoLabores(page);
+
+    await page.click('#addMemberBtn');
+    await page.fill('#mdName', 'Lucía García');
+    await page.selectOption('[data-attr="genero"]', 'femenino');
+    await expect(page.locator('[data-mr="asignacion2"]')).toHaveCount(1);
+    await expect(page.locator('[data-mr="presidente"]')).toHaveCount(0);
+    await expect(page.locator('[data-mr="asignacion1"]')).toHaveCount(0);
+    await page.check('[data-mr="asignacion2"]');
+    await page.click('#mdForm button[type="submit"]');
+    await expect(page.locator('#toastRoot')).toContainText('Miembro agregado');
+
+    const card = page.locator('.person-card', { hasText: 'Lucía García' });
+    await expect(card).toBeVisible();
+    const pid = await card.getAttribute('data-pid');
+    await page.click(`[data-profile="${pid}"]`);
+    await expect(page.locator('#pfLabores .labor-chip.is-on[data-plabore="asignacion2"]')).toHaveCount(1);
+    await expect(page.locator('#pfLabores .labor-chip.is-on')).toHaveCount(1);
+  });
+
   test('las labores asignadas persisten al recargar (vía perfil)', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);
