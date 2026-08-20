@@ -1,7 +1,7 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
 import { isFirebaseConfigured } from './firebase-config.js';
-import { isFirebaseReady, borrarParticipantesReunionesProgramas, borrarSoloProgramas, limpiarTodasLasColecciones } from './firestore.js';
+import { isFirebaseReady, borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones } from './firestore.js';
 import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
 import { login, loginWithGoogle, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
@@ -16,6 +16,7 @@ import {
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   collectPersonAssignments,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
+  isAssignmentLabore, isServiceLabore,
   automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   camposFinSemana, extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
@@ -3175,6 +3176,7 @@ async function renderLists() {
   const isPersonas = tab === 'personas';
   const isGrupos = tab === 'grupos';
   const isDeptos = tab === 'departamentos';
+  const isAsig = tab === 'asignaciones';
   const isHist = tab === 'historial';
   const tabCls = (t) => `px-4 py-2 font-label-md text-label-md rounded-lg transition-colors ${tab === t ? 'bg-primary text-on-primary shadow' : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest'}`;
   app.innerHTML = `
@@ -3187,6 +3189,7 @@ async function renderLists() {
         <button data-tab="personas" class="${tabCls('personas')}">Personas</button>
         <button data-tab="grupos" class="${tabCls('grupos')}">Grupos</button>
         <button data-tab="departamentos" class="${tabCls('departamentos')}">Labores</button>
+        <button data-tab="asignaciones" class="${tabCls('asignaciones')}">Asignaciones</button>
         <button data-tab="historial" class="${tabCls('historial')}">Historial</button>
       </div>
     </div>
@@ -3224,7 +3227,7 @@ async function renderLists() {
 
     <div class="mt-6 flex justify-between flex-wrap gap-3">
       <div class="flex flex-wrap gap-3">
-        ${(isDeptos || isHist) ? `<button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores</button>` : ''}
+        ${(isDeptos || isAsig || isHist) ? `<button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores</button>` : ''}
         ${isGrupos ? `<button id="assignGroupBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">group</span> Asignar Grupos</button>
         <button id="manageGroupsBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">settings</span> Gestionar Grupos</button>` : ''}
       </div>
@@ -3241,6 +3244,7 @@ async function renderLists() {
   if (isHist) { renderListsHistorial(); return; }
   if (isGrupos) { renderListsGrupos(); return; }
   if (isDeptos) { renderListsDepartamentos(); return; }
+  if (isAsig) { renderListsAsignaciones(); return; }
 
   const addMemberBtn = $('#addMemberBtn');
   if (addMemberBtn) addMemberBtn.onclick = openAddMemberModal;
@@ -3593,12 +3597,32 @@ function renderGrupoInterior(grupoId) {
   };
 }
 
-/* ---------- Vista Departamentos (labores) ---------- */
+/* ---------- Vista Labores (servicio) ---------- */
 function renderListsDepartamentos() {
   const list = $('#pList');
   list.className = 'overflow-auto max-h-[68vh] p-3 sm:p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start';
-  if (!state.labores.length) { list.innerHTML = '<p class="text-on-surface-variant text-sm col-span-full">No hay departamentos (labores) definidos.</p>'; return; }
-  list.innerHTML = state.labores.map(r => {
+  const labores = state.labores.filter(r => isServiceLabore(r.id));
+  if (!labores.length) { list.innerHTML = '<p class="text-on-surface-variant text-sm col-span-full">No hay labores de servicio definidos.</p>'; return; }
+  list.innerHTML = labores.map(r => {
+    const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(r.id));
+    return `<button data-departamento="${r.id}" class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary hover:shadow-lg transition-all">
+      <div class="flex items-center justify-between mb-1 gap-2">
+        <span class="font-headline-md text-headline-md text-primary">${escapeHtml(r.label)}</span>
+        <span class="px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant font-label-md text-label-md shrink-0">${personas.length}</span>
+      </div>
+      <div class="text-sm text-on-surface-variant">${personas.length ? personas.map(p => escapeHtml(p.name.split(' ')[0])).join(' · ') : 'Nadie asignado'}</div>
+    </button>`;
+  }).join('');
+  list.querySelectorAll('[data-departamento]').forEach(b => b.onclick = () => renderDepartamentoInterior(b.dataset.departamento));
+}
+
+/* ---------- Vista Asignaciones (discursos, conducciones, lecturas…) ---------- */
+function renderListsAsignaciones() {
+  const list = $('#pList');
+  list.className = 'overflow-auto max-h-[68vh] p-3 sm:p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start';
+  const asignaciones = state.labores.filter(r => isAssignmentLabore(r.id));
+  if (!asignaciones.length) { list.innerHTML = '<p class="text-on-surface-variant text-sm col-span-full">No hay asignaciones definidas.</p>'; return; }
+  list.innerHTML = asignaciones.map(r => {
     const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(r.id));
     return `<button data-departamento="${r.id}" class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary hover:shadow-lg transition-all">
       <div class="flex items-center justify-between mb-1 gap-2">
@@ -3616,6 +3640,7 @@ function renderListsDepartamentos() {
 function renderDepartamentoInterior(laboreId) {
   const r = state.labores.find(x => String(x.id) === String(laboreId));
   if (!r) return;
+  const esAsig = isAssignmentLabore(String(laboreId));
   const list = $('#pList');
   list.className = '';
   const render = () => {
@@ -3624,11 +3649,11 @@ function renderDepartamentoInterior(laboreId) {
     list.innerHTML = `
       <div class="mb-3">
         <button data-dvolver class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">
-          <span class="material-symbols-outlined text-[18px]">arrow_back</span> Labores
+          <span class="material-symbols-outlined text-[18px]">arrow_back</span> ${esAsig ? 'Asignaciones' : 'Labores'}
         </button>
       </div>
       <h2 class="font-headline-lg text-headline-lg text-primary mb-1">${escapeHtml(r.label)}</h2>
-      <p class="text-on-surface-variant font-body-md mb-4">${personas.length} persona(s) con esta labor.</p>
+      <p class="text-on-surface-variant font-body-md mb-4">${personas.length} persona(s) con esta ${esAsig ? 'asignación' : 'labor'}.</p>
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden mb-6">
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse">
@@ -3650,7 +3675,7 @@ function renderDepartamentoInterior(laboreId) {
         </div>
         <button id="dlabAdd" data-admin class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-opacity">Agregar seleccionados</button>
       </div>` : ''}`;
-    list.querySelector('[data-dvolver]').onclick = () => renderListsDepartamentos();
+    list.querySelector('[data-dvolver]').onclick = () => esAsig ? renderListsAsignaciones() : renderListsDepartamentos();
     const addBtn = $('#dlabAdd');
     if (addBtn) addBtn.onclick = async () => {
       const ids = [...list.querySelectorAll('[data-agregar]:checked')].map(cb => cb.dataset.agregar);
@@ -5128,14 +5153,15 @@ async function renderSettings() {
 
         <div class="border-t border-outline-variant pt-6">
           <h3 class="font-headline-md text-headline-md text-primary mb-2">Mantenimiento de datos</h3>
-          <p class="text-on-surface-variant text-sm mb-3">Los datos viven en Supabase y se sincronizan automáticamente. Aquí puedes restaurar los valores de fábrica o borrar solo reuniones y programas. Las acciones destructivas requieren tu contraseña de admin.</p>
-          <div class="flex gap-3 flex-wrap">
-            <button id="setBorrarProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar participantes, reuniones y programas</button>
-            <button id="setBorrarSoloProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar solo programas (recrear desde cero)</button>
+          <p class="text-on-surface-variant text-sm mb-3">Los datos viven en Supabase y se sincronizan automáticamente. Las acciones destructivas requieren tu contraseña de admin.</p>
+          <div class="flex flex-col sm:flex-row gap-3 flex-wrap">
+            <button id="setBorrarPersonas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar personas</button>
+            <button id="setBorrarProgramas" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar programas</button>
+            <button id="setBorrarReuniones" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Borrar reuniones</button>
             <button id="setResetFabrica" data-admin class="px-4 py-2 rounded-lg border border-error text-error font-label-md text-label-md hover:bg-error-container">Restaurar valores de fábrica</button>
           </div>
           <p id="setSyncStatus" class="text-on-surface-variant text-caption mt-2"></p>
-          <p class="text-on-surface-variant text-caption mt-1">"Restaurar valores de fábrica" borra todos los registros de Supabase y del dispositivo, dejando las colecciones vacías y conservando tu cuenta de admin. "Borrar participantes, reuniones y programas" elimina esas colecciones (conserva usuarios, grupos y configuración). "Borrar solo programas" elimina reuniones, programas, salidas y acomodación conservando los participantes para regenerarlos desde cero.</p>
+          <p class="text-on-surface-variant text-caption mt-1">"Borrar personas" elimina solo la lista de participantes. "Borrar programas" elimina los programas mensuales (fin de semana, salidas, acomodación y su historial). "Borrar reuniones" elimina las reuniones de entre semana. "Restaurar valores de fábrica" borra todo (conservando tu cuenta de admin).</p>
         </div>
       </div>
     </div>
@@ -5263,31 +5289,29 @@ async function renderSettings() {
     });
   }
 
-  // Borrar participantes, reuniones y programas (conserva grupos, usuarios y config).
-  $('#setBorrarProgramas').onclick = async () => {
+  // Borrar solo PERSONAS (conserva programas, grupos, discursos y config).
+  $('#setBorrarPersonas').onclick = async () => {
     if (!await confirmarAdmin()) return;
-    if (!await confirmDialog('Se borrarán en Supabase y en el dispositivo: participantes, reuniones y programas mensuales (con su historial de asignaciones). Los usuarios, grupos y configuración se conservan. ¿Continuar?', 'Borrar')) return;
-    const btn = $('#setBorrarProgramas');
+    if (!await confirmDialog('Se borrarán en Supabase y en el dispositivo TODOS los participantes. Los grupos, programas, discursos y configuración se conservan. ¿Continuar?', 'Borrar personas')) return;
+    const btn = $('#setBorrarPersonas');
     btn.disabled = true;
     try {
-      const borrados = await borrarParticipantesReunionesProgramas();
-      await db.borrarParticipantesReunionesProgramasLocal();
+      const borrados = await borrarSoloParticipantes();
+      await db.borrarSoloParticipantesLocal();
       await refreshCatalogs();
-      toast(`Borrado completado · ${borrados} documentos en Supabase`, 'success');
+      toast(`Personas borradas · ${borrados} documentos en Supabase`, 'success');
     } catch (err) {
-      toast('Error al borrar: ' + (err.message || err), 'error');
+      toast('Error al borrar personas: ' + (err.message || err), 'error');
     } finally {
       btn.disabled = false;
     }
   };
 
-  // Borrar solo programas: elimina reuniones, meses, salidas, atencion y su
-  // historial, conservando participantes, grupos y configuración. Para volver a
-  // generar todos los programas desde cero.
-  $('#setBorrarSoloProgramas').onclick = async () => {
+  // Borrar solo PROGRAMAS (mensuales, salidas, acomodación y su historial).
+  $('#setBorrarProgramas').onclick = async () => {
     if (!await confirmarAdmin()) return;
-    if (!await confirmDialog('Se borrarán TODOS los programas (reuniones de entre semana, programas mensuales, salidas, acomodación y su historial de asignaciones). Los PARTICIPANTES, grupos y configuración se conservan, para poder generar los programas de nuevo desde cero. ¿Continuar?', 'Borrar solo programas')) return;
-    const btn = $('#setBorrarSoloProgramas');
+    if (!await confirmDialog('Se borrarán en Supabase y en el dispositivo los PROGRAMAS MENSUALES (fin de semana, salidas, acomodación/aseo y su historial de asignaciones). Los PARTICIPANTES, grupos, reuniones de entre semana y configuración se conservan, para poder generar los programas de nuevo desde cero. ¿Continuar?', 'Borrar programas')) return;
+    const btn = $('#setBorrarProgramas');
     btn.disabled = true;
     btn.textContent = 'Borrando…';
     try {
@@ -5299,7 +5323,27 @@ async function renderSettings() {
       toast('Error al borrar programas: ' + (err.message || err), 'error');
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Borrar solo programas (recrear desde cero)';
+      btn.textContent = 'Borrar programas';
+    }
+  };
+
+  // Borrar solo REUNIONES de entre semana.
+  $('#setBorrarReuniones').onclick = async () => {
+    if (!await confirmarAdmin()) return;
+    if (!await confirmDialog('Se borrarán en Supabase y en el dispositivo las REUNIONES DE ENTRE SEMANA (la Guía de Actividades cargada). Los participantes, grupos, programas mensuales y configuración se conservan. ¿Continuar?', 'Borrar reuniones')) return;
+    const btn = $('#setBorrarReuniones');
+    btn.disabled = true;
+    btn.textContent = 'Borrando…';
+    try {
+      const borrados = await borrarSoloReuniones();
+      await db.borrarSoloReunionesLocal();
+      await refreshCatalogs();
+      toast(`Reuniones borradas · ${borrados} documentos en Supabase`, 'success');
+    } catch (err) {
+      toast('Error al borrar reuniones: ' + (err.message || err), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Borrar reuniones';
     }
   };
 

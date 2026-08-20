@@ -14,6 +14,7 @@ import {
   computeCrossConflicts, canBePair,
   midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   isStudentPerson, isStudentLabore, laboreAllowedForPerson,
+  isAssignmentLabore, isServiceLabore,
   readerLevelEligible, readerPriority,
   extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
@@ -1983,6 +1984,20 @@ console.log('[xlsx.js · archivo tipo Excel]');
   // Celdas sin referencia r → columna siguiente.
   const noRef = xlsxRowsFromXml('<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c><c t="inlineStr"><is><t>b</t></is></c><c r="D1" t="inlineStr"><is><t>d</t></is></c></row></sheetData>', []);
   eq('celdas sin r infieren columna', noRef[0], ['a', 'b', '', 'd']);
+}
+
+console.log('[isAssignmentLabore / isServiceLabore]');
+{
+  ok('asignacion1 es asignación', isAssignmentLabore('asignacion1') && !isServiceLabore('asignacion1'));
+  ok('presidente es asignación', isAssignmentLabore('presidente') && !isServiceLabore('presidente'));
+  ok('conductor1 es asignación', isAssignmentLabore('conductor1'));
+  ok('orador es asignación', isAssignmentLabore('orador'));
+  ok('audio (sonido) es labor de servicio', isServiceLabore('audio') && !isAssignmentLabore('audio'));
+  ok('microf es labor de servicio', isServiceLabore('microf'));
+  ok('plataforma es labor de servicio', isServiceLabore('plataforma'));
+  ok('acomodador es labor de servicio', isServiceLabore('acomodador'));
+  ok('labor personalizada es de servicio', isServiceLabore('ujier'));
+  ok('id vacío es de servicio', isServiceLabore(''));
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);

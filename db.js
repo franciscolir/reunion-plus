@@ -895,12 +895,28 @@ export async function borrarParticipantesReunionesProgramasLocal() {
   }
 }
 
-// Borra SOLO los programas locales (reuniones, meses, salidas, atencion, aseos e
-// historial), conservando participantes, grupos, discursos y configuración.
+// Borra SOLO los participantes locales, conservando el resto. Sin disparar sync.
+export async function borrarSoloParticipantesLocal() {
+  const db = await openDB();
+  if (db.objectStoreNames.contains(STORE_PEOPLE)) {
+    await commitSilent(STORE_PEOPLE, (store) => reqToPromise(store.clear()));
+  }
+}
+
+// Borra SOLO las reuniones de entre semana locales, conservando el resto. Sin disparar sync.
+export async function borrarSoloReunionesLocal() {
+  const db = await openDB();
+  if (db.objectStoreNames.contains(STORE_MIDWEEKS)) {
+    await commitSilent(STORE_MIDWEEKS, (store) => reqToPromise(store.clear()));
+  }
+}
+
+// Borra SOLO los programas locales (meses, salidas, atencion, aseos e historial),
+// conservando participantes, grupos, reuniones, discursos y configuración.
 // Sin disparar sync.
 export async function borrarSoloProgramasLocal() {
   const db = await openDB();
-  const stores = [STORE_MIDWEEKS, STORE_MONTHS, STORE_SALIDAS, STORE_ATENCION, STORE_ASEOS, STORE_ASSIGNMENT_LOG];
+  const stores = [STORE_MONTHS, STORE_SALIDAS, STORE_ATENCION, STORE_ASEOS, STORE_ASSIGNMENT_LOG];
   for (const s of stores) {
     if (db.objectStoreNames.contains(s)) {
       await commitSilent(s, (store) => reqToPromise(store.clear()));

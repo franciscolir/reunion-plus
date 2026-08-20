@@ -20,6 +20,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#listsTabs')).toContainText('Personas');
     await expect(page.locator('#listsTabs')).toContainText('Grupos');
     await expect(page.locator('#listsTabs')).toContainText('Labores');
+    await expect(page.locator('#listsTabs')).toContainText('Asignaciones');
     await expect(page.locator('#listsTabs')).toContainText('Historial');
     await expect(page.locator('#pList')).toContainText('Sin personas');
     await expect(page.locator('#addMemberBtn')).toBeVisible();

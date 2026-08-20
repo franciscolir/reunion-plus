@@ -1670,6 +1670,12 @@ export function canBePair(persona1, persona2) {
 
 // Labores de estudiantes (lectura + presentaciones + discurso estudiantil).
 export const STUDENT_LABORES = ['asignacion1', 'asignacion2', 'asignacion3'];
+
+// Roles de ASIGNACIÓN de la reunión (discursos, conducciones, lecturas…).
+// Las labores de SERVICIO (sonido, micrófono, plataforma, acomodador…) son el resto.
+export const ASIGNACION_LABORES = ['presidente', 'conductor1', 'conductor2', 'orador', 'lector1', 'lector2', 'asignacion1', 'asignacion2', 'asignacion3', 'asignacion4'];
+export function isAssignmentLabore(id) { return ASIGNACION_LABORES.includes(String(id)); }
+export function isServiceLabore(id) { return !isAssignmentLabore(id); }
 export function isStudentLabore(labore) { return STUDENT_LABORES.includes(labore); }
 
 // Persona que puede asumir partes de estudiante: sin labores definidas o con

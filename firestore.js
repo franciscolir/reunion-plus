@@ -184,10 +184,26 @@ export async function borrarParticipantesReunionesProgramas() {
   return total;
 }
 
+export async function borrarSoloParticipantes() {
+  const sb = await initFirebase();
+  if (!sb) return 0;
+  let total = 0;
+  for (const t of ['participantes']) total += await borrarColeccionExcepto(t);
+  return total;
+}
+
+export async function borrarSoloReuniones() {
+  const sb = await initFirebase();
+  if (!sb) return 0;
+  let total = 0;
+  for (const t of ['reuniones']) total += await borrarColeccionExcepto(t);
+  return total;
+}
+
 export async function borrarSoloProgramas() {
   const sb = await initFirebase();
   if (!sb) return 0;
   let total = 0;
-  for (const t of ['reuniones', 'programas', 'asignaciones']) total += await borrarColeccionExcepto(t);
+  for (const t of ['programas', 'asignaciones']) total += await borrarColeccionExcepto(t);
   return total;
 }
