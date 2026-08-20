@@ -6657,7 +6657,7 @@ function generalGroup(fin, aseoGroup, dashboard = false) {
 function generalWeekExportSvg(data, cur, opts = {}) {
   const { fin, mw, i, aseoGroup, outings, sinSalida, finLabores } = data;
   const mobile = opts.mobile === true;
-  const W = mobile ? 1280 : 900, PAD = 40, cw = W - PAD * 2;
+  const W = mobile ? 720 : 900, PAD = 40, cw = W - PAD * 2;
   const C = { title: '#3f3a2e', sub: '#6b6454', line: '#e7e3db', name: '#2f2a20' };
   const mesTxt = `${MONTHS_ES[Number(cur.slice(5)) - 1].toUpperCase()} ${cur.slice(0, 4)}`;
   const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -6727,7 +6727,7 @@ function generalWeekExportSvg(data, cur, opts = {}) {
     const groupRow = rows.pop();
     const bodyRows = rows;
     const P = [];
-    const H = 720;
+    const H = 1280;
     P.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
     P.push(svgT(W / 2, 30, `Semana ${i + 1} · ${mesTxt}`, 22, 700, C.title, 'middle'));
     P.push(svgT(W / 2, 57, header, 16, 400, C.sub, 'middle'));
@@ -6740,9 +6740,9 @@ function generalWeekExportSvg(data, cur, opts = {}) {
       let yy = y + 58;
       row.lines.forEach(line => { P.push(svgT(x + 18, yy, line.t, 13, line.w, line.f)); yy += 18; });
     };
-    card(bodyRows[0], PAD, 250, 590, 220);
-    card(bodyRows[1], 650, 250, 590, 220);
-    card(bodyRows[2], PAD, 490, cw, 180);
+    card(bodyRows[0], PAD, 250, cw, 300);
+    card(bodyRows[1], PAD, 590, cw, 280);
+    card(bodyRows[2], PAD, 910, cw, 280);
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
   }
 
