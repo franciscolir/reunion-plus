@@ -160,7 +160,10 @@ export async function borrarColeccionExcepto(table, exceptIds = []) {
   const sb = await initSupabase();
   if (!sb) return 0;
   let q = sb.from(table).delete();
+  // PostgREST exige una cláusula WHERE en DELETE: sin excepciones se borra
+  // toda la colección con un filtro que siempre matchea (id no nulo).
   if (exceptIds.length) q = q.not('id', 'in', exceptIds.map(String));
+  else q = q.not('id', 'is', null);
   const { error } = await q;
   if (error) throw new Error(error.message);
   return 0;
