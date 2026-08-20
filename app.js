@@ -644,7 +644,7 @@ async function renderHome() {
   const app = $('#app');
   app.innerHTML = `
     <div class="mb-6 text-center">
-      <h1 class="font-headline-lg text-[32px] md:text-[40px] leading-tight text-primary uppercase tracking-wide">${currentWeekRangeLabel()}</h1>
+      <h1 class="font-headline-lg text-[32px] md:text-[40px] leading-tight text-primary uppercase tracking-wide">Tablero | ${currentWeekRangeLabel()}</h1>
     </div>
 
     <!-- Bento Grid -->
@@ -6490,7 +6490,7 @@ function generalLabores({ fin, mw, finLabores }) {
 function generalGroup(fin, aseoGroup, dashboard = false) {
   const grupoId = aseoGroup || (fin && fin.departamento) || '';
   const num = aseoWeekGroupNum({ group: grupoId });
-  const grupo = num != null ? String(num) : (grupoId ? deptNameOf(grupoId) : '—');
+  const grupo = num != null ? (dashboard ? `Grupo ${num}` : String(num)) : (grupoId ? deptNameOf(grupoId) : '—');
   const desc = state.config?.groups?.labores || '';
   return `
     <div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
