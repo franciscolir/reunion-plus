@@ -643,27 +643,13 @@ async function renderHome() {
   const generalWeek = currentGeneralWeek();
   const app = $('#app');
   app.innerHTML = `
-    <div class="mb-10 md:flex justify-between items-end gap-4">
-      <div>
-        <h1 class="font-display-lg text-display-lg text-primary mb-2">Tablero Principal</h1>
-        <p class="font-body-lg text-body-lg text-on-surface-variant">Resumen de actividades y asignaciones para la semana en curso.</p>
-      </div>
-      <button id="btnNew" data-admin class="flex items-center gap-2 bg-primary text-on-primary px-5 py-3 rounded-lg font-label-md text-label-md hover:shadow-lg transition-all active:scale-95 whitespace-nowrap">
-        <span class="material-symbols-outlined text-[20px]">add_circle</span>
-        Nuevo Programa
-      </button>
+    <div class="mb-6 text-center">
+      <h1 class="font-headline-lg text-[32px] md:text-[40px] leading-tight text-primary uppercase tracking-wide">${currentWeekRangeLabel()}</h1>
     </div>
 
     <!-- Bento Grid -->
     <div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
       <section class="md:col-span-12">
-        <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-          <div>
-            <h2 class="font-headline-lg text-headline-lg text-primary flex items-center gap-2"><span class="material-symbols-outlined">calendar_view_week</span> Programa de la semana</h2>
-            <p class="text-sm text-on-surface-variant">Resumen consolidado de General mensual.</p>
-          </div>
-          <button id="homeGeneralBtn" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors"><span class="material-symbols-outlined text-[18px]">open_in_new</span> Ver General mensual</button>
-        </div>
         ${generalWeek ? generalWeekBox({ ...generalWeek, dashboard: true }) : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No hay programas cargados para la semana en curso.</div>`}
       </section>
       <!-- Próximos Eventos (abajo) -->
@@ -685,10 +671,7 @@ async function renderHome() {
       </section>
     </div>
   `;
-  $('#btnNew').onclick = () => go('new');
   document.querySelectorAll('[data-go-settings]').forEach(b => b.onclick = () => go('eventos'));
-  const homeGeneralBtn = $('#homeGeneralBtn');
-  if (homeGeneralBtn) homeGeneralBtn.onclick = () => go('general', { monthId: currentWeekDates().saturday.slice(0, 7) });
   document.querySelectorAll('[data-go-mw]').forEach(c => c.onclick = () => {
     const { monday } = currentWeekDates();
     const wk = state.midweeks.find(m => String(m.id) === monday);
@@ -718,6 +701,19 @@ function currentWeekDates() {
   const monday = new Date(now); monday.setDate(now.getDate() - daysSinceMon);
   const saturday = new Date(monday); saturday.setDate(monday.getDate() + 5);
   return { monday: isoDate(monday), saturday: isoDate(saturday) };
+}
+function currentWeekRangeLabel() {
+  const { monday, saturday } = currentWeekDates();
+  const start = new Date(monday + 'T00:00:00');
+  const end = new Date(saturday + 'T00:00:00');
+  end.setDate(end.getDate() + 1);
+  const startDay = start.getDate();
+  const endDay = end.getDate();
+  const startMonth = MONTHS_ES[start.getMonth()].toUpperCase();
+  const endMonth = MONTHS_ES[end.getMonth()].toUpperCase();
+  return start.getMonth() === end.getMonth()
+    ? `${startDay}-${endDay} DE ${endMonth}`
+    : `${startDay} DE ${startMonth} - ${endDay} DE ${endMonth}`;
 }
 
 // Busca la semana del programa mensual cuya fecha (sábado) es la semana en curso.
@@ -6380,7 +6376,7 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
       <div class="rounded-lg border border-outline-variant p-4 bg-emerald-50/50">${generalLabores({ fin, mw, finLabores })}</div>
-      <div class="rounded-lg border border-outline-variant p-4 bg-violet-50/50 flex flex-col justify-center">${generalGroup(fin, aseoGroup)}</div>
+      <div class="rounded-lg border border-outline-variant p-4 bg-violet-50/50 flex flex-col justify-center">${generalGroup(fin, aseoGroup, dashboard)}</div>
     </div>
   </div>`;
 }
