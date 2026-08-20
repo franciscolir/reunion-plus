@@ -178,7 +178,7 @@ test('integr: borrar solo programas conserva personas y borra programas', async 
   await db.borrarSoloProgramasLocal();
 
   assert.equal((await db.listPeople()).length, 2, 'personas se conservan');
-  assert.equal((await db.listMidweeks()).length, 0, 'reuniones borradas');
+  assert.equal((await db.listMidweeks()).length, 1, 'reuniones entre semana se conservan');
   assert.equal((await db.listMonths()).length, 0, 'programas mensuales borrados');
   assert.equal((await db.listSalidas()).length, 0, 'salidas borradas');
   assert.equal((await db.listAtencion()).length, 0, 'acomodación borrada');

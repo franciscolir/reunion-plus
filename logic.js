@@ -542,10 +542,7 @@ export function eligiblePeople(week, people, labore, currentId, collector) {
   const assigned = assignedIds(week, collector);
   const match = typeof labore === 'function'
     ? labore
-    : (labore ? (p) =>
-        (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore)) &&
-        laboreAllowedForPerson(p, labore)
-      : () => true);
+    : (labore ? (p) => laboreEligible(p, labore) : () => true);
   return people.filter(p => match(p) && (!assigned.has(String(p.id)) || String(p.id) === asStr(currentId)));
 }
 
@@ -1673,10 +1670,26 @@ export const STUDENT_LABORES = ['asignacion1', 'asignacion2', 'asignacion3'];
 
 // Roles de ASIGNACIÓN de la reunión (discursos, conducciones, lecturas…).
 // Las labores de SERVICIO (sonido, micrófono, plataforma, acomodador…) son el resto.
-export const ASIGNACION_LABORES = ['presidente', 'conductor1', 'conductor2', 'orador', 'lector1', 'lector2', 'asignacion1', 'asignacion2', 'asignacion3', 'asignacion4'];
+export const ASIGNACION_LABORES = ['presidente', 'conductor1', 'conductor2', 'orador', 'lector1', 'lector2', 'asignacion1', 'asignacion2', 'asignacion3', 'asignacion4', 'discursoInicial', 'perlas'];
 export function isAssignmentLabore(id) { return ASIGNACION_LABORES.includes(String(id)); }
 export function isServiceLabore(id) { return !isAssignmentLabore(id); }
 export function isStudentLabore(labore) { return STUDENT_LABORES.includes(labore); }
+
+// Los puestos separados del entre semana (Discurso inicial y Perlas de Tesoros)
+// aceptan a quien tiene la labor específica correspondiente o la labor general
+// antigua `asignacion4` (compatibilidad con perfiles ya guardados).
+const ALIASES_LABORE = {
+  discursoInicial: ['asignacion4', 'discursoInicial'],
+  perlas: ['asignacion4', 'perlas'],
+};
+
+// ¿La persona puede ejercer una labor? Sin labores (datos antiguos) se incluye;
+// si la labor tiene alias se acepta cualquiera de ellos.
+export function laboreEligible(p, labore) {
+  const lista = ALIASES_LABORE[labore] || [labore];
+  return (!Array.isArray(p.labores) || p.labores.length === 0 || lista.some(l => (p.labores || []).includes(l)))
+    && laboreAllowedForPerson(p, labore);
+}
 
 // Persona que puede asumir partes de estudiante: sin labores definidas o con
 // cualquiera de las labores de estudiante (lectura, presentación, discurso).
@@ -1699,9 +1712,11 @@ export function midweekSlotsOf(sec, part) {
   const parts = (sec && sec.parts) || [];
   const idx = parts.indexOf(part);
   if (secId === 'tesoros') {
-    // Última parte = Lectura de la Biblia (asignacion1); el resto son discursos (asignacion4).
+    // Última parte = Lectura de la Biblia (asignacion1); la primera es el
+    // Discurso inicial (discursoInicial); el resto son Perlas (perlas).
     if (idx === parts.length - 1) return [{ key: 'lector', label: 'Lector', labore: 'asignacion1' }];
-    return [{ key: 'conductor', label: idx === 0 ? 'Discurso' : 'Perlas', labore: 'asignacion4' }];
+    if (idx === 0) return [{ key: 'conductor', label: 'Discurso inicial', labore: 'discursoInicial' }];
+    return [{ key: 'conductor', label: 'Perlas', labore: 'perlas' }];
   }
   if (secId === 'maestros') {
     // Presentaciones de 2 personas (asignacion2); si dice "discurso" es de 1 (asignacion3).
@@ -1718,7 +1733,7 @@ export function midweekSlotsOf(sec, part) {
 }
 
 // Labores "no estudiante" (discursos de la reunión y estudio).
-const ROL_NO_ESTUDIANTE = new Set(['asignacion4', 'conductor2', 'lector2']);
+const ROL_NO_ESTUDIANTE = new Set(['asignacion4', 'conductor2', 'lector2', 'discursoInicial', 'perlas']);
 
 /* ---------- Automatización de asignaciones ---------- */
 const ORDEN_CAL = ['A', 'B', 'C', 'D'];
@@ -1739,9 +1754,7 @@ export function readerPriority(calificacion) {
 // Personas con una labor (o sin labores definidas) y que pueden ejercerla en la
 // UI según la regla de género (laboreAllowedForPerson).
 function peopleForLabore(people, labore) {
-  return people.filter(p =>
-    (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes(labore)) &&
-    laboreAllowedForPerson(p, labore));
+  return people.filter(p => laboreEligible(p, labore));
 }
 
 // Mapa de los campos editables de la reunión de fin de semana según su tipo.
@@ -2249,7 +2262,9 @@ const LABOR_LABEL = {
   'asignacion1': 'Lectura',
   'asignacion2': 'Presentación',
   'asignacion3': 'Discurso estudiantil',
-  'asignacion4': 'Discurso de la reunión',
+  'asignacion4': 'Discurso de la reunión (vida cristiana)',
+  'discursoInicial': 'Discurso inicial de Tesoros',
+  'perlas': 'Perlas Espirituales',
 };
 const ATENCION_LABORE_TO_ROLE = { acomodacion: 'acomodador', microfono: 'microf', plataforma: 'plataforma', sonido: 'audio' };
 

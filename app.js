@@ -87,6 +87,10 @@ async function refreshCatalogs() {
   state.labores = (saved && Array.isArray(saved) && saved.length)
     ? saved
     : DEFAULT_LABORES.map(r => ({ ...r }));
+  // Incorpora labores nuevas de versiones recientes a instalaciones existentes
+  // (solo añade las que faltan; no quita ni renombra las personalizadas).
+  const idsGuardados = new Set(state.labores.map(r => r.id));
+  DEFAULT_LABORES.forEach(r => { if (!idsGuardados.has(r.id)) state.labores.push({ ...r }); });
   const canonAudio = state.labores.find(r => r.id === 'audio');
   if (canonAudio) canonAudio.label = 'Sonido';
   if (state.labores.some(r => r.id === 'sonido')) {
@@ -3164,7 +3168,9 @@ const DEFAULT_LABORES = [
   { id: 'asignacion1',  label: 'Lectura' },
   { id: 'asignacion2',  label: 'Presentación' },
   { id: 'asignacion3',  label: 'Discurso Estudiantil' },
-  { id: 'asignacion4',  label: 'Discurso Reunión' },
+  { id: 'asignacion4',  label: 'Discurso Reunión (vida)' },
+  { id: 'discursoInicial', label: 'Discurso inicial Tesoros' },
+  { id: 'perlas',       label: 'Perlas' },
 ];
 
 async function renderLists() {
