@@ -15,10 +15,11 @@ import {
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   collectPersonAssignments,
-  isStudentPerson, isStudentLabore, laboreAllowedForPerson,
+  isStudentPerson, isStudentLabore, laboreAllowedForPerson, laboreEligible,
   isAssignmentLabore, isServiceLabore,
   automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
-  camposFinSemana, extractAssignments, assignmentMetrics,
+  camposFinSemana, campoFinLabore, extractAssignments, assignmentMetrics,
+  ASIGNACION_GRUPOS, LABORE_GRUPO,
   defaultAlgorithmConfig, defaultScoringConfig,
   generateProposals, scoreSolution, salidasFaltantes,
   laboresVaciasPropuesta, sinAsignarPorMotivo,
@@ -2416,7 +2417,7 @@ function outingRow(o, weekIdx, outIdx, conflicts) {
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div class="space-y-1">
         <label class="font-label-md text-label-md text-on-surface-variant">Orador</label>
-        <select data-outing-field="oradorSalida" data-outing-idx="${weekIdx}.${outIdx}" data-people data-labore="orador" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+        <select data-outing-field="oradorSalida" data-outing-idx="${weekIdx}.${outIdx}" data-people data-labore="salida" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
           <option value="">— Sin asignar —</option>
         </select>
       </div>
@@ -2553,7 +2554,7 @@ function talkPicker(name, idx, val, placeholder, conflicts) {
 }
 
 function peopleSelect(name, idx, val, label, conflicts) {
-  const labore = FIELD_LABORE[name] || '';
+  const labore = campoFinLabore(name) || '';
   const hasConflict = conflicts.duplicates?.includes(name);
   const missing = conflicts.missing?.includes(name);
   const repeated = sameFieldOtherWeek(name, idx);
@@ -2627,7 +2628,7 @@ function fillOutingPeople(sel) {
   const [wi, oi] = parts;
   const outing = state.month.weeks[wi].outings?.[oi];
   const val = outing ? asId(outing.oradorSalida) : '';
-  const labore = sel.dataset.labore || 'orador';
+  const labore = sel.dataset.labore || 'salida';
   const list = eligiblePeople(state.month.weeks[wi], state.people, labore, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
@@ -3155,10 +3156,12 @@ function cargosOpts(cur) {
 }
 
 const DEFAULT_LABORES = [
-  { id: 'presidente',   label: 'Presidente' },
+  { id: 'presidente',   label: 'Presidente (entre semana)' },
+  { id: 'presidenteFin', label: 'Presidente fin de semana' },
   { id: 'conductor1',   label: 'Cond. Atalaya' },
   { id: 'conductor2',   label: 'Cond. Libro' },
-  { id: 'orador',       label: 'Orador' },
+  { id: 'orador',       label: 'Orador (discurso)' },
+  { id: 'salida',       label: 'Orador de salida' },
   { id: 'lector1',      label: 'Lector Atalaya' },
   { id: 'lector2',      label: 'Lector Libro' },
   { id: 'audio',        label: 'Sonido' },
@@ -3396,6 +3399,8 @@ function avatarHtml(p, size = 'w-10 h-10') {
 const LABOR_CATEGORY = {
   // Entre semana
   presidente: 'es',
+  discursoInicial: 'es',
+  perlas: 'es',
   asignacion1: 'es',
   asignacion2: 'es',
   asignacion3: 'es',
@@ -3403,9 +3408,11 @@ const LABOR_CATEGORY = {
   conductor2: 'es',
   lector2: 'es',
   // Fin de semana
+  presidenteFin: 'fs',
   conductor1: 'fs',
   lector1: 'fs',
   orador: 'fs',
+  salida: 'fs',
   // Servicio / Acomodación
   audio: 'svc',
   microf: 'svc',
@@ -3431,10 +3438,8 @@ function renderLaborColumns(p, editMode) {
     const cat = LABOR_CATEGORY[r.id];
     if (cat) cats[cat].push(r);
   });
-  // La presidencia aparece en ambas columnas (ES y FS) porque son cargos distintos.
-  const pres = state.labores.find(r => r.id === 'presidente');
-  if (pres && !cats.es.includes(pres)) cats.es.push(pres);
-  if (pres && !cats.fs.includes(pres)) cats.fs.push(pres);
+  // La presidencia de entre semana (es) y la de fin de semana (fs) son cargos
+  // distintos y ya constan por separado en LABOR_CATEGORY.
   const col = (catKey, title) => {
     const items = cats[catKey].map(r => laborChipMarkup(p, r, editMode)).join('');
     if (!items) return '';
@@ -3625,10 +3630,11 @@ function renderListsDepartamentos() {
 /* ---------- Vista Asignaciones (discursos, conducciones, lecturas…) ---------- */
 function renderListsAsignaciones() {
   const list = $('#pList');
-  list.className = 'overflow-auto max-h-[68vh] p-3 sm:p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start';
+  list.className = 'overflow-auto max-h-[68vh] p-3 sm:p-4 content-start';
   const asignaciones = state.labores.filter(r => isAssignmentLabore(r.id));
   if (!asignaciones.length) { list.innerHTML = '<p class="text-on-surface-variant text-sm col-span-full">No hay asignaciones definidas.</p>'; return; }
-  list.innerHTML = asignaciones.map(r => {
+
+  const card = (r) => {
     const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(r.id));
     return `<button data-departamento="${r.id}" class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary hover:shadow-lg transition-all">
       <div class="flex items-center justify-between mb-1 gap-2">
@@ -3637,7 +3643,25 @@ function renderListsAsignaciones() {
       </div>
       <div class="text-sm text-on-surface-variant">${personas.length ? personas.map(p => escapeHtml(p.name.split(' ')[0])).join(' · ') : 'Nadie asignado'}</div>
     </button>`;
-  }).join('');
+  };
+
+  const header = (g) => {
+    const cls = g.sub ? 'mt-5 mb-2 text-caption font-label-md text-label-md text-on-surface-variant uppercase tracking-widest' : 'mt-2 mb-3 font-headline-md text-headline-md text-primary';
+    const grid = g.sub ? '' : ' grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3';
+    return `<div class="${cls}">${escapeHtml(g.title)}</div><div class="${grid}">`;
+  };
+
+  let html = '';
+  for (const g of ASIGNACION_GRUPOS) {
+    const roles = asignaciones.filter(r => LABORE_GRUPO[r.id] === g.id);
+    if (!roles.length) continue;
+    html += header(g) + roles.map(card).join('') + '</div>';
+  }
+  const otras = asignaciones.filter(r => !LABORE_GRUPO[r.id]);
+  if (otras.length) {
+    html += header({ sub: false, title: 'Otras' }) + otras.map(card).join('') + '</div>';
+  }
+  list.innerHTML = html;
   list.querySelectorAll('[data-departamento]').forEach(b => b.onclick = () => renderDepartamentoInterior(b.dataset.departamento));
 }
 
@@ -3651,7 +3675,10 @@ function renderDepartamentoInterior(laboreId) {
   list.className = '';
   const render = () => {
     const personas = state.people.filter(p => p.activo !== false && Array.isArray(p.labores) && p.labores.includes(String(laboreId)));
-    const sinLabor = state.people.filter(p => p.activo !== false && !(Array.isArray(p.labores) && p.labores.includes(String(laboreId))));
+    // En las asignaciones solo pueden participar quienes cumplen la regla de género
+    // (mujeres únicamente en presentaciones); por eso solo se ofrece agregar a esos.
+    const puedeLabore = (m) => !esAsig || laboreAllowedForPerson(m, String(laboreId));
+    const sinLabor = state.people.filter(p => p.activo !== false && !(Array.isArray(p.labores) && p.labores.includes(String(laboreId))) && puedeLabore(p));
     list.innerHTML = `
       <div class="mb-3">
         <button data-dvolver class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container transition-colors">
@@ -6577,7 +6604,7 @@ async function renderConflictos(mes) {
     if (a.programa === 'fin') {
       const fb = finBySunday.get(String(a.semana));
       if (!fb) return null;
-      return { rec: fb.rec, store: 'months', labore: FIELD_LABORE[key] || '', collector: collectWeekPersons, get: () => fb.week[key], set: (v) => { fb.week[key] = v; } };
+      return { rec: fb.rec, store: 'months', labore: campoFinLabore(key) || '', collector: collectWeekPersons, get: () => fb.week[key], set: (v) => { fb.week[key] = v; } };
     }
     if (a.programa === 'acomodacion') {
       const ab = atencionBySunday.get(String(a.semana));
@@ -6589,7 +6616,7 @@ async function renderConflictos(mes) {
       const sb = salidasBySunday.get(String(a.semana));
       if (!sb) return null;
       const m = key.match(/^salida_(\d+)_(\d+)$/);
-      if (m) { const oi = +m[2]; const o = (sb.week.outings || [])[oi]; if (!o) return null; return { rec: sb.rec, store: 'salidas', labore: 'orador', get: () => o.oradorSalida, set: (v) => { o.oradorSalida = v; } }; }
+      if (m) { const oi = +m[2]; const o = (sb.week.outings || [])[oi]; if (!o) return null; return { rec: sb.rec, store: 'salidas', labore: 'salida', get: () => o.oradorSalida, set: (v) => { o.oradorSalida = v; } }; }
     }
     return null;
   };
@@ -6762,7 +6789,7 @@ async function renderMidweek(id) {
 
   const editor = $('#mwEditor');
   const presOpts = ['<option value="">— Sin asignar —</option>'];
-  const presList = state.people.filter(p => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('presidente'));
+  const presList = state.people.filter(p => laboreEligible(p, 'presidente'));
   for (const person of presList) {
     presOpts.push(`<option value="${person.id}" ${asStr(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
   }
@@ -6775,7 +6802,7 @@ async function renderMidweek(id) {
         </div>
         <div class="w-full md:w-1/2 lg:w-2/5">
           <select data-mw-presidente class="mwSel w-full bg-surface-bright border ${!week.presidente ? 'border-error' : 'border-outline-variant'} rounded-lg p-2.5 font-body-lg font-bold focus:border-primary">${presOpts.join('')}</select>
-          ${!week.presidente ? `<div class="mt-2 text-xs text-on-surface-variant" data-mwsugwrap="presidente">Sugerencias: ${mwSuggestChips(week, 'presidente', [], (p) => !Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('presidente'), (list) => list)}</div>` : ''}
+          ${!week.presidente ? `<div class="mt-2 text-xs text-on-surface-variant" data-mwsugwrap="presidente">Sugerencias: ${mwSuggestChips(week, 'presidente', [], (p) => laboreEligible(p, 'presidente'), (list) => list)}</div>` : ''}
         </div>
       </div>
     </div>` + (week.sections || []).map((sec, si) => {

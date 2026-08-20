@@ -53,7 +53,7 @@ export const FIELD_LABORE = {
   conductor:         'conductor1',   // Conductor Atalaya (fin de semana)
   lector:            'lector1',      // Lector Atalaya (fin de semana)
   estudioSinLectura: 'conductor1',
-  oradorSalida:      'orador',
+  oradorSalida:      'salida',
 };
 
 export const FIELD_LABELS = {
@@ -1670,17 +1670,21 @@ export const STUDENT_LABORES = ['asignacion1', 'asignacion2', 'asignacion3'];
 
 // Roles de ASIGNACIÓN de la reunión (discursos, conducciones, lecturas…).
 // Las labores de SERVICIO (sonido, micrófono, plataforma, acomodador…) son el resto.
-export const ASIGNACION_LABORES = ['presidente', 'conductor1', 'conductor2', 'orador', 'lector1', 'lector2', 'asignacion1', 'asignacion2', 'asignacion3', 'asignacion4', 'discursoInicial', 'perlas'];
+export const ASIGNACION_LABORES = ['presidente', 'presidenteFin', 'conductor1', 'conductor2', 'orador', 'salida', 'lector1', 'lector2', 'asignacion1', 'asignacion2', 'asignacion3', 'asignacion4', 'discursoInicial', 'perlas'];
 export function isAssignmentLabore(id) { return ASIGNACION_LABORES.includes(String(id)); }
 export function isServiceLabore(id) { return !isAssignmentLabore(id); }
 export function isStudentLabore(labore) { return STUDENT_LABORES.includes(labore); }
 
-// Los puestos separados del entre semana (Discurso inicial y Perlas de Tesoros)
-// aceptan a quien tiene la labor específica correspondiente o la labor general
-// antigua `asignacion4` (compatibilidad con perfiles ya guardados).
+// Los puestos separados aceptan a quien tiene la labor específica correspondiente
+// o la labor general antigua (compatibilidad con perfiles ya guardados):
+//  · Discurso inicial y Perlas de Tesoros ← labor general `asignacion4`.
+//  · Presidencia de fin de semana ← labor `presidente` (antes cubría ambas).
+//  · Orador de salida ← labor `orador` (antes cubría ambos discursos).
 const ALIASES_LABORE = {
   discursoInicial: ['asignacion4', 'discursoInicial'],
   perlas: ['asignacion4', 'perlas'],
+  presidenteFin: ['presidente', 'presidenteFin'],
+  salida: ['orador', 'salida'],
 };
 
 // ¿La persona puede ejercer una labor? Sin labores (datos antiguos) se incluye;
@@ -1690,6 +1694,30 @@ export function laboreEligible(p, labore) {
   return (!Array.isArray(p.labores) || p.labores.length === 0 || lista.some(l => (p.labores || []).includes(l)))
     && laboreAllowedForPerson(p, labore);
 }
+
+// Agrupación de las tarjetas de asignaciones (Congregación → Asignaciones).
+// `estudiantes` es un subgrupo dentro de "Entre semana".
+export const ASIGNACION_GRUPOS = [
+  { id: 'entre-semana', title: 'Entre semana', sub: false },
+  { id: 'estudiantes', title: 'Estudiantiles', sub: true },
+  { id: 'fin-semana', title: 'Fin de semana', sub: false },
+];
+export const LABORE_GRUPO = {
+  'presidente': 'entre-semana',
+  'conductor2': 'entre-semana',
+  'lector2': 'entre-semana',
+  'discursoInicial': 'entre-semana',
+  'perlas': 'entre-semana',
+  'asignacion4': 'entre-semana',
+  'asignacion1': 'estudiantes',
+  'asignacion2': 'estudiantes',
+  'asignacion3': 'estudiantes',
+  'presidenteFin': 'fin-semana',
+  'conductor1': 'fin-semana',
+  'lector1': 'fin-semana',
+  'orador': 'fin-semana',
+  'salida': 'fin-semana',
+};
 
 // Persona que puede asumir partes de estudiante: sin labores definidas o con
 // cualquiera de las labores de estudiante (lectura, presentación, discurso).
@@ -1761,16 +1789,22 @@ function peopleForLabore(people, labore) {
 // Solo los campos listados se automatizan (el orador es texto libre/manual).
 export function camposFinSemana(w) {
   if (w.type === 'assembly') return [];
-  if (w.type === 'commemoration') return [{ campo: 'presidente', labore: 'presidente' }];
+  if (w.type === 'commemoration') return [{ campo: 'presidente', labore: 'presidenteFin' }];
   if (w.type === 'supervisor') return [
-    { campo: 'presidente', labore: 'presidente' },
+    { campo: 'presidente', labore: 'presidenteFin' },
     { campo: 'estudioSinLectura', labore: 'conductor1' },
   ];
   return [
-    { campo: 'presidente', labore: 'presidente' },
+    { campo: 'presidente', labore: 'presidenteFin' },
     { campo: 'conductor', labore: 'conductor1' },
     { campo: 'lector', labore: 'lector1' },
   ];
+}
+
+// Labor de un campo del FIN DE SEMANA: la presidencia es una asignación distinta
+// de la de entre semana, así que usa `presidenteFin` en vez de `presidente`.
+export function campoFinLabore(campo) {
+  return campo === 'presidente' ? 'presidenteFin' : (FIELD_LABORE[campo] || '');
 }
 
 // Automatiza la reunión de entre semana de un mes. Muta `midweeks`
@@ -2171,7 +2205,7 @@ export function automatizarSalidas(people, salidas, { midweeks = [], months = []
     if (w.presidente) marcar(sat, w.presidente);
     (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => marcar(sat, id))));
   });
-  const peopleForSalida = people.filter(p => (!Array.isArray(p.labores) || p.labores.length === 0 || p.labores.includes('orador')) && laboreAllowedForPerson(p, 'orador'));
+  const peopleForSalida = people.filter(p => laboreEligible(p, 'salida'));
   salidas.forEach(p => (p.weeks || []).forEach(w => {
     if (w.sinSalida) return;
     const sat = String(w.saturday);
@@ -2179,7 +2213,7 @@ export function automatizarSalidas(people, salidas, { midweeks = [], months = []
     (w.outings || []).forEach(o => {
       if (o.oradorSalida) { marcar(sat, o.oradorSalida); return; }
       const cand = peopleForSalida.find(x => !ocup.has(String(x.id)));
-      if (!cand) { reporte.vacios.push({ semana: sat, labore: 'orador' }); return; }
+      if (!cand) { reporte.vacios.push({ semana: sat, labore: 'salida' }); return; }
       o.oradorSalida = cand.id;
       ocup.add(String(cand.id));
       marcar(sat, cand.id);
@@ -2253,12 +2287,14 @@ export function estadoProgramas(programs) {
 }
 
 const LABOR_LABEL = {
-  'presidente': 'Presidente',
+  'presidente': 'Presidente (entre semana)',
+  'presidenteFin': 'Presidente fin de semana',
   'conductor1': 'Conductor (Atalaya)',
   'lector1': 'Lector (Atalaya)',
   'conductor2': 'Conductor (Estudio)',
   'lector2': 'Lector (Estudio)',
-  'orador': 'Orador de salidas',
+  'orador': 'Orador (discurso)',
+  'salida': 'Orador de salida',
   'asignacion1': 'Lectura',
   'asignacion2': 'Presentación',
   'asignacion3': 'Discurso estudiantil',
@@ -2479,7 +2515,7 @@ export function extractAssignments(midweeks, months, salidas, atencion, people =
     if (w.sinSalida) return;
     (w.outings || []).forEach(o => {
       const v = asId(o.oradorSalida);
-      if (v) push(v, String(w.saturday), 'salidas', 'orador', 'Orador de salida');
+      if (v) push(v, String(w.saturday), 'salidas', 'salida', 'Orador de salida');
     });
   }));
   (atencion || []).forEach(p => (p.weeks || []).forEach(w => {
@@ -2645,7 +2681,7 @@ export function scoreSolution(assignments, { people = [], config = {}, scoring =
     if (p && p.genero === 'femenino') {
       const laborEstudiantil = STUDENT_LABORES.includes(a.roleKey);
       const esAtencion = String(a.roleKey).startsWith('atencion_');
-      if (!laborEstudiantil && (esAtencion || ['presidente', 'conductor2', 'lector2', 'orador', 'conductor1', 'lector1'].includes(a.roleKey))) {
+      if (!laborEstudiantil && (esAtencion || ['presidente', 'presidenteFin', 'conductor2', 'lector2', 'orador', 'salida', 'conductor1', 'lector1'].includes(a.roleKey))) {
         restriccion.mujeresEnServicio.push(`${p.name || a.personId} → ${a.roleLabel || a.roleKey}`);
       }
     }

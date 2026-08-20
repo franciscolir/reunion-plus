@@ -12,9 +12,10 @@ import {
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair,
-  midweekSlotsOf, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
-  isStudentPerson, isStudentLabore, laboreAllowedForPerson,
+  midweekSlotsOf, camposFinSemana, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana, automatizarSalidas,
+  isStudentPerson, isStudentLabore, laboreAllowedForPerson, laboreEligible,
   isAssignmentLabore, isServiceLabore,
+  campoFinLabore, ASIGNACION_GRUPOS, LABORE_GRUPO,
   readerLevelEligible, readerPriority,
   extractAssignments, assignmentMetrics,
   defaultAlgorithmConfig, defaultScoringConfig,
@@ -210,7 +211,7 @@ console.log('[constants]');
 ok('MONTHS_ES 12 meses', MONTHS_ES.length === 12);
 ok('WEEK_TYPES 4 tipos', Object.keys(WEEK_TYPES).length === 4);
 ok('FIELD_LABORE mapea estudioSinLectura a conductor1', FIELD_LABORE.estudioSinLectura === 'conductor1');
-ok('FIELD_LABORE mapea oradorSalida a orador', FIELD_LABORE.oradorSalida === 'orador');
+ok('FIELD_LABORE mapea oradorSalida a salida', FIELD_LABORE.oradorSalida === 'salida');
 ok('FIELD_LABORE mapea conductor a conductor1', FIELD_LABORE.conductor === 'conductor1');
 ok('FIELD_LABORE mapea lector a lector1', FIELD_LABORE.lector === 'lector1');
 
@@ -775,6 +776,42 @@ console.log('[midweekSlotsOf]');
   eq('vida estudio bíblico es conductor2+lector2', slot(vida, vida.parts[1]), ['conductor:conductor2', 'lector:lector2']);
 }
 
+// --- Asignaciones separadas: presidencia y salidas ---
+console.log('[asignaciones separadas (presidencia/salida)]');
+{
+  ok('presidenteFin y salida son asignaciones', isAssignmentLabore('presidenteFin') && isAssignmentLabore('salida'));
+  ok('campo fin presidente usa presidenteFin', campoFinLabore('presidente') === 'presidenteFin');
+  ok('campo fin conductor sigue conductor1', campoFinLabore('conductor') === 'conductor1');
+  ok('camposFinSemana asigna presidenteFin al presidente', camposFinSemana({ type: 'normal' }).find(c => c.campo === 'presidente').labore === 'presidenteFin');
+  eq('grupo: presidente en entre-semana', LABORE_GRUPO['presidente'], 'entre-semana');
+  eq('grupo: asignacion1 en estudiantes', LABORE_GRUPO['asignacion1'], 'estudiantes');
+  eq('grupo: presidenteFin en fin-semana', LABORE_GRUPO['presidenteFin'], 'fin-semana');
+  eq('grupo: salida en fin-semana', LABORE_GRUPO['salida'], 'fin-semana');
+  ok('grupos declarados en orden', ASIGNACION_GRUPOS.map(g => g.id).join(',') === 'entre-semana,estudiantes,fin-semana');
+
+  // Compatibilidad: la vieja labor presidente sigue sirviendo para la presidencia
+  // de fin de semana, y la vieja orador para la salida.
+  ok('presidente habilita presidenteFin', laboreEligible({ labores: ['presidente'] }, 'presidenteFin'));
+  ok('presidenteFin habilita presidenteFin', laboreEligible({ labores: ['presidenteFin'] }, 'presidenteFin'));
+  ok('sin presidente no habilita presidenteFin', !laboreEligible({ labores: ['conductor1'] }, 'presidenteFin'));
+  ok('orador habilita salida', laboreEligible({ labores: ['orador'] }, 'salida'));
+  ok('salida habilita salida', laboreEligible({ labores: ['salida'] }, 'salida'));
+  ok('mujer no puede presidenteFin (regla de género)', !laboreEligible({ labores: ['presidenteFin'], genero: 'femenino' }, 'presidenteFin'));
+  ok('mujer no puede salida (regla de género)', !laboreEligible({ labores: ['salida'], genero: 'femenino' }, 'salida'));
+
+  // La automatización de salidas usa la labor salida (con alias a la vieja orador).
+  const salPersons = [
+    { id: 1, name: 'A', labores: ['salida'] },
+    { id: 2, name: 'B', labores: ['orador'] },
+    { id: 3, name: 'C', labores: ['conductor1'] },
+  ];
+  const salidas = [{ id: '2026-08', weeks: [{ saturday: '2026-08-15', outings: [{ oradorSalida: '' }, { oradorSalida: '' }] }] }];
+  const repSal = automatizarSalidas(salPersons, salidas);
+  const salIds = salidas[0].weeks[0].outings.map(o => String(o.oradorSalida));
+  ok('salidas se llenan con labor salida (o vieja orador)', repSal.vacios.length === 0, JSON.stringify(repSal.vacios));
+  ok('los dos oradores de salida son A y B', salIds.includes('1') && salIds.includes('2') && !salIds.includes('3'), salIds.join(','));
+}
+
 // --- automatizarEntreSemana ---
 console.log('[automatizarEntreSemana]');
 {
@@ -1316,8 +1353,8 @@ console.log('[extractAssignments]');
   ok('extrae discurso inicial de entre semana', entries.some(e => e.personId === '2' && e.program === 'entre' && e.roleKey === 'discursoInicial'));
   ok('extrae lector de entre semana', entries.some(e => e.personId === '3' && e.program === 'entre' && e.roleKey === 'asignacion1'));
   ok('extrae pareja estudiante+ayudante', entries.some(e => e.personId === '4' && e.roleKey === 'asignacion2') && entries.some(e => e.personId === '5' && e.roleKey === 'asignacion2'));
-  ok('extrae presidente de fin de semana', entries.some(e => e.personId === '1' && e.program === 'fin'));
-  ok('extrae orador de salida', entries.some(e => e.personId === '4' && e.program === 'salidas'));
+  ok('extrae presidente de fin de semana (presidenteFin)', entries.some(e => e.personId === '1' && e.program === 'fin' && e.roleKey === 'presidenteFin'));
+  ok('extrae orador de salida (salida)', entries.some(e => e.personId === '4' && e.program === 'salidas' && e.roleKey === 'salida'));
   ok('extrae labores', entries.some(e => e.personId === '5' && e.program === 'atencion' && e.roleKey === 'atencion_acomodacion_0'));
   ok('extrae labores de entre semana (midweek.atencion)',
     entries.some(e => e.personId === '5' && e.program === 'atencion' && e.roleKey === 'atencion_acomodacion_1'));

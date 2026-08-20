@@ -78,7 +78,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.click(`[data-profile="${pid}"]`);
     await expect(page.locator('#pfName')).toHaveValue('María González');
-    await expect(page.locator('#pfLabores .labor-chip')).toHaveCount(15);
+    await expect(page.locator('#pfLabores .labor-chip')).toHaveCount(18);
     await expect(page.locator('#pfLabores .labor-chip.is-on[data-plabore="asignacion1"]')).toHaveCount(1);
     await expect(page.locator('#pfHistory')).toContainText('Sin asignaciones registradas');
 
