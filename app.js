@@ -638,6 +638,9 @@ async function renderHome() {
   months.sort((a, b) => b.id.localeCompare(a.id));
   _homeMonths = months;
   _homeAseos = await db.listAseos();
+  _homeSalidas = await db.listSalidas();
+  _homeAtencion = await db.listAtencion();
+  const generalWeek = currentGeneralWeek();
   const app = $('#app');
   app.innerHTML = `
     <div class="mb-10 md:flex justify-between items-end gap-4">
@@ -653,55 +656,16 @@ async function renderHome() {
 
     <!-- Bento Grid -->
     <div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
-      <!-- Columna izquierda: reuniones -->
-      <div class="md:col-span-7 md:grid-rows-1 flex flex-col gap-4">
-        <!-- Entre Semana -->
-        <div data-go-mw class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)] cursor-pointer hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] hover:border-primary transition-all" title="Abrir la reunión de entre semana de esta semana">
-          <div class="flex items-center justify-between mb-6 gap-3">
-            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
-              <span class="material-symbols-outlined">auto_stories</span>
-              Reunión Entre Semana
-            </h3>
-            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${betweenSemanaWhen()}</span>
+      <section class="md:col-span-12">
+        <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <div>
+            <h2 class="font-headline-lg text-headline-lg text-primary flex items-center gap-2"><span class="material-symbols-outlined">calendar_view_week</span> Programa de la semana</h2>
+            <p class="text-sm text-on-surface-variant">Resumen consolidado de General mensual.</p>
           </div>
-          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-primary">
-            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Lectura de la semana</p>
-            <p class="font-headline-md text-headline-md text-on-surface">${betweenSemanaReading()}</p>
-          </div>
-          <p class="mt-3 text-sm text-primary flex items-center gap-1 font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">open_in_new</span> Ver detalle</p>
+          <button id="homeGeneralBtn" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors"><span class="material-symbols-outlined text-[18px]">open_in_new</span> Ver General mensual</button>
         </div>
-        <!-- Fin de Semana -->
-        <div data-go-fin class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)] cursor-pointer hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] hover:border-secondary transition-all" title="Abrir el programa de fin de semana del mes en curso">
-          <div class="flex items-center justify-between mb-6 gap-3">
-            <h3 class="font-headline-md text-headline-md text-primary flex items-center gap-2">
-              <span class="material-symbols-outlined">record_voice_over</span>
-              Reunión Fin de Semana
-            </h3>
-            <span class="bg-surface-container-highest px-3 py-1 rounded font-label-md text-label-md text-on-surface-variant whitespace-nowrap">${finSemanaSchedule()}</span>
-          </div>
-          <div class="bg-surface-container-low p-4 rounded-lg border-l-4 border-secondary">
-            <p class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase">Título del Discurso</p>
-            <p class="font-body-lg text-body-lg font-semibold text-on-surface italic">${finSemanaTitle()}</p>
-          </div>
-          <p class="mt-3 text-sm text-secondary flex items-center gap-1 font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">open_in_new</span> Ver detalle</p>
-        </div>
-      </div>
-
-      <!-- Columna derecha: Aseo y Hospitalidad -->
-      <div class="md:col-span-5 flex">
-        <div class="w-full bg-primary-container text-on-primary-container rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] flex flex-col relative overflow-hidden">
-          <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 100% 100%, #ffffff 0%, transparent 50%);"></div>
-          <div class="bg-on-tertiary-fixed-variant/30 rounded-xl p-6 border border-on-primary-container/20 relative z-10 flex-1 flex flex-col">
-            <h3 class="font-headline-md text-headline-md text-on-primary uppercase tracking-[0.2em] text-center mb-4">${finWeekAssignDetail()}</h3>
-            <div class="border-b border-on-primary-container/40 mb-6"></div>
-            <div class="text-center flex-1 flex flex-col justify-center">
-              <p class="font-label-lg text-label-lg text-primary-fixed uppercase tracking-[0.3em] mb-2">Grupo</p>
-              <h4 class="font-headline-lg text-[96px] leading-none text-on-primary" style="font-family:'Playfair Display', serif;font-weight:800">${finWeekAssign()}</h4>
-             </div>
-          </div>
-        </div>
-      </div>
-
+        ${generalWeek ? generalWeekBox({ ...generalWeek, dashboard: true }) : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No hay programas cargados para la semana en curso.</div>`}
+      </section>
       <!-- Próximos Eventos (abajo) -->
       <section class="md:col-span-12 bg-surface-container-lowest rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant relative overflow-hidden">
         <div class="absolute top-0 left-0 w-2 h-full bg-primary"></div>
@@ -723,6 +687,8 @@ async function renderHome() {
   `;
   $('#btnNew').onclick = () => go('new');
   document.querySelectorAll('[data-go-settings]').forEach(b => b.onclick = () => go('eventos'));
+  const homeGeneralBtn = $('#homeGeneralBtn');
+  if (homeGeneralBtn) homeGeneralBtn.onclick = () => go('general', { monthId: currentWeekDates().saturday.slice(0, 7) });
   document.querySelectorAll('[data-go-mw]').forEach(c => c.onclick = () => {
     const { monday } = currentWeekDates();
     const wk = state.midweeks.find(m => String(m.id) === monday);
@@ -742,6 +708,8 @@ async function renderHome() {
 // Almacena los meses y programas de aseo cargados para las tarjetas de resumen.
 let _homeMonths = [];
 let _homeAseos = [];
+let _homeSalidas = [];
+let _homeAtencion = [];
 
 // Devuelve lunes y sábado (YYYY-MM-DD) de la semana en curso.
 function currentWeekDates() {
@@ -760,6 +728,38 @@ function findCurrentFinWeek() {
     if (w) return { month: m, week: w };
   }
   return null;
+}
+function currentGeneralWeek() {
+  const { monday, saturday } = currentWeekDates();
+  const finMatch = findCurrentFinWeek();
+  const fin = finMatch ? finMatch.week : null;
+  const mw = state.midweeks.find(m => String(m.id) >= monday && String(m.id) <= saturday) || null;
+  const aseoWeek = _homeAseos.flatMap(a => a.weeks || []).find(w => w.saturday === saturday) || null;
+  const salidasWeek = _homeSalidas.flatMap(p => p.weeks || []).find(w => w.saturday === saturday) || null;
+  const laboresWeek = _homeAtencion.flatMap(p => p.weeks || []).find(w => w.saturday === saturday) || null;
+  if (!fin && !mw && !aseoWeek && !salidasWeek && !laboresWeek) return null;
+  const allSaturdays = [...new Set([
+    ..._homeMonths.flatMap(m => (m.weeks || []).map(w => w.date)),
+    ...state.midweeks.map(m => {
+      const d = new Date(String(m.id) + 'T00:00:00');
+      d.setDate(d.getDate() + (5 - ((d.getDay() + 6) % 7)));
+      return isoDate(d);
+    }),
+    ..._homeAseos.flatMap(a => (a.weeks || []).map(w => w.saturday)),
+    ..._homeSalidas.flatMap(p => (p.weeks || []).map(w => w.saturday)),
+    ..._homeAtencion.flatMap(p => (p.weeks || []).map(w => w.saturday)),
+  ])].filter(Boolean).filter(d => d.slice(0, 7) === saturday.slice(0, 7)).sort();
+  return {
+    fin,
+    mw,
+    i: Math.max(0, allSaturdays.indexOf(saturday)),
+    aseoGroup: aseoWeek?.group || null,
+    outings: salidasWeek?.outings || null,
+    sinSalida: salidasWeek?.sinSalida === true,
+    finLabores: laboresWeek,
+    sunday: isoDate(new Date(new Date(saturday + 'T00:00:00').getTime() + 86400000)),
+    saturday,
+  };
 }
 function finSemanaTitle() {
   const cur = findCurrentFinWeek();
@@ -6350,18 +6350,18 @@ async function renderGeneralMonth(monthId, opts = {}) {
 }
 
 // Cuadro de una semana en la vista mensual general.
-function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores, sunday, saturday }) {
+function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores, sunday, saturday, dashboard = false }) {
   const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
   const header = mw ? mw.header : (fin ? fmt(fin.date) : (saturday ? fmt(saturday) : (sunday ? fmt(sunday) : '')));
   return `
   <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
     <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-      <h3 class="font-headline-md text-headline-md text-primary">Semana ${i + 1}</h3>
+      <h3 class="font-headline-md text-headline-md text-primary">${dashboard ? 'Semana actual' : `Semana ${i + 1}`}</h3>
       <div class="flex items-center gap-2 flex-wrap">
         <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
-        <button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
+        ${dashboard ? '' : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
           <span class="material-symbols-outlined text-[16px]">image</span> Imagen
-        </button>
+        </button>`}
       </div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
