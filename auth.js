@@ -47,7 +47,7 @@ async function emailAutorizado(p) {
   if (!email) return { ok: false, reason: 'denied' };
   try {
     const propio = await obtenerUsuario(p.id);
-    if (propio && propio.rol === 'admin') return { ok: true };
+    if (propio && ['admin', 'user'].includes(propio.rol)) return { ok: true };
   } catch (e) { /* sin permiso para leer su doc propio: sigue */ }
   try {
     const cfg = await obtenerConfiguracion();

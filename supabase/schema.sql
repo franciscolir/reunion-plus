@@ -95,6 +95,13 @@ begin
   if public.is_admin() then
     return true;
   end if;
+  if exists (
+    select 1 from public.usuarios u
+    where u.id = (auth.uid())::text
+      and (u.data->>'rol') = 'user'
+  ) then
+    return true;
+  end if;
   select data into v_cfg from public.configuracion where id = 'general';
   return exists (
     select 1

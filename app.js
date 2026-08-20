@@ -690,6 +690,21 @@ async function renderHome() {
   if (prevWeekBtn) prevWeekBtn.onclick = () => { homeWeekOffset--; renderHome(); };
   const nextWeekBtn = $('[data-home-week-next]');
   if (nextWeekBtn) nextWeekBtn.onclick = () => { homeWeekOffset++; renderHome(); };
+  const homeWeekImgBtn = $('[data-home-week-img]');
+  if (homeWeekImgBtn && generalWeek) homeWeekImgBtn.onclick = async () => {
+    homeWeekImgBtn.disabled = true;
+    try {
+      const cur = String(generalWeek.saturday || isoDate(new Date())).slice(0, 7);
+      const blob = await svgToPngBlob(generalWeekExportSvg(generalWeek, cur));
+      const compartido = await compartirPng(blob, `semana-${cur}-${homeWeekOffset + 1}.png`);
+      if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
+    } catch (err) {
+      console.error(err);
+      toast('No se pudo generar la imagen.', 'error');
+    } finally {
+      homeWeekImgBtn.disabled = false;
+    }
+  };
   document.querySelectorAll('[data-go-mw]').forEach(c => c.onclick = () => {
     const { monday } = currentWeekDates();
     const wk = state.midweeks.find(m => String(m.id) === monday);
@@ -6442,7 +6457,7 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
       <div class="flex items-center gap-2 flex-wrap">
         ${dashboard ? `<button data-home-week-prev class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed disabled:opacity-40 disabled:cursor-not-allowed" title="Semana anterior" ${homeWeekOffset === 0 ? 'disabled' : ''}><span class="material-symbols-outlined">chevron_left</span></button>` : ''}
         <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
-        ${dashboard ? `<button data-home-week-next class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed" title="Semana siguiente"><span class="material-symbols-outlined">chevron_right</span></button>` : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
+        ${dashboard ? `<button data-home-week-next class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed" title="Semana siguiente"><span class="material-symbols-outlined">chevron_right</span></button>${isUserRole() ? `<button data-home-week-img class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Descargar imagen de esta semana"><span class="material-symbols-outlined text-[16px]">image</span> Imagen</button>` : ''}` : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
           <span class="material-symbols-outlined text-[16px]">image</span> Imagen
         </button>`}
       </div>
