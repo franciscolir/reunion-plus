@@ -663,15 +663,11 @@ async function renderHome() {
             </h2>
             <p class="font-body-md text-body-md text-on-surface-variant">Destacados para los próximos meses</p>
           </div>
-          <button data-go-settings class="text-primary-container bg-primary-fixed hover:bg-primary-fixed-dim px-4 py-2 rounded-lg font-label-md text-label-md transition-colors whitespace-nowrap flex items-center gap-1">
-            <span class="material-symbols-outlined text-[18px]">tune</span> Configurar
-          </button>
         </div>
         <div id="homeEvents" class="space-y-6"></div>
       </section>
     </div>
   `;
-  document.querySelectorAll('[data-go-settings]').forEach(b => b.onclick = () => go('eventos'));
   document.querySelectorAll('[data-go-mw]').forEach(c => c.onclick = () => {
     const { monday } = currentWeekDates();
     const wk = state.midweeks.find(m => String(m.id) === monday);
