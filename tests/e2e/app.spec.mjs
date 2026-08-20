@@ -446,7 +446,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // El orador y el discurso quedan en celdas separadas.
     const fila = page.locator('#outingsContent tbody tr').first();
     const celdas = fila.locator('td');
-    await expect(celdas.nth(1)).toContainText('Álvaro P.');
+    await expect(celdas.nth(1)).toContainText('P. Álvaro');
     await expect(celdas.nth(2)).toContainText('Discurso Test');
     // La columna 1 tiene la etiqueta pequeña "Semana" y el número de día.
     await expect(celdas.nth(0)).toContainText('Semana 1');
@@ -514,7 +514,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // Vista Lista de fin de semana: labores de servicio + grupo semanal.
     await page.evaluate(() => { location.hash = '#/preview/2026-08'; });
     await expect(page.locator('#previewContent')).toContainText('ATENCIÓN');
-    await expect(page.locator('#previewContent')).toContainText('Álvaro P.');
+    await expect(page.locator('#previewContent')).toContainText('P. Álvaro');
     await expect(page.locator('#previewContent')).toContainText('Grupo semanal');
     await expect(page.locator('#previewContent')).toContainText('Grupo 1');
 
@@ -558,10 +558,10 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.evaluate(() => { location.hash = '#/general/2026-08'; });
     await expect(page.locator('#generalMonth')).toBeVisible();
-    await expect(page.locator('#app')).toContainText('Presidente: Álvaro P.');
+    await expect(page.locator('#app')).toContainText('Presidente: P. Álvaro');
     await expect(page.locator('#app')).toContainText('Oración final');
     // Salida solo muestra el nombre del orador (no el discurso).
-    await expect(page.locator('#app')).toContainText('Álvaro P.');
+    await expect(page.locator('#app')).toContainText('P. Álvaro');
     await expect(page.locator('#app')).not.toContainText('Discurso Test');
 
     // Imagen por semana.
@@ -608,7 +608,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#genConflictsBtn');
     await expect(page.locator('h1:has-text("Conflictos mensuales")')).toBeVisible();
     await expect(page.locator('#app')).toContainText('E1');
-    await expect(page.locator('#app')).toContainText('Álvaro P.');
+    await expect(page.locator('#app')).toContainText('P. Álvaro');
     await expect(page.locator('#app [data-cambiar]').first()).toBeVisible();
 
     // Autorizar excepción (puntual).
@@ -732,6 +732,68 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#newTabBody')).not.toContainText('Presidente: —');
   });
 
+  test('motor: nombres invertidos en programas y personas sin labores excluidas', async ({ page }) => {
+    const people = [
+      { name: 'Pérez Luis', genero: 'masculino', calificacion: 'B', labores: ['presidente', 'discursoInicial', 'perlas', 'asignacion4', 'conductor2', 'lector2', 'asignacion1', 'asignacion2', 'asignacion3'] },
+      { name: 'Alvarado Patricia', genero: 'femenino', calificacion: 'A', labores: ['asignacion2'] },
+      { name: 'Romero Ana', genero: 'femenino', calificacion: 'B', labores: ['asignacion2'] },
+      { name: 'SinRol Nadie', genero: 'masculino', calificacion: 'A', labores: [] },
+    ];
+    const section = (id, title, parts) => ({ id, title, parts: parts.map(n => ({ num: n, title: `Parte ${n}`, mins: 5, assignments: {} })) });
+    const midweeks = ['2026-08-03', '2026-08-10'].map(id => ({
+      id, presidente: '', header: '3-10 de AGOSTO DE 2026', reading: 'Lectura', introSong: '1', introTitle: 'Canción', introMins: 2,
+      closingTitle: 'Palabras de conclusión', closingMins: 3, songOut: '2',
+      sections: [
+        section('tesoros', 'Tesoros de la Biblia', [1, 2, 3]),
+        section('maestros', 'Seamos Mejores Maestros', [1, 2]),
+        section('vida', 'Nuestra Vida Cristiana', [1, 2]),
+      ],
+    }));
+    await page.addInitScript(({ people, midweeks }) => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['people', 'midweeks', 'settings'], 'readwrite');
+        people.forEach(p => tx.objectStore('people').add(p));
+        midweeks.forEach(w => tx.objectStore('midweeks').put(w));
+        tx.objectStore('settings').put({ congregation: 'Congregación Test', lastMonthId: '2026-08' }, 'congregation');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    }, { people, midweeks });
+    await openApp(page);
+
+    await page.evaluate(() => { location.hash = '#/new'; });
+    await page.click('[data-tab="entre"]');
+    await page.click('#newGenBtn');
+    await expect(page.locator('#toastRoot')).toContainText('Generado');
+
+    // En el programa los nombres se muestran invertidos (nombre primero):
+    // "Pérez Luis" (presidente) se ve como "Luis Pérez".
+    await page.evaluate(() => { location.hash = '#/midweekPreview/2026-08-03'; });
+    await expect(page.locator('#mwDoc')).toContainText('Luis Pérez');
+
+    // La persona sin labores no puede usarse en ningún programa.
+    await expect(page.locator('#mwDoc')).not.toContainText('Nadie');
+
+    // En la lista de personas se conserva el orden registrado (apellido primero).
+    await page.evaluate(() => { location.hash = '#/lists'; });
+    await expect(page.locator('#pList')).toContainText('Pérez Luis');
+    await expect(page.locator('#pList')).toContainText('SinRol Nadie');
+  });
+
   test('programas: generar mensual completo avisa, cancela y regenera', async ({ page }) => {
     await seedProposalData(page);
     await openApp(page);
@@ -776,7 +838,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // Al asignar el conductor del Estudio Bíblico (vida, última parte), la
     // oración final muestra su nombre en vivo.
     await page.selectOption('select[data-sec="2"][data-part="7"][data-slot="conductor"]', '1');
-    await expect(page.locator('[data-oracion-final]')).toContainText('Álvaro P.');
+    await expect(page.locator('[data-oracion-final]')).toContainText('P. Álvaro');
 
     // Guardar para que la vista final lea la asignación persistida.
     await page.click('#mwSave');
@@ -785,7 +847,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // Vista Final: la oración final aparece antes de las palabras de conclusión.
     await page.click('#mwPreviewBtn');
     await expect(page.locator('#mwDoc')).toContainText('Oración final:');
-    await expect(page.locator('#mwDoc')).toContainText('Álvaro P.');
+    await expect(page.locator('#mwDoc')).toContainText('P. Álvaro');
   });
 
   test('atención: el select de cada labor solo muestra a quienes la tienen habilitada', async ({ page }) => {
@@ -798,19 +860,19 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('select[data-atencion-key="sonido"]').first()).toBeVisible();
 
     // Sonido (FS): solo la persona con la labor 'audio'/'sonido'.
-    await expect(page.locator('select[data-atencion-key="sonido"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Audio']);
+    await expect(page.locator('select[data-atencion-key="sonido"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Audio Persona']);
     // La persona sin labores y las de otras labores no aparecen.
-    await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Persona Microfono');
-    await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Persona Acomodador');
+    await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Microfono Persona');
+    await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Acomodador Persona');
     await expect(page.locator('select[data-atencion-key="sonido"]').first()).not.toContainText('Persona Sin Labor');
 
     // Acomodación: solo quien tiene 'acomodador'.
-    await expect(page.locator('select[data-atencion-key="acomodacion"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Acomodador']);
+    await expect(page.locator('select[data-atencion-key="acomodacion"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Acomodador Persona']);
     // Micrófono: solo quien tiene 'microf'.
-    await expect(page.locator('select[data-atencion-key="microfono"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Microfono']);
+    await expect(page.locator('select[data-atencion-key="microfono"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Microfono Persona']);
 
     // El select entre semana aplica el mismo filtro.
-    await expect(page.locator('select[data-mwatencion-key="sonido"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Persona Audio']);
+    await expect(page.locator('select[data-mwatencion-key="sonido"]').first().locator('option')).toHaveText(['— Sin asignar —', 'Audio Persona']);
   });
 
   test('ajustes: motor con veces numéricas, tooltips por campo y nivel lector CD', async ({ page }) => {

@@ -26,7 +26,7 @@ import {
   workloadByPerson, historyTimeline, distributionByLabore, pairRoleStats,
   balanceReport, cargoNivel,
   asId, asStr, slotOf, runEngine, changedManualKeys, wrapManualPrograms,
-  clearAutoSlots, manualSlotKeys, estadoProgramas,
+  clearAutoSlots, manualSlotKeys, estadoProgramas, invertName,
 } from './logic.js';
 import { extractEpubText } from './epub.js';
 import { generatePeopleTemplate, parsePeopleXlsx } from './xlsx.js';
@@ -1428,7 +1428,7 @@ async function etapaEntreSemana(month) {
   const [midweeks, log] = await Promise.all([db.listMidweeks(), db.listAssignmentLog()]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const historial = log.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') }));
-  const nombres = Object.fromEntries(state.people.map(p => [String(p.id), p.name]));
+  const nombres = Object.fromEntries(state.people.map(p => [String(p.id), invertName(p.name)]));
   const out = runEngine(state.people, { midweeks: mwMes, months: [], salidas: [], atencion: [] }, { scope: 'entre', entreOpts: { historial, nombres } });
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
   state.midweeks = await db.listMidweeks();
@@ -1566,7 +1566,7 @@ async function generateProgram(month, scope) {
   const algo = { ...defaultAlgorithmConfig(), ...((cfg.algorithm) || {}) };
   const log = await db.listAssignmentLog();
   const historial = log.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') }));
-  const nombres = Object.fromEntries(state.people.map(p => [String(p.id), p.name]));
+  const nombres = Object.fromEntries(state.people.map(p => [String(p.id), invertName(p.name)]));
 
   const out = runEngine(state.people, limpio, {
     scope,
@@ -1795,12 +1795,12 @@ async function renderAlgoritmo() {
   const log = await db.listAssignmentLog();
   const people = state.people;
   const byPerson = workloadByPerson(log, people).filter(r => r.count > 0).slice(0, 12);
-  $('#algoBarWorkload').innerHTML = svgBarras(byPerson.map(r => ({ label: r.name, value: r.count })));
+  $('#algoBarWorkload').innerHTML = svgBarras(byPerson.map(r => ({ label: invertName(r.name), value: r.count })));
   $('#algoLineTimeline').innerHTML = svgLinea(historyTimeline(log).map(r => ({ label: r.month.slice(2), value: r.total })));
   $('#algoDonaRoles').innerHTML = svgDona(distributionByLabore(log).slice(0, 8).map(r => ({ label: r.label, value: r.total })));
   const pairStats = pairRoleStats(log);
   $('#algoBarPairs').innerHTML = pairStats.length
-    ? svgBarras(pairStats.map(r => ({ label: r.name, value: r.encargado + r.ayudante, sub: `${r.encargado}E / ${r.ayudante}A` })))
+    ? svgBarras(pairStats.map(r => ({ label: invertName(r.name), value: r.encargado + r.ayudante, sub: `${r.encargado}E / ${r.ayudante}A` })))
     : '<p class="text-sm text-on-surface-variant">Sin presentaciones registradas.</p>';
 
   // Generación de propuestas (botón). Lee la config guardada (Ajustes).
@@ -1864,7 +1864,7 @@ async function renderAlgoritmo() {
         salidas: salidas.filter(p => p.id === month),
         atencion: atencion.filter(p => p.id === month),
         historial: logMes.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') })),
-        nombres: Object.fromEntries(people.map(p => [String(p.id), p.name])),
+        nombres: Object.fromEntries(people.map(p => [String(p.id), invertName(p.name)])),
       };
       const props = generateProposals(input, a, s);
       const caja = $('#algoResults');
@@ -2125,7 +2125,7 @@ function redaccionSinAsignarPropuesta(p) {
   }
   const labelDe = (id) => (state.labores.find(r => String(r.id) === String(id)) || {}).label || String(id);
   const fila = (x, nota) => `<li class="flex items-center justify-between gap-3 rounded-lg bg-surface-bright border border-outline-variant px-3 py-2">
-    <span class="text-sm text-on-surface">${escapeHtml(x.name)}</span>
+    <span class="text-sm text-on-surface">${escapeHtml(invertName(x.name))}</span>
     <span class="text-xs text-on-surface-variant text-right">${nota}</span>
   </li>`;
   const grupo = (icono, titulo, texto, filas) => `<div class="rounded-lg bg-surface-container-high/40 border border-outline-variant/60 p-3">
@@ -2149,8 +2149,8 @@ function redaccionSinAsignarPropuesta(p) {
   }
   if (g.universales.length) {
     parts.push(grupo('gesture', `Sin labores marcadas (${g.universales.length})`,
-      `Pueden hacer cualquier labor; no quedaron puestos disponibles.`,
-      g.universales.map(x => fila(x, 'Disponible para cualquier labor')).join('')));
+      `No participan en programas hasta que se les marque una labor.`,
+      g.universales.map(x => fila(x, 'Sin labor marcada')).join('')));
   }
   return `<div class="rounded-xl border border-outline-variant bg-surface-container-low p-4">
     <div class="flex items-center gap-2 mb-2">
@@ -2631,7 +2631,7 @@ function fillPeople(sel) {
   const labore = sel.dataset.labore || '';
   const list = eligiblePeople(state.month.weeks[current], state.people, labore, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
-    list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+    list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(invertName(p.name))}</option>`).join('');
   fillSuggestions(sel, current, field, labore, val);
 }
 
@@ -2666,7 +2666,7 @@ function fillOutingPeople(sel) {
   const labore = sel.dataset.labore || 'salida';
   const list = eligiblePeople(state.month.weeks[wi], state.people, labore, val);
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
-    list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+    list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(invertName(p.name))}</option>`).join('');
 }
 
 function refreshPeopleSelects() {
@@ -5736,7 +5736,7 @@ async function renderAtencion(monthId, opts = {}) {
       if (cur) list.push(cur);
     }
     return `<option value="">— Sin asignar —</option>` +
-      list.map(p => `<option value="${p.id}" ${String(p.id) === curId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('');
+      list.map(p => `<option value="${p.id}" ${String(p.id) === curId ? 'selected' : ''}>${escapeHtml(invertName(p.name))}</option>`).join('');
   };
 
   const render = () => {
@@ -6488,7 +6488,9 @@ function generalLabores({ fin, mw, finLabores }) {
 
 // Grupo de atención de la semana (a la derecha del cuadro).
 function generalGroup(fin, aseoGroup) {
-  const grupo = aseoGroup ? deptNameOf(aseoGroup) : ((fin && fin.departamento) ? deptNameOf(fin.departamento) : '—');
+  const grupoId = aseoGroup || (fin && fin.departamento) || '';
+  const num = aseoWeekGroupNum({ group: grupoId });
+  const grupo = num != null ? String(num) : (grupoId ? deptNameOf(grupoId) : '—');
   const desc = state.config?.groups?.labores || '';
   return `
     <div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -6564,7 +6566,9 @@ function generalWeekExportSvg(data, cur) {
   });
   rows.push({ label: 'LABORES', fill: '#ecfdf5', lines: labLines });
 
-  const grupo = aseoGroup ? deptNameOf(aseoGroup) : ((fin && fin.departamento) ? deptNameOf(fin.departamento) : '—');
+  const grupoId = aseoGroup || (fin && fin.departamento) || '';
+  const grupoNum = aseoWeekGroupNum({ group: grupoId });
+  const grupo = grupoNum != null ? String(grupoNum) : (grupoId ? deptNameOf(grupoId) : '—');
   rows.push({ label: 'GRUPO', fill: '#f5f3ff', lines: [{ t: grupo, s: 22, w: 700, f: C.title }] });
 
   let H = PAD + 32 + 20 + 10;
@@ -6753,12 +6757,12 @@ async function renderConflictos(mes) {
           <div class="text-sm font-medium text-on-surface">${escapeHtml(a.rol.split('_').join(' ').replace('atencion ', ''))} · <span class="text-on-surface-variant">${escapeHtml(a.semana)}</span></div>
           ${res ? `<select data-cambiar="${c.value}|${c.regla}|${c.semana}|${a.rol}" class="mt-1 w-full bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-sm font-body-md focus:border-primary">
             <option value="">— Cambiar a —</option>
-            ${opts.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')}
+            ${opts.map(p => `<option value="${p.id}">${escapeHtml(invertName(p.name))}</option>`).join('')}
           </select>` : ''}
         </div>`;
       }).join('') : '<span class="text-on-surface-variant text-sm">—</span>';
       return `<tr class="${autorizada ? 'opacity-60' : ''}">
-        <td class="p-3">${avatarHtml(persona, 'w-8 h-8')}<div class="mt-1 text-sm font-semibold text-on-surface">${escapeHtml(persona ? persona.name : c.value)}</div></td>
+        <td class="p-3">${avatarHtml(persona, 'w-8 h-8')}<div class="mt-1 text-sm font-semibold text-on-surface">${escapeHtml(persona ? invertName(persona.name) : c.value)}</div></td>
         <td class="p-3 min-w-[220px]">${asigHtml}</td>
         <td class="p-3">
           ${autorizada
@@ -6859,7 +6863,7 @@ async function renderMidweek(id) {
   const presOpts = ['<option value="">— Sin asignar —</option>'];
   const presList = state.people.filter(p => laboreEligible(p, 'presidente'));
   for (const person of presList) {
-    presOpts.push(`<option value="${person.id}" ${asStr(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
+    presOpts.push(`<option value="${person.id}" ${asStr(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(invertName(person.name))}</option>`);
   }
   editor.innerHTML = `
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
@@ -6885,7 +6889,7 @@ async function renderMidweek(id) {
         const roleFilter = isStudentLabore(s.labore) ? isStudentPerson : s.labore;
         const list = eligiblePeople(week, state.people, roleFilter, cur, collectMidweekPersons);
         for (const person of list) {
-          opts.push(`<option value="${person.id}" ${asStr(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`);
+          opts.push(`<option value="${person.id}" ${asStr(cur) === String(person.id) ? 'selected' : ''}>${escapeHtml(invertName(person.name))}</option>`);
         }
         const missing = !cur;
         return `<div class="flex-1 min-w-[160px]">
@@ -6953,7 +6957,7 @@ async function renderMidweek(id) {
       toast('Hay personas repetidas en esta reunión; se guardará igualmente. Revise los campos resaltados.', 'info');
     }
     if (pairs.length) {
-      toast(`Pareja no compatible: ${pairs[0].a.name} / ${pairs[0].b.name}. Se guardará igualmente; revise la asignación.`, 'info');
+      toast(`Pareja no compatible: ${invertName(pairs[0].a.name)} / ${invertName(pairs[0].b.name)}. Se guardará igualmente; revise la asignación.`, 'info');
     }
     week.sections.forEach((sec, si) => {
       sec.parts.forEach(p => {
@@ -8226,7 +8230,7 @@ function personNameOf(id) {
   id = asId(id);
   if (!id) return '—';
   const p = state.people.find(x => String(x.id) === String(id));
-  return p ? p.name : '—';
+  return p ? invertName(p.name) : '—';
 }
 function personOf(id) {
   id = asId(id);
@@ -8246,7 +8250,7 @@ function pairWarning(sec, p) {
   const a = personOf(ap[keys[0]]), b = personOf(ap[keys[1]]);
   if (!a || !b) return '';
   if (canBePair(a, b)) return '';
-  return `<p class="flex items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Pareja no compatible (${escapeHtml(a.name)} / ${escapeHtml(b.name)})</p>`;
+  return `<p class="flex items-center gap-1 text-error font-bold text-[10px] uppercase conflict-dot"><span class="material-symbols-outlined text-[14px]">warning</span> Pareja no compatible (${escapeHtml(invertName(a.name))} / ${escapeHtml(invertName(b.name))})</p>`;
 }
 function deptNameOf(id) {
   if (!id) return '—';

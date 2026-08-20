@@ -346,11 +346,11 @@ const peopleE = [
   { id: 4, name: 'Ana', labores: [] },
 ];
 const weekLuis = { type: 'normal', presidente: 1, outings: [], labores: {} };
-ok('excluye a los ya asignados en la misma semana', eligiblePeople(weekLuis, peopleE, 'lector', '').map(p => p.name).sort().join(',') === 'Ana,Juan,Pedro');
+ok('excluye a los ya asignados en la misma semana', eligiblePeople(weekLuis, peopleE, 'lector', '').map(p => p.name).sort().join(',') === 'Juan,Pedro');
 ok('mantiene al que ya ocupa el puesto', eligiblePeople(weekLuis, peopleE, 'presidente', 1).some(p => p.id === 1));
 ok('permite elegir en otra semana al asignado en esta (dedupe es intra-semana)', eligiblePeople({ type: 'normal', presidente: 2, outings: [], labores: {} }, peopleE, 'presidente', '').some(p => p.id === 1));
 ok('sin rol aplica solo el dedupe de asignados', eligiblePeople(weekLuis, peopleE, '', '').length === 3);
-ok('soporta predicado (labores) y excluye al asignado', eligiblePeople({ type: 'normal', labores: { acomodacion: ['1', ''] } }, peopleE, isAtencionPerson, '').map(p => p.name).join(',') === 'Ana');
+ok('soporta predicado (labores) y excluye al asignado', eligiblePeople({ type: 'normal', labores: { acomodacion: ['1', ''] } }, peopleE, isAtencionPerson, '').map(p => p.name).join(',') === '');
 ok('excluye mujeres de labores bloqueadas (lector)', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 5, name: 'María', genero: 'femenino', labores: [] }], 'lector', '').length === 0);
 ok('incluye mujer en presentacion (asignacion2)', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 5, name: 'María', genero: 'femenino', labores: ['asignacion2'] }], 'asignacion2', '').some(p => p.id === 5));
 ok('incluye hombre con la labor', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 6, name: 'José', genero: 'masculino', labores: ['lector'] }], 'lector', '').some(p => p.id === 6));
@@ -723,7 +723,7 @@ ok('isStudentLabore asignacion2', isStudentLabore('asignacion2') === true);
 ok('isStudentLabore asignacion4 falso', isStudentLabore('asignacion4') === false);
 ok('isStudentPerson con rol de presentación', isStudentPerson({ labores: ['asignacion2'] }));
 ok('isStudentPerson con rol de lectura', isStudentPerson({ labores: ['asignacion1'] }));
-ok('isStudentPerson sin roles', isStudentPerson({ labores: [] }));
+ok('isStudentPerson sin roles excluido', !isStudentPerson({ labores: [] }));
 ok('isStudentPerson con rol ajeno', !isStudentPerson({ labores: ['presidente'] }));
 
 // --- ATENCION_DEF / ATENCION_ROLES / isAtencionPerson ---
@@ -742,7 +742,7 @@ ok('isAtencionPerson causa sonido equivalente a audio', isAtencionPerson({ name:
   automatizarAtencion(people, at, [], {});
   ok('el puesto Sonido se cubre con el rol sonido/audio', String(at[0].weeks[0].labores.sonido) === '1', `got=${at[0].weeks[0].labores.sonido}`);
 }
-ok('isAtencionPerson sin roles incluida', isAtencionPerson({ name: 'X' }));
+ok('isAtencionPerson sin roles excluida', !isAtencionPerson({ name: 'X' }));
 ok('isAtencionPerson con roles ajenos excluida', !isAtencionPerson({ name: 'X', labores: ['presidente'] }));
 
 // --- midweekSlotsOf ---
@@ -823,7 +823,7 @@ console.log('[automatizarEntreSemana]');
       : mod === 2 ? ['asignacion4', 'asignacion2']
       : mod === 3 ? ['conductor1', 'lector1', 'presidente', 'conductor2', 'lector2']
       : ['asignacion2', 'asignacion3'];
-    personas.push({ id: i, name: `P${i}`, roles, calificacion: i % 3 === 0 ? 'A' : (i % 3 === 1 ? 'B' : 'C'), genero: null, enlace: null });
+    personas.push({ id: i, name: `P${i}`, labores: roles, calificacion: i % 3 === 0 ? 'A' : (i % 3 === 1 ? 'B' : 'C'), genero: null, enlace: null });
   }
   const mkWeek = (id) => ({
     id,

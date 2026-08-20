@@ -73,6 +73,16 @@ export function normalizeStr(s) {
   return String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
+// Invierte "Apellido Nombre" -> "Nombre Apellido": la persona está registrada
+// con el apellido primero y en los programas se muestra el nombre de pila antes.
+// El último token se trata como nombre de pila; el resto, como apellidos.
+export function invertName(name) {
+  const s = String(name || '').trim();
+  const parts = s.split(/\s+/);
+  if (parts.length < 2) return s;
+  return [parts[parts.length - 1], ...parts.slice(0, -1)].join(' ');
+}
+
 // Busca discursos por número o palabra clave.
 // `talks` es el array [{num, title}] completo.
 export function searchTalks(query, talks, limit = 30) {
@@ -477,10 +487,10 @@ export function cargoNivel(p) {
 export function esPublicador(p) { return cargoNivel(p) === 1; }
 export function esAnciano(p) { return cargoNivel(p) >= 3; }
 
-// ¿La persona puede asignarse a atencion? Sin labores (datos antiguos) se incluye,
-// igual que hacen el resto de selectores filtrados por labor.
+// ¿La persona puede asignarse a atención? Debe tener marcada alguna labor de
+// atención; sin labores no puede usarse en ningún programa.
 export function isAtencionPerson(p) {
-  return !Array.isArray(p?.labores) || p.labores.length === 0 || p.labores.some(r => ATENCION_ROLES.includes(r));
+  return Array.isArray(p?.labores) && p.labores.length > 0 && p.labores.some(r => ATENCION_ROLES.includes(r));
 }
 
 // Recolecta las personas asignadas a atencion → [{value, key}].
@@ -1687,11 +1697,12 @@ const ALIASES_LABORE = {
   salida: ['orador', 'salida'],
 };
 
-// ¿La persona puede ejercer una labor? Sin labores (datos antiguos) se incluye;
-// si la labor tiene alias se acepta cualquiera de ellos.
+// ¿La persona puede ejercer una labor? Debe tener al menos una labor marcada (los
+// que no tienen ninguna no pueden usarse en ningún programa) y, si la labor tiene
+// alias, se acepta cualquiera de ellos.
 export function laboreEligible(p, labore) {
   const lista = ALIASES_LABORE[labore] || [labore];
-  return (!Array.isArray(p.labores) || p.labores.length === 0 || lista.some(l => (p.labores || []).includes(l)))
+  return (Array.isArray(p.labores) && p.labores.length > 0 && lista.some(l => (p.labores || []).includes(l)))
     && laboreAllowedForPerson(p, labore);
 }
 
@@ -1719,10 +1730,10 @@ export const LABORE_GRUPO = {
   'salida': 'fin-semana',
 };
 
-// Persona que puede asumir partes de estudiante: sin labores definidas o con
-// cualquiera de las labores de estudiante (lectura, presentación, discurso).
+// Persona que puede asumir partes de estudiante: debe tener marcada cualquiera de
+// las labores de estudiante (lectura, presentación, discurso).
 export function isStudentPerson(p) {
-  return !Array.isArray(p?.labores) || p.labores.length === 0 || p.labores.some(r => STUDENT_LABORES.includes(r));
+  return Array.isArray(p?.labores) && p.labores.length > 0 && p.labores.some(r => STUDENT_LABORES.includes(r));
 }
 
 // Labor de equipo permitida para una persona: las mujeres solo pueden tener la
@@ -1779,8 +1790,8 @@ export function readerPriority(calificacion) {
   return prio[calificacion] ?? 2;
 }
 
-// Personas con una labor (o sin labores definidas) y que pueden ejercerla en la
-// UI según la regla de género (laboreAllowedForPerson).
+// Personas con una labor marcada y que pueden ejercerla en la UI según la regla
+// de género (laboreAllowedForPerson). Quienes no tienen labores quedan fuera.
 function peopleForLabore(people, labore) {
   return people.filter(p => laboreEligible(p, labore));
 }
@@ -2329,7 +2340,7 @@ export function laboresVaciasPropuesta(p) {
 // Personas activas sin ninguna asignación en la propuesta, agrupadas por motivo:
 //  · conVacantes: su labor quedó sin cubrir en algún puesto (podrían cubrirlo).
 //  · cubiertos:   sus labores quedaron cubiertas por otros (no quedaron puestos).
-//  · universales: sin labores definidas (disponibles para cualquier labor).
+// ·  universales: sin labores definidas (el motor no los usa; esperan una labor).
 // Cada entrada de conVacantes incluye `laboresVacantes` y `puestos` (nº de vacíos).
 export function sinAsignarPorMotivo(p, people = []) {
   const asignados = new Set(((p && p.assignments) || []).map(a => String(a.personId)));
