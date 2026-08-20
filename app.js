@@ -690,7 +690,7 @@ async function renderIa() {
   </div>`;
   if (!week) return;
   const cur = String(week.saturday || isoDate(new Date())).slice(0, 7);
-  const blob = await svgToPngBlob(generalWeekExportSvg(week, cur));
+  const blob = await svgToPngBlob(generalWeekExportSvg(week, cur, { mobile: true }));
   const image = $('#iaWeekImage');
   image.src = URL.createObjectURL(blob);
   $('#iaShare').onclick = async () => {
@@ -748,7 +748,7 @@ async function renderHome() {
     homeWeekImgBtn.disabled = true;
     try {
       const cur = String(generalWeek.saturday || isoDate(new Date())).slice(0, 7);
-      const blob = await svgToPngBlob(generalWeekExportSvg(generalWeek, cur));
+      const blob = await svgToPngBlob(generalWeekExportSvg(generalWeek, cur, { mobile: isUserRole() || isIaRole() }));
       const compartido = await compartirPng(blob, `semana-${cur}-${homeWeekOffset + 1}.png`);
       if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
     } catch (err) {
@@ -6654,9 +6654,10 @@ function generalGroup(fin, aseoGroup, dashboard = false) {
 }
 
 /* ---------- Exportación de una semana (vista general) en SVG puro ---------- */
-function generalWeekExportSvg(data, cur) {
+function generalWeekExportSvg(data, cur, opts = {}) {
   const { fin, mw, i, aseoGroup, outings, sinSalida, finLabores } = data;
-  const W = 900, PAD = 40, cw = W - PAD * 2;
+  const mobile = opts.mobile === true;
+  const W = mobile ? 1280 : 900, PAD = 40, cw = W - PAD * 2;
   const C = { title: '#3f3a2e', sub: '#6b6454', line: '#e7e3db', name: '#2f2a20' };
   const mesTxt = `${MONTHS_ES[Number(cur.slice(5)) - 1].toUpperCase()} ${cur.slice(0, 4)}`;
   const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -6721,6 +6722,29 @@ function generalWeekExportSvg(data, cur) {
   const grupoNum = aseoWeekGroupNum({ group: grupoId });
   const grupo = grupoNum != null ? String(grupoNum) : (grupoId ? deptNameOf(grupoId) : '—');
   rows.push({ label: 'GRUPO', fill: '#f5f3ff', lines: [{ t: grupo, s: 22, w: 700, f: C.title }] });
+
+  if (mobile) {
+    const groupRow = rows.pop();
+    const bodyRows = rows;
+    const P = [];
+    const H = 720;
+    P.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
+    P.push(svgT(W / 2, 30, `Semana ${i + 1} · ${mesTxt}`, 22, 700, C.title, 'middle'));
+    P.push(svgT(W / 2, 57, header, 16, 400, C.sub, 'middle'));
+    P.push(`<rect x="${PAD}" y="78" width="${cw}" height="150" rx="14" fill="${groupRow.fill}" stroke="${C.line}" stroke-width="1"/>`);
+    P.push(svgT(W / 2, 112, 'GRUPO DE LA SEMANA', 18, 700, C.sub, 'middle'));
+    P.push(svgT(W / 2, 198, groupRow.lines[0].t, 92, 700, C.title, 'middle'));
+    const card = (row, x, y, width, height) => {
+      P.push(`<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="${row.fill}" stroke="${C.line}" stroke-width="1"/>`);
+      P.push(svgT(x + 18, y + 30, row.label, 14, 700, C.sub));
+      let yy = y + 58;
+      row.lines.forEach(line => { P.push(svgT(x + 18, yy, line.t, 13, line.w, line.f)); yy += 18; });
+    };
+    card(bodyRows[0], PAD, 250, 590, 220);
+    card(bodyRows[1], 650, 250, 590, 220);
+    card(bodyRows[2], PAD, 490, cw, 180);
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
+  }
 
   let H = PAD + 32 + 20 + 10;
   rows.forEach(r => H += 44 + r.lines.length * 24 + 12);
