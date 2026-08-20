@@ -122,10 +122,19 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Labor eliminada');
   });
 
-  test('columna Grupo muestra el nombre aunque el grupo esté oculto', async ({ page }) => {
+  test('columna Grupo: grupo oculto y grupo importado por número', async ({ page }) => {
     const seed = {
-      people: [{ name: 'Diana Sol', genero: 'femenino', calificacion: 'B', labores: [], grupoId: 3 }],
-      departments: [{ id: 3, name: 'Grupo 3', activo: false }],
+      // 1) Grupo oculto (inactivo): se resuelve por id.
+      // 2) Importado desde plantilla: el número escrito (6) no coincide con el id
+      //    real (7) → se reasigna al grupo cuyo nombre termina en "6".
+      people: [
+        { name: 'Diana Sol', genero: 'femenino', calificacion: 'B', labores: [], grupoId: 3 },
+        { name: 'Alvarado Patricia', genero: 'femenino', calificacion: 'B', labores: [], grupoId: 6 },
+      ],
+      departments: [
+        { id: 3, name: 'Grupo 3', activo: false },
+        { id: 7, name: 'Grupo 6', activo: true },
+      ],
     };
     await page.addInitScript(({ people, departments }) => {
       (async () => {
@@ -153,8 +162,17 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     }, { people: seed.people, departments: seed.departments });
     await openApp(page);
     await gotoLabores(page);
-    const celda = page.locator('.person-card', { hasText: 'Diana Sol' }).locator('td:nth-child(2)');
-    await expect(celda).toHaveText('Grupo 3');
+    const celdaDiana = page.locator('.person-card', { hasText: 'Diana Sol' }).locator('td:nth-child(2)');
+    await expect(celdaDiana).toHaveText('Grupo 3');
+    const celdaAlvarado = page.locator('.person-card', { hasText: 'Alvarado Patricia' }).locator('td:nth-child(2)');
+    await expect(celdaAlvarado).toHaveText('Grupo 6');
+    // La auto-reparación persistió el id real (7) en lugar del número nominal (6).
+    const pid = await page.locator('.person-card', { hasText: 'Alvarado Patricia' }).getAttribute('data-pid');
+    const storedGroup = await page.evaluate((pid) => new Promise((res) => {
+      const r = indexedDB.open('reunion-plus');
+      r.onsuccess = () => { const tx = r.result.transaction('people', 'readonly'); tx.objectStore('people').get(Number(pid)).onsuccess = (e) => res(String(e.target.result.grupoId)); };
+    }), pid);
+    expect(storedGroup).toBe('7');
   });
 
   test('historial de asignaciones muestra la tabla con las personas', async ({ page }) => {

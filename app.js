@@ -86,6 +86,27 @@ async function refreshCatalogs() {
   state.talks = await db.listTalks();
   state.midweeks = await db.listMidweeks();
   state.config = await db.getConfig();
+  // Auto-reparación de grupos: la plantilla XLSX guarda el número de grupo que
+  // escribe la congregación (p. ej. "3"), no el id interno del departamento. Si
+  // ese número no coincide con ningún id real (p. ej. tras ocultar o recrear
+  // grupos), se reasigna a la persona el grupo cuyo nombre termina en ese
+  // número ("3" → "Grupo 3") y se persiste el id correcto.
+  if (state.departmentsAll.length) {
+    const idsReales = new Set(state.departmentsAll.map(d => String(d.id)));
+    for (const p of state.people) {
+      if (!p.grupoId || idsReales.has(String(p.grupoId))) continue;
+      const num = String(p.grupoId).replace(/\D/g, '');
+      if (!num) continue;
+      const match = state.departmentsAll.find(d => {
+        const m = String(d.name || '').match(/(\d+)\s*$/);
+        return m && m[1] === num;
+      });
+      if (match && String(match.id) !== String(p.grupoId)) {
+        p.grupoId = match.id;
+        await db.updatePerson({ ...p });
+      }
+    }
+  }
   const saved = await db.getLabores(null);
   state.labores = (saved && Array.isArray(saved) && saved.length)
     ? saved
