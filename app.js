@@ -331,7 +331,7 @@ function renderAuthUI() {
     btn.title = 'Cerrar sesión';
     label.textContent = user.email || 'Salir';
     badge.classList.remove('hidden');
-    badge.textContent = user.rol === 'admin' ? '👑 Admin' : '👁️ Solo lectura';
+     badge.textContent = user.rol === 'admin' ? '👑 Admin' : user.rol === 'user' ? '👁️ Usuario' : '👁️ Solo lectura';
     badge.className = `text-[11px] font-label-md mt-1 ${user.rol === 'admin' ? 'text-tertiary' : 'text-on-surface-variant'}`;
   } else {
     btn.style.display = 'flex';
@@ -343,6 +343,7 @@ function renderAuthUI() {
   // Ocultar/mostrar acciones administrativas según el rol (solo UX; la seguridad
   // real está en las políticas RLS de Supabase).
   document.body.classList.toggle('is-reader', !!user && user.rol !== 'admin');
+  document.body.classList.toggle('is-user', !!user && user.rol === 'user');
   document.body.classList.toggle('is-admin', !!user && user.rol === 'admin');
   document.body.classList.toggle('is-logged', !!user);
 }
@@ -453,6 +454,11 @@ function isCompactViewport() {
   return window.matchMedia('(max-width: 767px)').matches;
 }
 
+function isUserRole() {
+  const user = currentUser();
+  return !!user && user.rol === 'user';
+}
+
 function router() {
   const hash = location.hash.replace(/^#\/?/, '') || 'home';
   const [path, query] = hash.split('?');
@@ -465,6 +471,10 @@ function router() {
     renderTop();
     renderSide();
     renderWelcome();
+    return;
+  }
+  if (isUserRole() && !['home', 'lists'].includes(view)) {
+    location.hash = '#/home';
     return;
   }
   state.view = view;
@@ -569,7 +579,7 @@ function renderTop() {
   // El menú superior se elimina; la navegación vive en la barra lateral (sidebar).
   // Sin sesión: ocultar la navegación, solo queda la bienvenida.
   if (appBloqueada()) { $('#settingsBtn').style.display = 'none'; $('#topTitle').textContent = 'Reunión+'; $('#topBadge').classList.add('hidden'); return; }
-  $('#settingsBtn').style.display = 'flex';
+  $('#settingsBtn').style.display = isUserRole() ? 'none' : 'flex';
 
   const badge = $('#topBadge');
   if (state.month) {
@@ -591,9 +601,12 @@ function renderSide() {
     $('#sideAbout').style.display = 'none';
     return;
   }
-  $('#sideNewMonth').style.display = '';
-  $('#sideAbout').style.display = '';
-  const items = [
+  $('#sideNewMonth').style.display = isUserRole() ? 'none' : '';
+  $('#sideAbout').style.display = isUserRole() ? 'none' : '';
+  const items = isUserRole() ? [
+    { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
+    { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
+  ] : [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
     { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
@@ -3222,6 +3235,7 @@ async function renderLists() {
   renderTop();
   await refreshCatalogs();
   const app = $('#app');
+  if (isUserRole() && !['personas', 'grupos', 'departamentos'].includes(state.listsTab)) state.listsTab = 'personas';
   const tab = state.listsTab;
   const isPersonas = tab === 'personas';
   const isGrupos = tab === 'grupos';
@@ -3240,11 +3254,11 @@ async function renderLists() {
         <button data-tab="grupos" class="${tabCls('grupos')}">Grupos</button>
         <button data-tab="departamentos" class="${tabCls('departamentos')}">Labores</button>
         <button data-tab="asignaciones" class="${tabCls('asignaciones')}">Asignaciones</button>
-        <button data-tab="historial" class="${tabCls('historial')}">Historial</button>
+        ${isUserRole() ? '' : `<button data-tab="historial" class="${tabCls('historial')}">Historial</button>`}
       </div>
     </div>
 
-    ${isPersonas ? `
+    ${isPersonas && !isUserRole() ? `
     <div class="flex flex-col sm:flex-row items-center gap-4 mb-4 flex-wrap">
       <div class="relative w-full sm:w-64">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
@@ -3323,9 +3337,11 @@ async function renderLists() {
     const empty = $('#pEmpty');
     if (empty) empty.classList.toggle('hidden', !hasCards || anyVisible);
   };
-  search.addEventListener('input', applyFilter);
-  genderFilter.addEventListener('change', applyFilter);
-  cargoFilter.addEventListener('change', applyFilter);
+  if (!isUserRole()) {
+    search.addEventListener('input', applyFilter);
+    genderFilter.addEventListener('change', applyFilter);
+    cargoFilter.addEventListener('change', applyFilter);
+  }
 
   const pList = $('#pList');
   pList.className = 'overflow-auto max-h-[68vh] p-0';
@@ -3334,6 +3350,22 @@ async function renderLists() {
     ...state.people.map(p => renderPersonCard(p, false, false)),
     ...inactivos.map(p => renderPersonCard(p, false, true)),
   ];
+  if (isUserRole()) {
+    pList.innerHTML = `<div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse min-w-[420px]">
+        <thead><tr class="bg-surface-container border-b border-outline-variant">
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Nombre</th>
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase text-right">Acciones</th>
+        </tr></thead>
+        <tbody class="divide-y divide-outline-variant/40">${state.people.length ? state.people.map(renderUserPersonRow).join('') : '<tr><td colspan="2" class="p-6 text-center text-on-surface-variant text-sm">Sin personas.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+    pList.querySelectorAll('[data-user-profile]').forEach(b => b.onclick = () => {
+      const person = state.people.find(x => String(x.id) === String(b.dataset.userProfile));
+      if (person) openPersonProfile(person);
+    });
+    return;
+  }
   pList.innerHTML = `
     <div class="space-y-3 md:hidden">${state.people.length || inactivos.length ? [...state.people.map(p => renderPersonMobileCard(p, false)), ...inactivos.map(p => renderPersonMobileCard(p, true))].join('') : '<div class="p-6 text-center text-on-surface-variant text-sm bg-surface-container-lowest rounded-xl border border-outline-variant">Sin personas. Añada un miembro para comenzar.</div>'}</div>
     <div class="hidden md:block overflow-x-auto">
@@ -3535,6 +3567,13 @@ function renderPersonCard(p, editMode, isInactive = false) {
     <td class="px-3 py-2 whitespace-nowrap">
       <div class="flex items-center gap-1 justify-end">${acciones}</div>
     </td>
+  </tr>`;
+}
+
+function renderUserPersonRow(p) {
+  return `<tr class="person-card" data-pid="${p.id}">
+    <td class="px-3 py-3"><div class="flex items-center gap-3">${avatarHtml(p, 'w-9 h-9')}<span class="font-body-md text-body-md font-semibold text-on-surface">${escapeHtml(p.name)}</span></div></td>
+    <td class="px-3 py-3 text-right"><button data-user-profile="${p.id}" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors">Ver perfil</button></td>
   </tr>`;
 }
 
@@ -4095,19 +4134,20 @@ async function applyEnlace(person, newEnlace) {
 // enlace, labores conmutables e historial de asignaciones.
 async function openPersonProfile(person) {
   const p = { ...person };
+  const userMode = isUserRole();
   p.labores = Array.isArray(p.labores) ? p.labores : [];
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
   const genOpts = GENEROS.map(([v, l]) => `<option value="${v}" ${p.genero === v ? 'selected' : ''}>${l}</option>`).join('');
   const calOpts = CALIFICACIONES.map(c => `<option value="${c}" ${cal === c ? 'selected' : ''}>${c}${c === 'D' ? ' (enlace)' : ''}</option>`).join('');
   const enlOpts = `<option value="">— Sin enlace —</option>` +
     state.people.filter(x => String(x.id) !== String(p.id)).map(x => `<option value="${x.id}" ${p.enlace === String(x.id) ? 'selected' : ''}>${escapeHtml(x.name)}</option>`).join('');
-  const laborCols = renderLaborColumns(p, true);
+   const laborCols = renderLaborColumns(p, !userMode);
   openModal(`
     <div>
       <div class="flex items-start gap-3 mb-4">
         ${avatarHtml(p, 'w-12 h-12')}
         <div class="flex-1 min-w-0">
-          <input id="pfName" type="text" value="${escapeAttr(p.name)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-headline-md text-headline-md text-primary focus:border-primary" autocomplete="off">
+           <input id="pfName" type="text" value="${escapeAttr(p.name)}" ${userMode ? 'readonly' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2 font-headline-md text-headline-md text-primary focus:border-primary" autocomplete="off">
           <p class="text-on-surface-variant text-sm mt-1">${p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador'} · ${cargoOf(p).label} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
         </div>
       </div>
@@ -4115,25 +4155,25 @@ async function openPersonProfile(person) {
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Género</label>
-            <select id="pfGenero" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${genOpts}</select>
+           <select id="pfGenero" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${genOpts}</select>
           </div>
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Calificación</label>
-            <select id="pfCalif" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${calOpts}</select>
+           <select id="pfCalif" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${calOpts}</select>
           </div>
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargo</label>
-            <select id="pfCargo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${cargosOpts(cargoOf(p).id)}</select>
+           <select id="pfCargo" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${cargosOpts(cargoOf(p).id)}</select>
           </div>
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
-          <select id="pfEnlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${enlOpts}</select>
+           <select id="pfEnlace" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${enlOpts}</select>
           <p class="text-on-surface-variant text-caption mt-1">Si la calificación es D, solo podrá tener asignación en pareja con la persona enlazada (enlace unidireccional). En cualquier otro caso el enlace es mutuo: la persona enlazada también quedará enlazada a él.</p>
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Grupo</label>
-          <select id="pfGrupo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+           <select id="pfGrupo" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
             <option value="">Sin grupo</option>
             ${state.departments.map(d => `<option value="${d.id}" ${String(d.id) === String(p.grupoId || '') ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}
           </select>
@@ -4150,7 +4190,7 @@ async function openPersonProfile(person) {
       </div>
       <div class="flex gap-3 justify-end mt-5">
         <button id="pfCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
-        <button id="pfSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
+         ${userMode ? '' : '<button id="pfSave" class="px-6 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>'}
       </div>
     </div>`);
 
@@ -4162,7 +4202,8 @@ async function openPersonProfile(person) {
   });
 
   $('#pfCancel').onclick = closeModal;
-  $('#pfSave').onclick = async () => {
+  const saveProfile = $('#pfSave');
+  if (saveProfile) saveProfile.onclick = async () => {
     p.name = ($('#pfName').value || '').trim() || p.name;
     p.genero = $('#pfGenero').value;
     p.calificacion = $('#pfCalif').value;

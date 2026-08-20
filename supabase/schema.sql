@@ -44,7 +44,7 @@ create table if not exists public.configuracion (
   updated_at timestamptz not null default now()
 );
 
--- Tabla de usuarios (rol admin/reader). El usuario crea SU fila con rol reader
+-- Tabla de usuarios (rol admin/reader/user). El usuario crea SU fila con rol reader
 -- en el primer login; solo un admin puede cambiar/borrar roles.
 create table if not exists public.usuarios (
   id text primary key,
@@ -138,7 +138,7 @@ create policy "usuarios_lectura" on public.usuarios
 drop policy if exists "usuarios_crear_propio" on public.usuarios;
 create policy "usuarios_crear_propio" on public.usuarios
   for insert to authenticated
-  with check (auth.uid()::text = id and coalesce((data->>'rol'), 'reader') = 'reader');
+  with check (auth.uid()::text = id and coalesce((data->>'rol'), 'reader') in ('reader', 'user'));
 
 drop policy if exists "usuarios_escritura_admin" on public.usuarios;
 create policy "usuarios_escritura_admin" on public.usuarios
@@ -169,6 +169,10 @@ grant select, insert, update, delete on public.usuarios to authenticated;
 -- values ('<UID>', jsonb_build_object('email', '<EMAIL>', 'rol', 'admin'))
 -- on conflict (id) do update
 --   set data = jsonb_build_object('email', '<EMAIL>', 'rol', 'admin');
+-- Para crear un usuario de consulta restringida, el admin puede usar:
+-- update public.usuarios
+-- set data = jsonb_set(data, '{rol}', '"user"'::jsonb)
+-- where id = '<UID>';
 --
 -- insert into public.configuracion (id, data)
 -- values ('general', jsonb_build_object('config', jsonb_build_object('emailsPermitidos', jsonb_build_array('<EMAIL>'))))
