@@ -479,8 +479,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(cols.nth(2)).toHaveClass(/w-\[30%\]/);
     await expect(cols.nth(6)).toHaveClass(/w-\[7%\]/);
 
-    // Grupo desde el programa de aseo.
-    await expect(page.locator('#previewContent tbody tr').first()).toContainText('Grupo 1');
+    await expect(page.locator('#previewContent tbody tr').first().locator('td').nth(6)).toHaveText('1');
 
     // WhatsApp comparte como imagen.
     await page.click('#waProgram');

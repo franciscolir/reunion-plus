@@ -2863,7 +2863,11 @@ function previewTabla() {
         </div></td></tr>`;
     }
     const grupoAseo = aseoGroupFor(w.date);
-    const grupoTxt = grupoAseo ? deptNameOf(grupoAseo) : deptNameOf(w.departamento);
+    const grupoId = grupoAseo || (w.departamento || '');
+    const grupoNum = aseoWeekGroupNum({ group: grupoId });
+    let grupoTxt = '—';
+    if (grupoNum != null) grupoTxt = String(grupoNum);
+    else if (grupoId) { const m = String(grupoId).match(/\d+$/); if (m) grupoTxt = m[0]; }
     let cells = {
       title: '—', chairman: '—', speaker: '—', conductor: '—', reader: '—', attendance: '—',
     };
@@ -6483,14 +6487,14 @@ function generalLabores({ fin, mw, finLabores }) {
 }
 
 // Grupo de atención de la semana (a la derecha del cuadro).
-function generalGroup(fin, aseoGroup) {
+function generalGroup(fin, aseoGroup, dashboard = false) {
   const grupoId = aseoGroup || (fin && fin.departamento) || '';
   const num = aseoWeekGroupNum({ group: grupoId });
   const grupo = num != null ? String(num) : (grupoId ? deptNameOf(grupoId) : '—');
   const desc = state.config?.groups?.labores || '';
   return `
     <div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3 flex items-center gap-2">
-      <span class="material-symbols-outlined text-[18px]">handshake</span> Grupo de la semana
+      <span class="material-symbols-outlined text-[18px]">handshake</span> ${dashboard ? 'Hospitalidad y aseo' : 'Grupo de la semana'}
     </div>
     <div class="text-center">
       <div class="font-headline-lg text-[40px] leading-none text-primary">${escapeHtml(grupo)}</div>
@@ -7885,7 +7889,13 @@ function programaExportSvg() {
     const w = (state.aseoWeeks || []).find(x => String(x.saturday) === String(sat));
     return (w && w.group) ? String(w.group) : '';
   };
-  const grupoTxt = (w) => { const g = aseoGroupFor(w.date); return g ? deptNameOf(g) : deptNameOf(w.departamento); };
+  const grupoTxt = (w) => {
+    const g = aseoGroupFor(w.date) || (w.departamento || '');
+    const num = g ? aseoWeekGroupNum({ group: g }) : null;
+    if (num != null) return String(num);
+    if (g) { const m = String(g).match(/\d+$/); if (m) return m[0]; }
+    return '—';
+  };
 
   const rowsInfo = m.weeks.map((w) => {
     const date = new Date(w.date + 'T00:00:00');
@@ -8158,7 +8168,8 @@ function groupDeptForNum(num) {
 // Número del grupo asignado en una semana del programa de aseo.
 function aseoWeekGroupNum(w) {
   if (!w || !w.group) return null;
-  const d = state.departments.find(x => String(x.id) === String(w.group));
+  const all = state.departmentsAll.length ? state.departmentsAll : state.departments;
+  const d = all.find(x => String(x.id) === String(w.group));
   const m = d && /^(?:grupo\s*)?(\d+)$/i.exec(String(d.name || '').trim());
   return m ? Number(m[1]) : null;
 }
