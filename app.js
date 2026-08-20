@@ -449,6 +449,10 @@ function go(view, params = {}) {
   if (window.innerWidth < 1024) document.getElementById('sideNav').classList.add('hidden');
 }
 
+function isCompactViewport() {
+  return window.matchMedia('(max-width: 767px)').matches;
+}
+
 function router() {
   const hash = location.hash.replace(/^#\/?/, '') || 'home';
   const [path, query] = hash.split('?');
@@ -466,7 +470,8 @@ function router() {
   state.view = view;
   if (segs[1]) state.monthId = segs[1];
   const qp = new URLSearchParams(query || '');
-  if (qp.get('mode')) state.previewMode = qp.get('mode');
+  if (view === 'preview') state.previewMode = qp.get('mode') || 'lista';
+  else if (qp.get('mode')) state.previewMode = qp.get('mode');
 
   // reset action bar (solo la vista preview la usa)
   const bar = $('#actionBar');
@@ -2730,7 +2735,7 @@ async function renderPreview() {
       <h1 class="font-display-lg text-display-lg text-primary mb-2 leading-tight">${MONTHS_ES[m.month - 1].toUpperCase()} ${m.year}</h1>
     </div>
 
-    <div class="flex items-center justify-between gap-4 mb-6 no-print">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6 no-print">
       <div class="flex items-center gap-1 bg-surface-container-high p-1 rounded-lg">
         <button id="modeLista" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.previewMode === 'lista' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Vista Lista</button>
         <button id="modeTabla" class="px-4 py-2 font-label-md text-label-md rounded-md transition-colors ${state.previewMode === 'tabla' ? 'bg-surface text-primary editorial-shadow' : 'text-on-surface-variant hover:bg-surface-container-highest'}">Vista Tabla</button>
@@ -2858,7 +2863,7 @@ function previewTabla() {
 
     if (w.type === 'assembly' || w.type === 'commemoration') {
       const label = w.type === 'assembly' ? 'Asamblea' : 'Conmemoración';
-      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7">
+      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="${label}">
         <div class="py-4">
           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
         </div></td></tr>`;
@@ -2897,16 +2902,16 @@ function previewTabla() {
     const big = w.type === 'assembly' || w.type === 'commemoration';
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
-      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
-      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
-      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
-      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md font-semibold ${big ? 'text-lg pt-3' : ''}">${cells.speaker}</div></td>
-      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.conductor}</div></td>
-      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.reader}</div></td>
-      <td class="p-4 align-top ${highlight}"><div class="font-body-md text-body-md text-primary font-bold ${big ? 'text-lg pt-3' : ''}">${cells.attendance}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Presidente"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Discurso"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Orador"><div class="font-body-md text-body-md font-semibold ${big ? 'text-lg pt-3' : ''}">${cells.speaker}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Estudio"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.conductor}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Lector"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.reader}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Grupo"><div class="font-body-md text-body-md text-primary font-bold ${big ? 'text-lg pt-3' : ''}">${cells.attendance}</div></td>
     </tr>`;
   }).join('');
-  return `<div class="tabla-programa overflow-x-auto">
+  return `<div class="tabla-programa responsive-table overflow-x-auto">
     <table class="w-full text-left" style="border-collapse: separate; border-spacing: 0 0.75rem; min-width:0;">
       <colgroup>
         <col class="w-[7%]">
@@ -3306,7 +3311,7 @@ async function renderLists() {
     const gen = genderFilter.value;
     const cargo = cargoFilter.value;
     let anyVisible = false;
-    document.querySelectorAll('#pList .person-card').forEach(card => {
+    document.querySelectorAll('#pList .person-card, #pList .person-card-mobile').forEach(card => {
       const matchName = card.dataset.norm.includes(q);
       const matchGen = !gen || card.dataset.genero === gen;
       const matchCargo = !cargo || card.dataset.cargo === cargo;
@@ -3314,7 +3319,7 @@ async function renderLists() {
       card.classList.toggle('is-hidden', !show);
       if (show) anyVisible = true;
     });
-    const hasCards = document.querySelectorAll('#pList .person-card').length > 0;
+    const hasCards = document.querySelectorAll('#pList .person-card, #pList .person-card-mobile').length > 0;
     const empty = $('#pEmpty');
     if (empty) empty.classList.toggle('hidden', !hasCards || anyVisible);
   };
@@ -3329,19 +3334,21 @@ async function renderLists() {
     ...state.people.map(p => renderPersonCard(p, false, false)),
     ...inactivos.map(p => renderPersonCard(p, false, true)),
   ];
-  pList.innerHTML = `<div class="overflow-x-auto">
-    <table class="w-full text-left border-collapse min-w-[720px]">
-      <thead><tr class="bg-surface-container border-b border-outline-variant">
-        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Miembro</th>
-        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Grupo</th>
-        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Género</th>
-        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Calificación</th>
-        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Cargo</th>
-        <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase text-right">Acciones</th>
-      </tr></thead>
-      <tbody class="divide-y divide-outline-variant/40">${rows.length ? rows.join('') : '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>'}</tbody>
-    </table>
-  </div>
+  pList.innerHTML = `
+    <div class="space-y-3 md:hidden">${state.people.length || inactivos.length ? [...state.people.map(p => renderPersonMobileCard(p, false)), ...inactivos.map(p => renderPersonMobileCard(p, true))].join('') : '<div class="p-6 text-center text-on-surface-variant text-sm bg-surface-container-lowest rounded-xl border border-outline-variant">Sin personas. Añada un miembro para comenzar.</div>'}</div>
+    <div class="hidden md:block overflow-x-auto">
+      <table class="w-full text-left border-collapse min-w-[720px]">
+        <thead><tr class="bg-surface-container border-b border-outline-variant">
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Miembro</th>
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Grupo</th>
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Género</th>
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Calificación</th>
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase">Cargo</th>
+          <th class="px-3 py-2 font-label-md text-label-md text-on-surface-variant uppercase text-right">Acciones</th>
+        </tr></thead>
+        <tbody class="divide-y divide-outline-variant/40">${rows.length ? rows.join('') : '<tr><td colspan="6" class="p-6 text-center text-on-surface-variant text-sm">Sin personas. Añada un miembro para comenzar.</td></tr>'}</tbody>
+      </table>
+    </div>
   <div id="pEmpty" class="p-6 text-center text-on-surface-variant text-sm hidden">Sin resultados para el filtro actual.</div>`;
   renderPersonCardBindings(false);
 }
@@ -3531,9 +3538,33 @@ function renderPersonCard(p, editMode, isInactive = false) {
   </tr>`;
 }
 
+function renderPersonMobileCard(p, isInactive = false) {
+  const grupo = p.grupoId ? deptNameOf(p.grupoId) : 'Sin grupo';
+  const acciones = isInactive
+    ? `<button data-prestore-mobile="${p.id}" class="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors" title="Restaurar"><span class="material-symbols-outlined text-[18px]">undo</span> Restaurar</button>`
+    : `
+      <button data-profile-mobile="${p.id}" class="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors" title="Ver perfil">Ver perfil</button>
+      <button data-pdel-mobile="${p.id}" data-admin class="inline-flex items-center justify-center p-2.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
+  return `<article class="person-card-mobile md:hidden ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-pid="${p.id}">
+    <div class="flex items-start gap-3">
+      ${avatarHtml(p, 'w-11 h-11')}
+      <div class="min-w-0 flex-1">
+        <p class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</p>
+        <p class="text-xs text-on-surface-variant truncate">${escapeHtml(grupo)}</p>
+        ${isInactive ? '<span class="text-[11px] text-error font-label-md">Desactivada</span>' : ''}
+        <div class="mt-3 flex items-center gap-2">${acciones}</div>
+      </div>
+    </div>
+  </article>`;
+}
+
 function renderPersonCardBindings(editMode) {
   $('#pList').querySelectorAll('[data-profile]').forEach(b => b.onclick = () => {
     const person = state.people.find(x => String(x.id) === String(b.dataset.profile));
+    if (person) openPersonProfile(person);
+  });
+  $('#pList').querySelectorAll('[data-profile-mobile]').forEach(b => b.onclick = () => {
+    const person = state.people.find(x => String(x.id) === String(b.dataset.profileMobile));
     if (person) openPersonProfile(person);
   });
   $('#pList').querySelectorAll('[data-markall]').forEach(b => b.onclick = async () => {
@@ -3556,8 +3587,17 @@ function renderPersonCardBindings(editMode) {
       renderLists();
     }
   });
+  $('#pList').querySelectorAll('[data-prestore-mobile]').forEach(b => b.onclick = async () => {
+    if (await confirmDialog('¿Restaurar esta persona? Volverá a aparecer en las listas y podrá recibir asignaciones.')) {
+      await db.restorePerson(b.dataset.prestoreMobile);
+      renderLists();
+    }
+  });
   $('#pList').querySelectorAll('[data-pdel]').forEach(b => b.onclick = async () => {
     if (await confirmDialog('¿Quitar a esta persona? No recibirá más asignaciones y quedará oculta; su historial se conserva y puede restaurarse después.')) { await db.deletePerson(b.dataset.pdel); renderLists(); }
+  });
+  $('#pList').querySelectorAll('[data-pdel-mobile]').forEach(b => b.onclick = async () => {
+    if (await confirmDialog('¿Quitar a esta persona? No recibirá más asignaciones y quedará oculta; su historial se conserva y puede restaurarse después.')) { await db.deletePerson(b.dataset.pdelMobile); renderLists(); }
   });
   $('#pList').querySelectorAll('.labor-chip').forEach(cb => cb.onclick = async () => {
     if (cb.disabled) return;
@@ -5795,9 +5835,9 @@ async function renderAtencion(monthId, opts = {}) {
     const rows = [];
     for (const d of ATENCION_DEF) {
       for (let si = 0; si < d.count; si++) {
-        const cells = columns.map(c => `<td class="p-4 text-center font-body-md text-body-md align-top">${c.cell(d.key, si)}</td>`).join('');
+        const cells = columns.map(c => `<td class="p-4 text-center font-body-md text-body-md align-top" data-label="Sem. ${c.i + 1}">${c.cell(d.key, si)}</td>`).join('');
         rows.push(`<tr class="border-b border-outline-variant/40">
-          <td class="p-4 font-body-md text-body-md text-on-surface whitespace-nowrap">${escapeHtml(d.label)}${d.count > 1 ? ` ${si + 1}` : ''}</td>
+          <td class="p-4 font-body-md text-body-md text-on-surface whitespace-nowrap" data-label="Labor">${escapeHtml(d.label)}${d.count > 1 ? ` ${si + 1}` : ''}</td>
           ${cells}
         </tr>`);
       }
@@ -5856,7 +5896,7 @@ async function renderAtencion(monthId, opts = {}) {
               <span class="material-symbols-outlined text-primary text-5xl mb-3 inline-block">work</span>
               <p class="text-on-surface-variant font-body-lg">No hay semanas para este mes.</p>
             </div>`
-          : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 md:p-8 overflow-x-auto">
+          : `<div class="responsive-table bg-surface-container-lowest rounded-xl border border-outline-variant p-6 md:p-8 overflow-x-auto">
               <table class="w-full text-left border-collapse min-w-[640px]">${thead}<tbody>${rows.join('')}</tbody></table>
             </div>`}
     `;

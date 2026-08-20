@@ -215,25 +215,89 @@ body.is-reader [data-admin] { display: none !important; }
 body.is-reader [data-admin-input] { pointer-events: none; opacity: .55; }
 
 /* Tarjetas de persona (vista Personas y Grupos → Labores) */
-.person-card {
+.person-card,
+.person-card-mobile {
   background: #fff;
   border: 1px solid #e0e3e2;
   border-radius: 14px;
   padding: 14px 16px;
   transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease;
 }
-.person-card:hover {
+.person-card:hover,
+.person-card-mobile:hover {
   box-shadow: 0 6px 22px rgba(0,0,0,.06);
   border-color: #b9c2c0;
 }
-.person-card.is-hidden { display: none; }
-.person-card.is-inactive {
+.person-card.is-hidden,
+.person-card-mobile.is-hidden { display: none; }
+.person-card.is-inactive,
+.person-card-mobile.is-inactive {
   opacity: .55;
   filter: grayscale(.9);
 }
-.person-card.is-inactive:hover {
+.person-card.is-inactive:hover,
+.person-card-mobile.is-inactive:hover {
   opacity: .85;
   filter: none;
+}
+
+@media (max-width: 767px) {
+  .person-card { padding: 12px 13px; }
+  .responsive-table table,
+  .responsive-table thead,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table th,
+  .responsive-table td {
+    display: block;
+    width: 100%;
+  }
+  .responsive-table thead { display: none; }
+  .responsive-table tr {
+    margin-bottom: 12px;
+    border: 1px solid #e0e3e2;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-bottom: 1px solid #ecefee;
+    white-space: normal !important;
+  }
+  .responsive-table td::before {
+    content: attr(data-label);
+    flex: 0 0 88px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #6b6454;
+  }
+  .responsive-table td:last-child { border-bottom: 0; }
+  .responsive-table td[colspan] {
+    display: block;
+  }
+  .responsive-table td[colspan]::before {
+    display: none;
+    content: '';
+  }
+  .responsive-table table { min-width: 0 !important; border-spacing: 0 !important; }
+  .cfg-event-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cfg-event-row .cfg-date,
+  .cfg-event-row input,
+  .cfg-event-row select {
+    width: 100%;
+    min-width: 0;
+  }
+  .cfg-event-row .cfg-del { align-self: flex-end; }
 }
 
 /* Chip de labor (asignación rápida por persona) */
