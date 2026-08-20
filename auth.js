@@ -1,5 +1,5 @@
-// auth.js - Capa de autenticación con Supabase Auth (reemplaza a Firebase)
-// ========================================================================
+// auth.js - Capa de autenticación con Supabase Auth
+// ==================================================
 // Maneja login/logout, sesión persistente, usuario actual y rol (admin/reader).
 // La seguridad real la aplican las políticas RLS de Postgres; aquí solo se
 // expone el estado de autenticación para la interfaz.
@@ -7,8 +7,8 @@
 // Mientras Supabase no esté configurado, auth.js queda inactivo: isAuthenticated()
 // devuelve false y las funciones de sesión no hacen nada (la app sigue offline).
 
-import { isFirebaseConfigured, getFirebaseApp } from './firebase-config.js';
-import { obtenerUsuario, guardarUsuario, obtenerConfiguracion } from './firestore.js';
+import { isSupabaseConfigured, getSupabase } from './supabase-config.js?v=217';
+import { obtenerUsuario, guardarUsuario, obtenerConfiguracion } from './supabase.js?v=217';
 
 let _sb = null;
 let _currentUser = null;      // { uid, email, rol }
@@ -17,9 +17,9 @@ let _listeners = new Set();
 // Inicializa el cliente de Supabase de forma perezosa.
 async function initAuth() {
   if (_sb) return _sb;
-  if (!isFirebaseConfigured()) return null;
+  if (!isSupabaseConfigured()) return null;
   try {
-    _sb = await getFirebaseApp();
+    _sb = await getSupabase();
     return _sb;
   } catch (e) {
     console.warn('[Reunión+] Supabase Auth no disponible', e);

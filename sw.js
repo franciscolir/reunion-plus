@@ -1,7 +1,7 @@
 // sw.js - Service Worker para Reunión+
 // Estrategia: cache-first para el app shell; network-first con fallback para Tailwind CDN y fuentes.
 
-const CACHE_VERSION = 'rp-v216';
+const CACHE_VERSION = 'rp-v217';
 const APP_SHELL = [
   './',
   './index.html',
@@ -11,9 +11,8 @@ const APP_SHELL = [
   './logic.js',
   './epub.js',
   './xlsx.js',
-  './firebase-config.js',
   './supabase-config.js',
-  './firestore.js',
+  './supabase.js',
   './auth.js',
   './migracion.js',
   './sync.js',

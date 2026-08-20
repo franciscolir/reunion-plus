@@ -4,14 +4,14 @@ Contexto del proyecto para agentes de IA (incluido OpenSpec).
 
 ## Qué es Reunión+
 
-PWA ("reunión-plus") para confeccionar el **programa mensual de reuniones** de congregación (testigos de Jehová). Interfaz 100% en español. Sin build: HTML/JS/CSS vanilla servidos como estáticos; funciona offline (Service Worker + IndexedDB) y se sincroniza opcionalmente con **Cloud Firestore** (Firebase).
+PWA ("reunión-plus") para confeccionar el **programa mensual de reuniones** de congregación (testigos de Jehová). Interfaz 100% en español. Sin build: HTML/JS/CSS vanilla servidos como estáticos; funciona offline (Service Worker + IndexedDB) y se sincroniza opcionalmente con **Supabase** (Postgres + Auth + RLS).
 
-Proyecto: `reunion-b6f14` · Repo: `https://github.com/franciscolir/reunion-plus` · Rama única: `main`.
+Repo: `https://github.com/franciscolir/reunion-plus` (público) · Rama única: `main` · Hosting: **GitHub Pages**.
 
 ## Arquitectura
 
 - **Sin framework ni bundler.** Todo son scripts globales cargados en `index.html`. Las funciones se llaman entre módulos de forma global (`window`).
-- **Persistencia primaria: IndexedDB** (`reunion-plus`, versión 7). Firestore es la fuente de verdad remota; `sync.js` hace pull/push con cola de cambios offline.
+- **Persistencia primaria: IndexedDB** (`reunion-plus`, versión 7). Supabase (Postgres) es la fuente de verdad remota; `sync.js` hace pull/push con cola de cambios offline.
 - **Router por hash**: `location.hash` → `#/vista` (ver Router abajo).
 - **UI con Tailwind CDN** + `styles.css` custom + Material Symbols (íconos). Selectores de personas con `<input list>`/datalist.
 - **PDF**: parseo con `vendor/pdfjs/` (PDF.js v12.17.1) local. `logic.js` extrae títulos/participantes de los PDFs.
@@ -21,17 +21,20 @@ Proyecto: `reunion-b6f14` · Repo: `https://github.com/franciscolir/reunion-plus
 ```
 index.html          Shell SPA + nav (botones con data-route / data-go)
 app.js              Router, vistas (render*), modales, validación, exportación (5.4k líneas)
-logic.js            Funciones puras puras (asignación automática, parseadores PDF, historial, testeadas)
+logic.js            Funciones puras puras (asignación automática, parseadores PDF/EPUB, historial, testeadas)
 db.js               Capa IndexedDB (stores + CRUD + reset)
-firestore.js        Capa de acceso a Firestore (snapshots, batch, CRUD)
-auth.js             Autenticación Firebase (login/logout/sesión/rol)
-sync.js             Sync IndexedDB ↔ Firestore (cola offline, pull/push, conciliación)
-migracion.js        Migración datos local → Firestore
-firestore.rules     Reglas de seguridad (desplegadas en producción)
-sw.js               Service Worker (cache offline, versión `rp-v123`)
+supabase.js         Capa de acceso a Supabase (Postgres + RLS; batch, CRUD)
+supabase-config.js  Credenciales Supabase (Project URL + anon key) — NO versionada
+auth.js             Autenticación Supabase Auth (login/logout/sesión/rol)
+sync.js             Sync IndexedDB ↔ Supabase (cola offline, pull/push, conciliación)
+migracion.js        Migración datos local → Supabase
+epub.js             Extracción de texto de EPUB (Guía de Actividades)
+xlsx.js             Plantilla .xlsx de participantes (generación y lectura)
+supabase/schema.sql Esquema de tablas y políticas RLS (SQL Editor)
+sw.js               Service Worker (cache offline, versión `rp-v***`)
 servidor.ps1        Servidor local opcional (http://localhost:5556/) — NO versionado
 tests.mjs           Tests unitarios de logic.js (node)
-GUIA-DESPLIEGUE.md  Documentación de despliegue Firebase
+GUIA-DESPLIEGUE.md  Documentación de despliegue (Supabase + GitHub Pages)
 ```
 
 ## Stores de IndexedDB (db.js)
@@ -51,12 +54,13 @@ GUIA-DESPLIEGUE.md  Documentación de despliegue Firebase
 
 Migraciones de esquema se manejan en `openDB()` (DB_VERSION 7). El store `labores` se renombró a `atencion`.
 
-## Colecciones de Firestore (firestore.rules)
+## Tablas de Supabase (supabase/schema.sql)
 
-`usuarios/{uid}` (rol admin/reader) · `participantes/{id}` · `grupos/{id}` · `reuniones/{id}` (entre semana, id "YYYY-MM-DD") · `programas/{mes}` (mensual agregado) · `asignaciones/{id}` · `discursos/{num}` · `configuracion/{id}`.
+`usuarios` (rol admin/reader) · `participantes` · `grupos` · `reuniones` (entre semana, id "YYYY-MM-DD") · `programas` (mensual agregado) · `asignaciones` · `discursos` · `configuracion`.
 
-- Lectura: cualquier usuario autenticado. Escritura: solo `admin` (`esAdmin()` verifica `usuarios/{uid}.rol == 'admin'`).
-- La seguridad vive en las reglas, no en ocultar botones en la UI.
+- Modelo documento: cada tabla tiene `id text PK` + `data jsonb` + `updated_at`. El documento de la app vive entero en `data`.
+- Lectura: usuarios autenticados cuyo correo está en la whitelist (`configuracion.data.config.emailsPermitidos`) o son admin (`usuarios.data.rol = 'admin'`). Escritura: solo `admin`.
+- La seguridad vive en las políticas RLS, no en ocultar botones en la UI.
 
 ## Router (app.js → router())
 
@@ -66,9 +70,9 @@ Los botones de la navegación usan `data-go` (desktop) / `data-route` (sidebar).
 
 ## Carga de Archivos (vista `uploads`)
 
-- **Conferencias**: PDF → extraer títulos numerados → reescribir colección `discursos`.
-- **Personas**: descargar plantilla `.xls` (HTML table, `application/vnd.ms-excel`) con columnas *Nombre / Género / Calificación / Grupo / Labores* → llenarla → convertir a PDF → subir → extraer datos → reescribir colección `participantes`.
-- **Guía de Actividades**: PDF → extraer semanas → **carga acumulativa por fecha** (cada semana va a `midweeks` por id "YYYY-MM-DD"; si la fecha ya existe pregunta si reescribir).
+- **Conferencias**: PDF → extraer títulos numerados → reescribir tabla `discursos`.
+- **Personas**: descargar plantilla `.xlsx` (con listas desplegables: Nombre / Sexo / Calificación / Cargo / Grupo) → llenarla → subir el `.xlsx` → extraer datos → reescribir tabla `participantes`.
+- **Guía de Actividades**: PDF o **EPUB** → extraer semanas → **carga acumulativa por fecha** (cada semana va a `midweeks` por id "YYYY-MM-DD"; si la fecha ya existe pregunta si reescribir).
 - **Resumen de base de datos interactivo**: tarjetas clicables con CRUD — Personas, Conferencias, Departamentos, Semanas de entre semana (modales `openPeopleListModal`, `openTalksListModal`, `openDepartmentsListModal`, `openMidweeksListModal`, `promptText`).
 
 ## Funciones clave de logic.js
@@ -81,15 +85,15 @@ Los botones de la navegación usan `data-go` (desktop) / `data-route` (sidebar).
 
 - **NUNCA añadir comentarios al código** salvo que se pida explícitamente.
 - UI y textos de la app en **español**. Código (variables, funciones) en inglés mayormente.
-- **No versionar**: `servidor.ps1`, `WhatsApp Video*.mp4`, `mwb_S_*.pdf`, `plantilla-participantes.xls`, `node_modules/`, `openspec/` (decidir). `S-99_S.pdf` tampoco (copyright) — la lista de discursos vive en Firestore.
+- **No versionar**: `servidor.ps1`, `WhatsApp Video*.mp4`, `mwb_S_*.pdf`, `plantilla-participantes.xls`, `plantilla-participantes.xlsx`, `supabase-config.js`, `node_modules/`, `openspec/` (decidir). `S-99_S.pdf` tampoco (copyright) — la lista de discursos vive en Supabase (tabla `discursos`).
 - `npm install` instala las dependencias de desarrollo para tests (`@playwright/test`, `fake-indexeddb`). Los tests se corren con npm scripts o Node directo:
   - **Unitarios**: `node tests.mjs` (320 PASS, `assert` de Node sobre funciones puras de `logic.js`).
   - **Integración**: `node tests-integration.mjs` (capa de datos real: `db.js` sobre IndexedDB con `fake-indexeddb` + flujos cruzados PDF→lógica→persistencia).
-  - **E2E**: `npm run test:e2e` (Playwright, Chromium; sirve la app local con `firebase-config.js` mockeado para correr offline — requiere `npx playwright install chromium` la primera vez).
+  - **E2E**: `npm run test:e2e` (Playwright, Chromium; sirve la app local con `supabase-config.js` mockeado para correr offline — requiere `npx playwright install chromium` la primera vez).
   - **Todo**: `npm run test:all`.
   - Después de tocar `logic.js`, `app.js`, `db.js` o la UI correr al menos unitarios + integración; para cambios de UI, además E2E.
 - El Service Worker cachea con versión; al cambiar archivos subir el número `rp-v***` (sw.js) y `?v=***` (cargas en index.html).
-- Commit en español, estilo conventional: `feat(firestore): ...`, `fix(...): ...`, `docs: ...`.
+- Commit en español, estilo conventional: `feat(supabase): ...`, `fix(...): ...`, `docs: ...`.
 - Rama actual: `main` (única). PRs a `main` desde feature branches.
 
 ## Comandos útiles

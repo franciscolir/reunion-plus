@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp index.html app.js db.js logic.js epub.js xlsx.js firestore.js firebase-config.js supabase-config.js auth.js migracion.js sync.js styles.css manifest.json favicon.png sw.js dist/
+          cp index.html app.js db.js logic.js epub.js xlsx.js supabase.js supabase-config.js auth.js migracion.js sync.js styles.css manifest.json favicon.png sw.js dist/
           cp -r fonts icons vendor dist/
           touch dist/.nojekyll
 

@@ -1,7 +1,7 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
-import { isFirebaseConfigured } from './firebase-config.js';
-import { isFirebaseReady, borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones } from './firestore.js';
+import { isSupabaseConfigured } from './supabase-config.js?v=217';
+import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones } from './supabase.js?v=217';
 import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
 import { login, loginWithGoogle, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
@@ -60,14 +60,14 @@ async function init() {
   await refreshCatalogs();
   registerSW();
   bindGlobal();
-  // Sincronización con Firebase (si está configurado). No bloquea el arranque.
+  // Sincronización con Supabase (si está configurado). No bloquea el arranque.
   iniciarSync().then(() => mostrarBannerBorrador()).catch(() => {});
   // Autenticación: restaurar sesión persistente y actualizar la UI.
   onAuthChange((user) => {
     renderAuthUI();
     // Al cambiar la sesión, refrescar la vista Inicio (bienvenida ↔ tablero).
     if (state.view === 'home') router();
-    // Al iniciar sesión en un dispositivo sin datos locales, traer de Firebase.
+    // Al iniciar sesión en un dispositivo sin datos locales, traer de Supabase.
     if (user && isAuthenticated()) pullSiVacio().catch(() => {});
     if (user && isAuthenticated()) reconciliar().catch(() => {});
   });
@@ -185,7 +185,7 @@ function initSyncIndicator() {
 
 // Aviso de borrador local no guardado (spec 46): al reabrir la app SIN conexión
 // con cambios locales pendientes, se ofrece Continuar borrador o Descartarlo
-// (volver a la última versión confirmada en Firebase).
+// (volver a la última versión confirmada en Supabase).
 function mostrarBannerBorrador() {
   if (!navigator.onLine || !hayCambiosPendientes()) return;
   if (document.getElementById('draftBanner')) return;
@@ -285,14 +285,14 @@ function bindGlobal() {
   updateOnline();
 }
 
-// Estado de la autenticación en la interfaz (Fase 6). Si Firebase no está
+// Estado de la autenticación en la interfaz (Fase 6). Si Supabase no está
 // configurado, el botón queda oculto y la app funciona sin login.
 function renderAuthUI() {
   const btn = document.getElementById('authBtn');
   const label = document.getElementById('authBtnLabel');
   const badge = document.getElementById('sideAuthBadge');
   const user = currentUser();
-  if (!isFirebaseConfigured()) {
+  if (!isSupabaseConfigured()) {
     if (btn) btn.style.display = 'none';
     if (badge) badge.classList.add('hidden');
     return;
@@ -313,7 +313,7 @@ function renderAuthUI() {
     badge.textContent = '';
   }
   // Ocultar/mostrar acciones administrativas según el rol (solo UX; la seguridad
-  // real está en Firestore Security Rules).
+  // real está en las políticas RLS de Supabase).
   document.body.classList.toggle('is-reader', !!user && user.rol !== 'admin');
   document.body.classList.toggle('is-admin', !!user && user.rol === 'admin');
   document.body.classList.toggle('is-logged', !!user);
@@ -525,11 +525,11 @@ function confirmDialog(message, okText = 'Confirmar') {
 }
 
 /* ---------- Top + Side ---------- */
-// Bloqueo real de la app: si Firebase está configurado y no hay sesión, la única
+// Bloqueo real de la app: si Supabase está configurado y no hay sesión, la única
 // pantalla accesible es la bienvenida con el botón de inicio de sesión. La
-// seguridad efectiva la impone `firestore.rules`; esta es la capa de UI.
+// seguridad efectiva la imponen las políticas RLS de Supabase; esta es la capa de UI.
 function appBloqueada() {
-  return isFirebaseConfigured() && !isAuthenticated();
+  return isSupabaseConfigured() && !isAuthenticated();
 }
 
 function renderTop() {
@@ -605,7 +605,7 @@ function renderWelcome() {
 
 async function renderHome() {
   state.month = null;
-  if (isFirebaseConfigured() && !isAuthenticated()) { renderWelcome(); return; }
+  if (isSupabaseConfigured() && !isAuthenticated()) { renderWelcome(); return; }
   const months = await db.listMonths();
   months.sort((a, b) => b.id.localeCompare(a.id));
   _homeMonths = months;
@@ -1504,7 +1504,7 @@ function confirmarRegeneracion(month, scope) {
 
 // Genera (o regenera) el ámbito de un mes usando el motor único: borra SOLO las
 // asignaciones automáticas del ámbito, conserva manuales/bloqueadas, ejecuta y
-// persiste como borrador local (el botón Guardar del editor sube a Firebase).
+// persiste como borrador local (el botón Guardar del editor sube a Supabase).
 async function generateProgram(month, scope) {
   const [midweeks, months, salidas, atencion] = await Promise.all([
     db.listMidweeks(), db.listMonths(), db.listSalidas(), db.listAtencion(),

@@ -1,5 +1,5 @@
 // playwright.config.mjs - Configuración de tests E2E (Playwright)
-// Sirve la app localmente con Firebase desactivado (firebase-config vacío),
+// Sirve la app localmente con Supabase desactivado (supabase-config vacío),
 // de modo que la app corre 100% offline sobre IndexedDB.
 import { defineConfig } from '@playwright/test';
 

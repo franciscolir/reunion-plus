@@ -1,14 +1,14 @@
-// sync.js - Sincronización IndexedDB ↔ Firestore (Fase 5)
+// sync.js - Sincronización IndexedDB ↔ Supabase (Fase 5)
 // =========================================================
-// Conecta el punto único de escritura de db.js (onSync) con Firestore para que
+// Conecta el punto único de escritura de db.js (onSync) con Supabase para que
 // los cambios locales se reflejen en la nube, y descarga la nube al iniciar.
 //
 // Opción A aprobada: IndexedDB sigue siendo la fuente de verdad local (offline);
-// Firestore actúa como espejo en la nube. Esta capa NO reemplaza las lecturas
+// Supabase actúa como espejo en la nube. Esta capa NO reemplaza las lecturas
 // de la app: la app sigue leyendo de db.js y esta capa sincroniza en segundo
 // plano.
 //
-// Mapeo store local → colección Firestore:
+// Mapeo store local → colección Supabase:
 //   people      → participantes   (con transformación de campos)
 //   departments → grupos
 //   midweeks    → reuniones
@@ -17,8 +17,8 @@
 //   settings    → configuracion/general
 
 import * as db from './db.js';
-import { batchWrite, isFirebaseReady } from './firestore.js';
-import { isFirebaseConfigured } from './firebase-config.js';
+import { batchWrite, isSupabaseReady } from './supabase.js?v=217';
+import { isSupabaseConfigured } from './supabase-config.js?v=217';
 import { isAdmin, isAuthenticated } from './auth.js';
 
 let _enabled = false;
@@ -26,7 +26,7 @@ let _syncing = false;
 let _lastStatus = { state: 'inactivo', detail: '', at: null };
 let _dirty = false;
 
-// ¿Hay cambios locales aún sin confirmar en Firebase? (nube roja)
+// ¿Hay cambios locales aún sin confirmar en Supabase? (nube roja)
 export function hayCambiosPendientes() {
   return _dirty;
 }
@@ -68,7 +68,7 @@ export function isSyncEnabled() {
   return _enabled;
 }
 
-// Última fecha/hora de un guardado CONFIRMADO en Firebase (no un cambio local).
+// Última fecha/hora de un guardado CONFIRMADO en Supabase (no un cambio local).
 let _lastSavedAt = null;
 export function lastSavedAt() {
   return _lastSavedAt;
@@ -99,7 +99,7 @@ function marcarLocal(store) {
 export async function subirStores(stores) {
   if (!_enabled) return { error: 'inactivo' };
   if (!navigator.onLine) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'offline' }; }
-  if (!(await isFirebaseReady())) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'firebase-no-disponible' }; }
+  if (!(await isSupabaseReady())) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'supabase-no-disponible' }; }
   setStatus('syncing', 'guardando cambios…');
   for (const s of (stores || [])) {
     if (PROGRAM_STORES.has(s)) await pushStore(s);
@@ -108,13 +108,13 @@ export async function subirStores(stores) {
 }
 
 // Descarta el borrador local: vacía la cola de pendientes y deja el estado
-// "sincronizado" (se llama tras restaurar desde Firebase).
+// "sincronizado" (se llama tras restaurar desde Supabase).
 export async function descartarLocal() {
   await guardarPendientes([]);
   await marcarSegunPendientes();
 }
 
-// Convierte un registro de personas (IndexedDB) a documento Firestore.
+// Convierte un registro de personas (IndexedDB) a documento Supabase.
 function personaADocumento(p) {
   return {
     collection: 'participantes',
@@ -133,7 +133,7 @@ function personaADocumento(p) {
   };
 }
 
-// Convierte un registro de grupo (departments) a documento Firestore.
+// Convierte un registro de grupo (departments) a documento Supabase.
 function grupoADocumento(g) {
   return {
     collection: 'grupos',
@@ -148,7 +148,7 @@ function grupoADocumento(g) {
   };
 }
 
-// Convierte una semana de entre semana (midweeks) a documento Firestore.
+// Convierte una semana de entre semana (midweeks) a documento Supabase.
 function reunionADocumento(mw) {
   return {
     collection: 'reuniones',
@@ -174,7 +174,7 @@ function reunionADocumento(mw) {
 }
 
 // Convierte los 4 programas del mes (months/salidas/atencion/aseos) a UN
-// documento Firestore programas/{mes}. Devuelve null si no hay ningún dato.
+// documento Supabase programas/{mes}. Devuelve null si no hay ningún dato.
 async function mesADocumento(mes, version = 0) {
   const [month, sal, ate, aseo] = await Promise.all([
     db.getMonth(mes),
@@ -234,14 +234,14 @@ async function mesADocumento(mes, version = 0) {
   };
 }
 
-// Sube los datos de un store local modificado a Firestore.
+// Sube los datos de un store local modificado a Supabase.
 // Si no hay red o falla, el store queda PENDIENTE para reintentarse cuando haya
 // conexión (cola de sincronización offline).
 async function pushStore(store) {
   if (!_enabled) return;
   if (_syncing) { await encolarPendienteAsync(store); marcarDirty(); return; }
   if (!navigator.onLine) { await encolarPendienteAsync(store); marcarDirty(); return; }
-  const ready = await isFirebaseReady();
+  const ready = await isSupabaseReady();
   if (!ready) { await encolarPendienteAsync(store); marcarDirty(); return; }
   _syncing = true;
   let errorSync = false;
@@ -275,9 +275,9 @@ async function pushStore(store) {
         ...(await db.listAtencion()).map(a => String(a.id)),
         ...(await db.listAseos()).map(a => String(a.id)),
       ]);
-      // Control de versiones (spec 24): si algún mes cambió en Firebase desde la
+      // Control de versiones (spec 24): si algún mes cambió en Supabase desde la
       // última sincronización conocida, NO sobrescribir en silencio.
-      const f = await import('./firestore.js');
+      const f = await import('./supabase.js?v=217');
       const versiones = await leerVersiones();
       const conflictos = [];
       const docs = [];
@@ -293,7 +293,7 @@ async function pushStore(store) {
         if (d) docs.push(d);
       }
       if (conflictos.length) {
-        setStatus('error', `Los datos cambiaron en Firebase: ${conflictos.join(', ')}. Actualiza antes de guardar.`);
+        setStatus('error', `Los datos cambiaron en Supabase: ${conflictos.join(', ')}. Actualiza antes de guardar.`);
         return;
       }
       await batchWrite(docs);
@@ -342,11 +342,11 @@ async function pushStore(store) {
   } catch (e) {
     console.warn('[Reunión+] Error al sincronizar store', store, e);
     errorSync = true;
-    // Cupo de Firestore superado: NO encolar para no martillar el backend con
+    // Cupo de Supabase superado: NO encolar para no martillar el backend con
     // reintentos (el SDK ya aplica backoff). Se informa y se deja como local.
     const msg = String((e && (e.code || e.message)) || e || '');
     if (e && (e.code === 'resource-exhausted' || /quota|resource-exhausted/i.test(msg))) {
-      setStatus('error', 'Cupo de Firebase superado: los cambios quedan en este dispositivo y se subirán más tarde.');
+      setStatus('error', 'Cupo de Supabase superado: los cambios quedan en este dispositivo y se subirán más tarde.');
       return;
     }
     // Queda pendiente para reintentar cuando haya conexión.
@@ -388,7 +388,7 @@ async function guardarVersiones(v) {
   await db.setSettingSilent(SETTING_VERSIONES, v || {});
 }
 
-// Sincroniza las versiones locales desde los documentos descargados de Firebase.
+// Sincroniza las versiones locales desde los documentos descargados de Supabase.
 async function adoptarVersiones(programas) {
   const v = await leerVersiones();
   let cambio = false;
@@ -432,7 +432,7 @@ export async function pendientesPendientes() {
 export async function drenarPendientes() {
   if (!_enabled) return;
   if (!navigator.onLine) return;
-  if (!(await isFirebaseReady())) return;
+  if (!(await isSupabaseReady())) return;
   const pend = await leerPendientes();
   if (!pend.length) return;
   setStatus('syncing', 'sincronizando pendientes…');
@@ -450,20 +450,20 @@ export async function drenarPendientes() {
   else { setStatus('ok', 'pendientes sincronizados'); await registrarGuardado(); }
 }
 
-// Subida forzada de todos los datos locales a Firebase. La usa el botón
+// Subida forzada de todos los datos locales a Supabase. La usa el botón
 // "Guardar cambios" del encabezado: garantiza que todo lo que hay en IndexedDB
 // se refleje en la nube aunque la cola de pendientes esté vacía.
 export async function sincronizarAhora() {
-  if (!isFirebaseConfigured()) return { error: 'no-configurado' };
+  if (!isSupabaseConfigured()) return { error: 'no-configurado' };
   if (!navigator.onLine) return { error: 'offline' };
-  if (!(await isFirebaseReady())) return { error: 'firebase-no-disponible' };
+  if (!(await isSupabaseReady())) return { error: 'supabase-no-disponible' };
   if (!isAuthenticated()) return { error: 'sin-sesion' };
   if (_syncing) return { error: 'ocupado' };
   if (!_enabled) await iniciarSync();
   setStatus('syncing', 'subiendo cambios…');
   const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings'];
   for (const store of stores) await pushStore(store);
-  // Si algún store falló por cupo de Firebase, informarlo (no dar éxito).
+  // Si algún store falló por cupo de Supabase, informarlo (no dar éxito).
   if (_lastStatus && _lastStatus.state === 'error') {
     return { error: 'quota-exceeded' };
   }
@@ -477,16 +477,16 @@ export async function sincronizarAhora() {
   return { ok: true };
 }
 
-// Descarga todos los datos de Firestore y los escribe en IndexedDB (pull).
+// Descarga todos los datos de Supabase y los escribe en IndexedDB (pull).
 // Sobrescribe local con lo de la nube. Solo se invoca si no hay datos locales
-// (primer uso en otro dispositivo) o al pulsar "Descargar desde Firebase".
+// (primer uso en otro dispositivo) o al pulsar "Descargar desde Supabase".
 export async function pullAll() {
-  if (!(await isFirebaseReady())) return { error: 'firebase-no-disponible' };
+  if (!(await isSupabaseReady())) return { error: 'supabase-no-disponible' };
   // Desactivar sync durante la escritura local para evitar bucles.
   const estaba = _enabled;
   _enabled = false;
   try {
-    const f = await import('./firestore.js');
+    const f = await import('./supabase.js?v=217');
     const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos] = await Promise.all([
       f.obtenerParticipantes(),
       f.obtenerGrupos(),
@@ -598,9 +598,9 @@ async function desplegarPrograma(prog) {
 // store local está vacío (primer uso en el dispositivo). Reintenta pendientes.
 export async function iniciarSync() {
   if (_enabled) return;
-  if (!isFirebaseConfigured()) { setStatus('inactivo', 'Firebase no configurado'); return; }
-  const ready = await isFirebaseReady();
-  if (!ready) { setStatus('inactivo', 'Firebase no disponible'); return; }
+  if (!isSupabaseConfigured()) { setStatus('inactivo', 'Supabase no configurado'); return; }
+  const ready = await isSupabaseReady();
+  if (!ready) { setStatus('inactivo', 'Supabase no disponible'); return; }
   _enabled = true;
   db.onSync(marcarLocal);
   const saved = await db.getSetting('lastSavedAt', null).catch(() => null);
@@ -616,18 +616,18 @@ export async function iniciarSync() {
   await marcarSegunPendientes().catch(() => {});
 }
 
-// Conciliación bidireccional IndexedDB ↔ Firestore.
+// Conciliación bidireccional IndexedDB ↔ Supabase.
 // Compara los ids de cada dominio:
-//   - registros locales que NO existen en Firestore → se suben a la nube (push);
+//   - registros locales que NO existen en Supabase → se suben a la nube (push);
 //   - registros remotos que NO existen en IndexedDB → se descargan a local (pull).
 // No elimina nada en ninguna dirección: solo llena los huecos de ambos lados.
 export async function reconciliar() {
   if (!_enabled || _syncing) return { error: 'inactivo' };
   if (!navigator.onLine) return { error: 'offline' };
   if (!isAuthenticated()) return { error: 'sin-sesion' };
-  if (!(await isFirebaseReady())) return { error: 'firebase-no-disponible' };
+  if (!(await isSupabaseReady())) return { error: 'supabase-no-disponible' };
   _syncing = true;
-  const f = await import('./firestore.js');
+  const f = await import('./supabase.js?v=217');
   const puedeEscribir = isAdmin();
   let subidos = 0, bajados = 0;
   try {
@@ -786,7 +786,7 @@ export async function reconciliar() {
     console.warn('[Reunión+] Error en sync', e);
     const msg = String((e && (e.code || e.message)) || e || '');
     if (e && (e.code === 'resource-exhausted' || /quota|resource-exhausted/i.test(msg))) {
-      setStatus('error', 'Cupo de Firebase superado: se reintentará más tarde.');
+      setStatus('error', 'Cupo de Supabase superado: se reintentará más tarde.');
       return { error: 'quota-exceeded' };
     }
     setStatus('error', 'sync: ' + (e.message || e));
@@ -796,15 +796,15 @@ export async function reconciliar() {
   }
 }
 
-// Si la base local está vacía, descarga los datos desde Firebase. Se usa al
+// Si la base local está vacía, descarga los datos desde Supabase. Se usa al
 // iniciar y después de iniciar sesión (en un segundo dispositivo con la cuenta
 // ya creada, los datos llegan automáticamente).
 export async function pullSiVacio() {
   if (!_enabled) return;
   const [people, programas] = await Promise.all([db.listPeople(), db.listMonths()]);
   if (people.length === 0 && programas.length === 0) {
-    setStatus('syncing', 'descargando datos de Firebase…');
+    setStatus('syncing', 'descargando datos de Supabase…');
     await pullAll();
-    setStatus('ok', 'datos descargados de Firebase');
+    setStatus('ok', 'datos descargados de Supabase');
   }
 }

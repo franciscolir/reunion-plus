@@ -1,13 +1,13 @@
-// migracion.js - Herramienta temporal de migración IndexedDB → Firestore (Fase 4)
+// migracion.js - Herramienta temporal de migración IndexedDB → Supabase (Fase 4)
 // ================================================================================
 // Importa los datos actuales de la aplicación (IndexedDB vía db.exportAll()) al
-// esquema Cloud Firestore aprobado. Es IDEMPOTENTE: cada documento usa el mismo
+// esquema Cloud Supabase aprobado. Es IDEMPOTENTE: cada documento usa el mismo
 // id que en IndexedDB, así que re-ejecutarla sobrescribe sin duplicar.
 //
 // Los archivos JSON NO se eliminan ni se usan aquí como fuente primaria: la
 // fuente de verdad actual es IndexedDB (los JSON solo son seed inicial).
 //
-// Esquema Firestore (aprobado):
+// Esquema Supabase (aprobado):
 //   participantes/{personaId}  { nombre, grupoId, labores[], cargos[], genero,
 //                               calificacion, enlace, activo, updatedAt }
 //   grupos/{grupoId}           { nombre, orden, labores, activo, updatedAt }
@@ -20,12 +20,12 @@
 //   configuracion/general      { congregacion, config, laboresEquipo, updatedAt }
 //   usuarios/{uid}             { email, rol } (se crea al autenticarse)
 
-import { batchWrite } from './firestore.js';
+import { batchWrite } from './supabase.js?v=217';
 import * as db from './db.js';
 
-// Convierte el resultado de db.exportAll() en documentos Firestore planos.
+// Convierte el resultado de db.exportAll() en documentos Supabase planos.
 // Devuelve un array de { collection, id, data } listo para batchWrite.
-export function convertirADocumentosFirestore(exported) {
+export function convertirADocumentosSupabase(exported) {
   const docs = [];
   const now = Date.now();
 
@@ -205,13 +205,13 @@ export function convertirADocumentosFirestore(exported) {
 }
 
 // Ejecuta la migración completa. Devuelve un reporte { colecciones: { colección: n }, total }.
-// Si Firebase no está configurado, devuelve { error: 'firebase-no-configurado' }.
+// Si Supabase no está configurado, devuelve { error: 'supabase-no-configurado' }.
 export async function migrarDatos() {
   const exported = await db.exportAll();
-  const docs = convertirADocumentosFirestore(exported);
+  const docs = convertirADocumentosSupabase(exported);
   const escrito = await batchWrite(docs);
   if (escrito === 0 && docs.length > 0) {
-    return { error: 'firebase-no-configurado', totalDocs: docs.length };
+    return { error: 'supabase-no-configurado', totalDocs: docs.length };
   }
   const reporte = { total: docs.length, escrito, colecciones: {} };
   for (const d of docs) reporte.colecciones[d.collection] = (reporte.colecciones[d.collection] || 0) + 1;

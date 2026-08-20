@@ -112,7 +112,7 @@ function reqToPromise(request) {
 
 // ===== COMMIT / SYNC (punto único de escritura) =====
 // Toda escritura pasa por commit(), que es el único lugar donde se notifica a
-// los hooks de sincronización (p. ej. Firebase). Los hooks se registran con
+// los hooks de sincronización (p. ej. Supabase). Los hooks se registran con
 // onSync(); mientras no haya ninguno (o estén en pausa), los stores modificados
 // se acumulan en una cola pendiente para no perder cambios. Al registrar un
 // hook se drena la cola.
@@ -162,7 +162,7 @@ async function commitSilent(storeName, run) {
 
 // ===== MONTHS =====
 // Normaliza las semanas de un programa: compatibilidad con datos que todavía
-// usan el campo `tipo` (Firestore/migraciones) en lugar de `type`.
+// usan el campo `tipo` (Supabase/migraciones) en lugar de `type`.
 function normalizarWeeks(month) {
   if (!month || !Array.isArray(month.weeks)) return month;
   return {
@@ -706,11 +706,11 @@ export async function clearAssignmentLog() {
 }
 
 // ===== SEED =====
-// Ya no se siembran datos desde archivos JSON: la fuente de verdad es Firestore
+// Ya no se siembran datos desde archivos JSON: la fuente de verdad es Supabase
 // (la app descarga desde la nube al iniciar sesión si la base local está vacía).
 // seedIfEmpty se mantiene como no-op por compatibilidad con init().
 export async function seedIfEmpty() {
-  // Sin seed JSON. Los datos llegan vía sync.js (pull desde Firebase).
+  // Sin seed JSON. Los datos llegan vía sync.js (pull desde Supabase).
 }
 
 // Exportar todo (backup)
@@ -736,7 +736,7 @@ export async function exportAll() {
 
 // ===== Helpers de sincronización (sync.js) =====
 // Escriben en IndexedDB SIN disparar el hook de sync (commitSilent), para evitar
-// bucles al descargar datos desde Firestore. Son de uso interno de sync.js.
+// bucles al descargar datos desde Supabase. Son de uso interno de sync.js.
 
 // Reemplaza todas las personas desde la nube (participantes).
 export async function replaceAllPeopleSilent(people) {
@@ -867,7 +867,7 @@ export async function replaceAllTalksSilent(talks) {
 
 // ===== Mantenimiento local (borrado de datos) =====
 // Limpia TODOS los stores de IndexedDB (excepto settings de sesión) sin disparar
-// sync. Se usa tras limpiar Firestore para dejar la caché local vacía.
+// sync. Se usa tras limpiar Supabase para dejar la caché local vacía.
 export async function limpiarIndexedDBLocal() {
   const db = await openDB();
   const stores = [STORE_MONTHS, STORE_PEOPLE, STORE_DEPARTMENTS, STORE_TALKS, STORE_MIDWEEKS, STORE_ASEOS, STORE_SALIDAS, STORE_ATENCION, STORE_ASSIGNMENT_LOG];

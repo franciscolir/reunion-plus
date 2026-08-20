@@ -1,26 +1,26 @@
-// firestore.js - Capa de acceso a Supabase (reemplaza a Firestore)
-// =================================================================
+// supabase.js - Capa de acceso a Supabase (Postgres + RLS)
+// =========================================================
 // Cada dominio (participantes, grupos, reuniones, programas, asignaciones,
 // configuración, usuarios) es una tabla Postgres con columnas:
 //   id text PK · data jsonb · updated_at timestamptz
-// El documento (los campos de la app) vive entero en `data` (jsonb), igual que
-// un documento de Firestore. Las reglas de seguridad son políticas RLS.
+// El documento (los campos de la app) vive entero en `data` (jsonb). Las reglas
+// de seguridad son políticas RLS (ver supabase/schema.sql).
 //
 // Si Supabase no está configurado, todas las funciones devuelven null/[] y no
 // hacen ninguna llamada de red (la app sigue funcionando offline con IndexedDB).
 
-import { isFirebaseConfigured, getFirebaseApp } from './firebase-config.js';
+import { isSupabaseConfigured, getSupabase } from './supabase-config.js?v=217';
 
 let _sb = null;
 let _ready = false;
 
 // Inicializa el cliente de Supabase de forma perezosa.
-async function initFirebase() {
+async function initSupabase() {
   if (_ready) return _sb;
   _ready = true;
-  if (!isFirebaseConfigured()) return null;
+  if (!isSupabaseConfigured()) return null;
   try {
-    _sb = await getFirebaseApp();
+    _sb = await getSupabase();
     return _sb;
   } catch (e) {
     console.warn('[Reunión+] Supabase no disponible (¿sin conexión o SDK no cargado?)', e);
@@ -33,7 +33,7 @@ const filaADoc = (r) => ({ id: r.id, ...(r.data || {}) });
 
 // Lee todos los documentos de una tabla (los más recientes primero).
 async function readAll(table) {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return [];
   const { data, error } = await sb.from(table).select('*').order('updated_at', { ascending: false });
   if (error) throw new Error(error.message);
@@ -41,7 +41,7 @@ async function readAll(table) {
 }
 
 async function readDoc(table, id) {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return null;
   const { data, error } = await sb.from(table).select('*').eq('id', String(id)).maybeSingle();
   if (error) throw new Error(error.message);
@@ -49,7 +49,7 @@ async function readDoc(table, id) {
 }
 
 async function writeDoc(table, id, data) {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return null;
   const payload = { ...data, updatedAt: Date.now() };
   if (!payload.createdAt) payload.createdAt = payload.updatedAt;
@@ -62,7 +62,7 @@ async function writeDoc(table, id, data) {
 }
 
 async function deleteDoc(table, id) {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return null;
   const { error } = await sb.from(table).delete().eq('id', String(id));
   if (error) throw new Error(error.message);
@@ -72,7 +72,7 @@ async function deleteDoc(table, id) {
 // Escribe muchos documentos en lote. `docs` = [{ collection, id, data }].
 // Agrupa por tabla y hace upsert por id (idempotente). Devuelve nº escrito.
 export async function batchWrite(docs) {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb || !docs.length) return 0;
   const now = new Date().toISOString();
   const nowNum = Date.now();
@@ -94,8 +94,8 @@ export async function batchWrite(docs) {
 }
 
 // Estado de conexión: true si Supabase está disponible y listo.
-export async function isFirebaseReady() {
-  return !!(await initFirebase());
+export async function isSupabaseReady() {
+  return !!(await initSupabase());
 }
 
 // ===== Participantes =====
@@ -125,14 +125,14 @@ export const eliminarPrograma = (id) => deleteDoc('programas', id);
 // ===== Asignaciones (historial) =====
 export const obtenerAsignaciones = () => readAll('asignaciones');
 export const obtenerAsignacionesPorMes = async (mesId) => {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return [];
   const { data, error } = await sb.from('asignaciones').select('*').eq('data->>programaId', String(mesId));
   if (error) throw new Error(error.message);
   return (data || []).map(filaADoc);
 };
 export const obtenerAsignacionesPorParticipante = async (personaId) => {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return [];
   const { data, error } = await sb.from('asignaciones')
     .select('*').eq('data->>participanteId', String(personaId))
@@ -157,7 +157,7 @@ export const guardarUsuario = (uid, data) => writeDoc('usuarios', uid, data);
 
 // ===== Mantenimiento (borrado de datos) =====
 export async function borrarColeccionExcepto(table, exceptIds = []) {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return 0;
   let q = sb.from(table).delete();
   if (exceptIds.length) q = q.not('id', 'in', exceptIds.map(String));
@@ -167,7 +167,7 @@ export async function borrarColeccionExcepto(table, exceptIds = []) {
 }
 
 export async function limpiarTodasLasColecciones(exceptUid = '') {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return 0;
   const tablas = ['participantes', 'grupos', 'reuniones', 'programas', 'asignaciones', 'configuracion'];
   let total = 0;
@@ -177,7 +177,7 @@ export async function limpiarTodasLasColecciones(exceptUid = '') {
 }
 
 export async function borrarParticipantesReunionesProgramas() {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return 0;
   let total = 0;
   for (const t of ['participantes', 'reuniones', 'programas', 'asignaciones']) total += await borrarColeccionExcepto(t);
@@ -185,7 +185,7 @@ export async function borrarParticipantesReunionesProgramas() {
 }
 
 export async function borrarSoloParticipantes() {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return 0;
   let total = 0;
   for (const t of ['participantes']) total += await borrarColeccionExcepto(t);
@@ -193,7 +193,7 @@ export async function borrarSoloParticipantes() {
 }
 
 export async function borrarSoloReuniones() {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return 0;
   let total = 0;
   for (const t of ['reuniones']) total += await borrarColeccionExcepto(t);
@@ -201,7 +201,7 @@ export async function borrarSoloReuniones() {
 }
 
 export async function borrarSoloProgramas() {
-  const sb = await initFirebase();
+  const sb = await initSupabase();
   if (!sb) return 0;
   let total = 0;
   for (const t of ['programas', 'asignaciones']) total += await borrarColeccionExcepto(t);

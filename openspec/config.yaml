@@ -7,12 +7,12 @@ context: |
   App para confeccionar el programa mensual de reuniones de congregación (testigos de Jehová).
   Interfaz 100% en español. Sin build: HTML/JS/CSS vanilla (scripts globales en window).
   Offline: Service Worker (sw.js, caché rp-v***) + IndexedDB (db.js, "reunion-plus" v7).
-  Cloud: Firebase Cloud Firestore (proyecto reunion-b6f14) con roles admin/reader; sync.js hace pull/push con cola offline.
+  Cloud: Supabase (Postgres + Auth + RLS) con roles admin/reader; sync.js hace pull/push con cola offline. Hosting: GitHub Pages.
   Router por hash: #/vista (app.js router()).
-  Archivos clave: app.js (5.4k líneas), logic.js (funciones puras testeadas), db.js, firestore.js, auth.js, sync.js.
+  Archivos clave: app.js (5.4k líneas), logic.js (funciones puras testeadas), db.js, supabase.js, auth.js, sync.js.
   Vistas: new, auto, edit, preview, outings, lists, uploads, eventos, midweeks/midweek/midweekPreview/midweekMonthPreview/midweekList, atencion/atencionGrupo, salidas, general, settings, about, home.
   Stores IndexedDB: months, people, departments, settings, talks, midweeks, aseos, salidas, atencion, assignment_log.
-  Carga de archivos (vista uploads): Conferencias (PDF->discursos), Personas (plantilla .xls -> PDF -> participantes), Guía de Actividades (PDF -> midweeks acumulativo por fecha), resumen interactivo con modales CRUD.
+  Carga de archivos (vista uploads): Conferencias (PDF->discursos), Personas (plantilla .xlsx con desplegables -> participantes), Guía de Actividades (PDF o EPUB -> midweeks acumulativo por fecha), resumen interactivo con modales CRUD.
   Tests: node tests.mjs (259 PASS, usa assert de Node). No usar npm install para tests.
   Convenciones: NUNCA añadir comentarios al código salvo que se pida; UI en español; commits conventional en español.
   Ver AGENTS.md para el contexto completo del proyecto.

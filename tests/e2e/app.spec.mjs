@@ -1,5 +1,5 @@
 // tests/e2e/app.spec.mjs - Tests end-to-end de Reunión+
-// Corren contra la app servida localmente con Firebase mockeado (offline),
+// Corren contra la app servida localmente con Supabase mockeado (offline),
 // de modo que IndexedDB es la única fuente de datos. Cada test usa un
 // contexto de navegador nuevo (base de datos vacía).
 import { test, expect } from '@playwright/test';
