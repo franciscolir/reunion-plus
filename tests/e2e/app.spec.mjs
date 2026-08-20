@@ -122,6 +122,41 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Labor eliminada');
   });
 
+  test('columna Grupo muestra el nombre aunque el grupo esté oculto', async ({ page }) => {
+    const seed = {
+      people: [{ name: 'Diana Sol', genero: 'femenino', calificacion: 'B', labores: [], grupoId: 3 }],
+      departments: [{ id: 3, name: 'Grupo 3', activo: false }],
+    };
+    await page.addInitScript(({ people, departments }) => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['people', 'departments', 'settings'], 'readwrite');
+        people.forEach(p => tx.objectStore('people').add(p));
+        departments.forEach(d => tx.objectStore('departments').add(d));
+        tx.objectStore('settings').put({ congregation: 'Congregación Test', lastMonthId: '2026-08' }, 'congregation');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    }, { people: seed.people, departments: seed.departments });
+    await openApp(page);
+    await gotoLabores(page);
+    const celda = page.locator('.person-card', { hasText: 'Diana Sol' }).locator('td:nth-child(2)');
+    await expect(celda).toHaveText('Grupo 3');
+  });
+
   test('historial de asignaciones muestra la tabla con las personas', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);

@@ -40,6 +40,7 @@ const state = {
   previewMode: 'lista',   // lista | tabla
   people: [],
   departments: [],
+  departmentsAll: [],     // todos los grupos, incluidos los ocultos (inactivos)
   talks: [],              // lista de discursos públicos [{num, title}]
   labores: [],            // labores del equipo [{id, label}]
   midweeks: [],           // reuniones de entre semana
@@ -81,6 +82,7 @@ async function init() {
 async function refreshCatalogs() {
   state.people = await db.listPeople();
   state.departments = await db.listDepartments();
+  state.departmentsAll = await db.listDepartmentsAll();
   state.talks = await db.listTalks();
   state.midweeks = await db.listMidweeks();
   state.config = await db.getConfig();
@@ -8227,7 +8229,11 @@ function pairWarning(sec, p) {
 }
 function deptNameOf(id) {
   if (!id) return '—';
-  const d = state.departments.find(x => String(x.id) === String(id));
+  // Resuelve contra los grupos activos y, si hace falta, también contra los
+  // ocultos (inactivos): una persona puede seguir teniendo su grupo aunque la
+  // congregación lo haya ocultado temporalmente.
+  let d = state.departments.find(x => String(x.id) === String(id));
+  if (!d && Array.isArray(state.departmentsAll)) d = state.departmentsAll.find(x => String(x.id) === String(id));
   return d ? d.name : '—';
 }
 
