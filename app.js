@@ -640,7 +640,7 @@ async function renderHome() {
   _homeAseos = await db.listAseos();
   _homeSalidas = await db.listSalidas();
   _homeAtencion = await db.listAtencion();
-  const generalWeek = currentGeneralWeek();
+  const generalWeek = currentGeneralWeek(homeWeekOffset);
   const app = $('#app');
   app.innerHTML = `
     <div class="mb-6 text-center">
@@ -668,6 +668,10 @@ async function renderHome() {
       </section>
     </div>
   `;
+  const prevWeekBtn = $('[data-home-week-prev]');
+  if (prevWeekBtn) prevWeekBtn.onclick = () => { homeWeekOffset--; renderHome(); };
+  const nextWeekBtn = $('[data-home-week-next]');
+  if (nextWeekBtn) nextWeekBtn.onclick = () => { homeWeekOffset++; renderHome(); };
   document.querySelectorAll('[data-go-mw]').forEach(c => c.onclick = () => {
     const { monday } = currentWeekDates();
     const wk = state.midweeks.find(m => String(m.id) === monday);
@@ -689,17 +693,18 @@ let _homeMonths = [];
 let _homeAseos = [];
 let _homeSalidas = [];
 let _homeAtencion = [];
+let homeWeekOffset = 0;
 
 // Devuelve lunes y sábado (YYYY-MM-DD) de la semana en curso.
-function currentWeekDates() {
+function currentWeekDates(offset = 0) {
   const now = new Date();
   const daysSinceMon = (now.getDay() + 6) % 7; // 0=lunes
-  const monday = new Date(now); monday.setDate(now.getDate() - daysSinceMon);
+  const monday = new Date(now); monday.setDate(now.getDate() - daysSinceMon + (offset * 7));
   const saturday = new Date(monday); saturday.setDate(monday.getDate() + 5);
   return { monday: isoDate(monday), saturday: isoDate(saturday) };
 }
-function currentWeekRangeLabel() {
-  const { monday, saturday } = currentWeekDates();
+function currentWeekRangeLabel(offset = homeWeekOffset) {
+  const { monday, saturday } = currentWeekDates(offset);
   const start = new Date(monday + 'T00:00:00');
   const end = new Date(saturday + 'T00:00:00');
   end.setDate(end.getDate() + 1);
@@ -713,17 +718,17 @@ function currentWeekRangeLabel() {
 }
 
 // Busca la semana del programa mensual cuya fecha (sábado) es la semana en curso.
-function findCurrentFinWeek() {
-  const { saturday } = currentWeekDates();
+function findCurrentFinWeek(offset = 0) {
+  const { saturday } = currentWeekDates(offset);
   for (const m of _homeMonths) {
     const w = (m.weeks || []).find(x => x.date === saturday);
     if (w) return { month: m, week: w };
   }
   return null;
 }
-function currentGeneralWeek() {
-  const { monday, saturday } = currentWeekDates();
-  const finMatch = findCurrentFinWeek();
+function currentGeneralWeek(offset = 0) {
+  const { monday, saturday } = currentWeekDates(offset);
+  const finMatch = findCurrentFinWeek(offset);
   const fin = finMatch ? finMatch.week : null;
   const mw = state.midweeks.find(m => String(m.id) >= monday && String(m.id) <= saturday) || null;
   const aseoWeek = _homeAseos.flatMap(a => a.weeks || []).find(w => w.saturday === saturday) || null;
@@ -6352,10 +6357,11 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
   return `
   <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
     <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-      <h3 class="font-headline-md text-headline-md text-primary">${dashboard ? 'Semana actual' : `Semana ${i + 1}`}</h3>
+      <h3 class="font-headline-md text-headline-md text-primary">${dashboard ? (homeWeekOffset === 0 ? 'Semana actual' : 'Semana siguiente') : `Semana ${i + 1}`}</h3>
       <div class="flex items-center gap-2 flex-wrap">
+        ${dashboard ? `<button data-home-week-prev class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed disabled:opacity-40 disabled:cursor-not-allowed" title="Semana anterior" ${homeWeekOffset === 0 ? 'disabled' : ''}><span class="material-symbols-outlined">chevron_left</span></button>` : ''}
         <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
-        ${dashboard ? '' : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
+        ${dashboard ? `<button data-home-week-next class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed" title="Semana siguiente"><span class="material-symbols-outlined">chevron_right</span></button>` : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
           <span class="material-symbols-outlined text-[16px]">image</span> Imagen
         </button>`}
       </div>
