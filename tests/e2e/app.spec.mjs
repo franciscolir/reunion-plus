@@ -110,6 +110,18 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).toContainText('Perfil actualizado');
   });
 
+  test('gestionar labores desde la pestaña Labores: abre el modal y permite borrar una labor', async ({ page }) => {
+    await openApp(page);
+    await gotoLabores(page);
+    await page.click('[data-tab="departamentos"]');
+    await page.click('#manageLaboresBtn');
+    await expect(page.locator('#modalCard')).toContainText('Labores del equipo');
+    await page.locator('[data-rdel]').first().click();
+    await page.waitForSelector('#mdOk', { state: 'visible' });
+    await page.click('#mdOk');
+    await expect(page.locator('#toastRoot')).toContainText('Labor eliminada');
+  });
+
   test('historial de asignaciones muestra la tabla con las personas', async ({ page }) => {
     await openApp(page);
     await gotoLabores(page);

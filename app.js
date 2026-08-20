@@ -631,7 +631,7 @@ async function renderHome() {
     <!-- Bento Grid -->
     <div class="grid grid-cols-1 md:grid-cols-12 gap-gutter">
       <!-- Columna izquierda: reuniones -->
-      <div class="md:col-span-8 md:grid-rows-1 flex flex-col gap-4">
+      <div class="md:col-span-7 md:grid-rows-1 flex flex-col gap-4">
         <!-- Entre Semana -->
         <div data-go-mw class="flex-1 bg-surface-container-lowest rounded-xl p-6 border border-outline-variant shadow-[0_4px_20px_rgba(0,0,0,0.04)] cursor-pointer hover:shadow-[0_8px_30px_rgba(0,0,0,0.08)] hover:border-primary transition-all" title="Abrir la reunión de entre semana de esta semana">
           <div class="flex items-center justify-between mb-6 gap-3">
@@ -665,7 +665,7 @@ async function renderHome() {
       </div>
 
       <!-- Columna derecha: Aseo y Hospitalidad -->
-      <div class="md:col-span-4 flex">
+      <div class="md:col-span-5 flex">
         <div class="w-full bg-primary-container text-on-primary-container rounded-xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.04)] flex flex-col relative overflow-hidden">
           <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 100% 100%, #ffffff 0%, transparent 50%);"></div>
           <div class="bg-on-tertiary-fixed-variant/30 rounded-xl p-6 border border-on-primary-container/20 relative z-10 flex-1 flex flex-col">
@@ -3261,6 +3261,8 @@ async function renderLists() {
   if (agb) agb.onclick = openGroupAssignmentModal;
   const mgb = $('#manageGroupsBtn');
   if (mgb) mgb.onclick = renderGruposConfigModal;
+  const manageLaboresBtn = $('#manageLaboresBtn');
+  if (manageLaboresBtn) manageLaboresBtn.onclick = renderLaboresModal;
 
   if (isHist) { renderListsHistorial(); return; }
   if (isGrupos) { renderListsGrupos(); return; }
@@ -3269,8 +3271,6 @@ async function renderLists() {
 
   const addMemberBtn = $('#addMemberBtn');
   if (addMemberBtn) addMemberBtn.onclick = openAddMemberModal;
-  const manageLaboresBtn = $('#manageLaboresBtn');
-  if (manageLaboresBtn) manageLaboresBtn.onclick = renderLaboresModal;
   const toggleInactiveBtn = $('#toggleInactive');
   if (toggleInactiveBtn) toggleInactiveBtn.onclick = () => { state.listsShowInactive = !state.listsShowInactive; renderLists(); };
 
