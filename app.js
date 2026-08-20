@@ -331,7 +331,7 @@ function renderAuthUI() {
     btn.title = 'Cerrar sesión';
     label.textContent = user.email || 'Salir';
     badge.classList.remove('hidden');
-     badge.textContent = user.rol === 'admin' ? '👑 Admin' : user.rol === 'user' ? '👁️ Usuario' : '👁️ Solo lectura';
+     badge.textContent = user.rol === 'admin' ? '👑 Admin' : user.rol === 'user' ? '👁️ Usuario' : user.rol === 'ia' ? '🖼️ Imagen semanal' : '👁️ Solo lectura';
     badge.className = `text-[11px] font-label-md mt-1 ${user.rol === 'admin' ? 'text-tertiary' : 'text-on-surface-variant'}`;
   } else {
     btn.style.display = 'flex';
@@ -344,6 +344,7 @@ function renderAuthUI() {
   // real está en las políticas RLS de Supabase).
   document.body.classList.toggle('is-reader', !!user && user.rol !== 'admin');
   document.body.classList.toggle('is-user', !!user && user.rol === 'user');
+  document.body.classList.toggle('is-ia', !!user && user.rol === 'ia');
   document.body.classList.toggle('is-admin', !!user && user.rol === 'admin');
   document.body.classList.toggle('is-logged', !!user);
 }
@@ -459,6 +460,11 @@ function isUserRole() {
   return !!user && user.rol === 'user';
 }
 
+function isIaRole() {
+  const user = currentUser();
+  return !!user && user.rol === 'ia';
+}
+
 function router() {
   const hash = location.hash.replace(/^#\/?/, '') || 'home';
   const [path, query] = hash.split('?');
@@ -471,6 +477,10 @@ function router() {
     renderTop();
     renderSide();
     renderWelcome();
+    return;
+  }
+  if (isIaRole() && view !== 'ia') {
+    location.hash = '#/ia';
     return;
   }
   if (isUserRole() && !['home', 'lists'].includes(view)) {
@@ -490,6 +500,7 @@ function router() {
   renderTop();
   renderSide();
   switch (view) {
+    case 'ia':        renderIa(); break;
     case 'new':      renderNew(); break;
     case 'auto':     renderAutoAsignacion(); break;
     case 'edit':     renderEdit(); break;
@@ -579,7 +590,7 @@ function renderTop() {
   // El menú superior se elimina; la navegación vive en la barra lateral (sidebar).
   // Sin sesión: ocultar la navegación, solo queda la bienvenida.
   if (appBloqueada()) { $('#settingsBtn').style.display = 'none'; $('#topTitle').textContent = 'Reunión+'; $('#topBadge').classList.add('hidden'); return; }
-  $('#settingsBtn').style.display = isUserRole() ? 'none' : 'flex';
+  $('#settingsBtn').style.display = (isUserRole() || isIaRole()) ? 'none' : 'flex';
 
   const badge = $('#topBadge');
   if (state.month) {
@@ -603,6 +614,12 @@ function renderSide() {
   }
   $('#sideNewMonth').style.display = isUserRole() ? 'none' : '';
   $('#sideAbout').style.display = isUserRole() ? 'none' : '';
+  if (isIaRole()) {
+    nav.innerHTML = '';
+    $('#sideNewMonth').style.display = 'none';
+    $('#sideAbout').style.display = 'none';
+    return;
+  }
   const items = isUserRole() ? [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
@@ -647,6 +664,42 @@ function renderWelcome() {
   `;
   $('#welcomeLogin').onclick = openLoginModal;
   $('#welcomeMore').onclick = () => go('about');
+}
+
+async function renderIa() {
+  state.month = null;
+  renderTop();
+  const [months, aseos, salidas, atencion] = await Promise.all([
+    db.listMonths(), db.listAseos(), db.listSalidas(), db.listAtencion(),
+  ]);
+  _homeMonths = months.sort((a, b) => b.id.localeCompare(a.id));
+  _homeAseos = aseos;
+  _homeSalidas = salidas;
+  _homeAtencion = atencion;
+  const week = currentGeneralWeek(0);
+  const app = $('#app');
+  app.innerHTML = `<div class="max-w-3xl mx-auto text-center">
+    <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Imagen de la semana</h1>
+    <p class="text-on-surface-variant font-body-md mb-6">Solo está disponible la semana en curso.</p>
+    ${week ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-3 md:p-5 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+      <img id="iaWeekImage" class="w-full rounded-lg" alt="Programa de la semana en curso">
+      <button id="iaShare" class="mt-4 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
+        <span class="material-symbols-outlined text-[18px]">share</span> Descargar / compartir imagen
+      </button>
+    </div>` : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-on-surface-variant">No hay programa cargado para la semana en curso.</div>`}
+  </div>`;
+  if (!week) return;
+  const cur = String(week.saturday || isoDate(new Date())).slice(0, 7);
+  const blob = await svgToPngBlob(generalWeekExportSvg(week, cur));
+  const image = $('#iaWeekImage');
+  image.src = URL.createObjectURL(blob);
+  $('#iaShare').onclick = async () => {
+    const button = $('#iaShare');
+    button.disabled = true;
+    try { await compartirPng(blob, `semana-${cur}.png`); }
+    catch (err) { console.error(err); toast('No se pudo compartir la imagen.', 'error'); }
+    finally { button.disabled = false; }
+  };
 }
 
 async function renderHome() {

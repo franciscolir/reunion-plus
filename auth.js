@@ -1,6 +1,6 @@
 // auth.js - Capa de autenticación con Supabase Auth
 // ==================================================
-// Maneja login/logout, sesión persistente, usuario actual y rol (admin/reader/user).
+// Maneja login/logout, sesión persistente, usuario actual y rol (admin/reader/user/ia).
 // La seguridad real la aplican las políticas RLS de Postgres; aquí solo se
 // expone el estado de autenticación para la interfaz.
 //
@@ -47,7 +47,7 @@ async function emailAutorizado(p) {
   if (!email) return { ok: false, reason: 'denied' };
   try {
     const propio = await obtenerUsuario(p.id);
-    if (propio && ['admin', 'user'].includes(propio.rol)) return { ok: true };
+    if (propio && ['admin', 'user', 'ia'].includes(propio.rol)) return { ok: true };
   } catch (e) { /* sin permiso para leer su doc propio: sigue */ }
   try {
     const cfg = await obtenerConfiguracion();
@@ -118,7 +118,7 @@ async function refreshUser(sbUser) {
     await guardarUsuario(sbUser.id, { email: sbUser.email, rol: 'reader', createdAt: Date.now() });
     doc = { rol: 'reader' };
   }
-  const rol = doc && ['admin', 'reader', 'user'].includes(doc.rol) ? doc.rol : 'reader';
+  const rol = doc && ['admin', 'reader', 'user', 'ia'].includes(doc.rol) ? doc.rol : 'reader';
   _currentUser = { uid: sbUser.id, email: sbUser.email, rol };
   notifyListeners();
   return _currentUser;
