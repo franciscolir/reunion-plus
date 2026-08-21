@@ -726,6 +726,11 @@ function currentServiceYear() {
   return now.getMonth() >= 8 ? now.getFullYear() + 1 : now.getFullYear();
 }
 
+function serviceYearOfMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  return m >= 9 ? y + 1 : y;
+}
+
 function weekKeyOf(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -1048,37 +1053,67 @@ async function bindAttendanceTab() {
 async function renderArrangementsTab() {
   const months = serviceYearMonths(currentServiceYear());
   const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : months[0];
-  const arr = await db.getReport(`arrangements:${month}`) || { id: `arrangements:${month}`, congregation: '', contact: '', phone: '', notes: '', status: 'pendiente', externalTalk: { num: '', title: '', speaker: '', date: '' }, localSpeakers: [] };
+  const arr = await db.getReport(`arrangements:${month}`) || { id: `arrangements:${month}`, congregation: '', contact: '', phone: '', notes: '', localSpeakers: [] };
   const allArr = await db.listReports('arrangements:');
   const ranking = computeTalkRanking(allArr);
-  const statusOpts = ['pendiente', 'confirmado', 'realizado', 'cancelado'].map(s => `<option value="${s}" ${arr.status === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('');
   const localRows = (arr.localSpeakers || []).map((ls, i) => `
-    <div class="flex flex-wrap gap-2 items-center mb-2" data-local-row="${i}">
-      <select data-local="num" class="bg-surface-bright border border-outline-variant rounded-lg p-2">${state.talks.map(t => `<option value="${t.num}" ${String(ls.num) === String(t.num) ? 'selected' : ''}>${t.num} · ${escapeHtml(t.title)}</option>`).join('')}</select>
-      <input data-local="speaker" value="${escapeAttr(ls.speaker || '')}" placeholder="Orador" class="flex-1 min-w-[120px] bg-surface-bright border border-outline-variant rounded-lg p-2">
-      <input data-local="date" type="date" value="${escapeAttr(ls.date || '')}" class="bg-surface-bright border border-outline-variant rounded-lg p-2">
-      <button data-local-remove="${i}" class="material-symbols-outlined text-error">delete</button>
-    </div>`).join('');
-  const rankRows = ranking.slice(0, 15).map((r, i) => `<tr class="border-b border-outline-variant/40"><td class="p-2">${i + 1}</td><td class="p-2 font-semibold">${r.num}</td><td class="p-2">${escapeHtml(r.title)}</td><td class="p-2 text-center">${r.count}</td><td class="p-2 text-center">${r.last ? formatShortDate(r.last) : '—'}</td></tr>`).join('');
+    <li class="group flex items-start justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-transparent hover:border-outline-variant/50">
+      <div><p class="font-label-md text-label-md text-on-surface mb-2 group-hover:text-primary transition-colors">${escapeHtml(ls.speaker || 'Orador')}</p>
+      <div class="flex flex-wrap gap-2">${String(ls.num).split(',').map(n => `<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold">${escapeHtml(n.trim())}</span>`).join('')}</div></div>
+      <button data-local-remove="${i}" class="opacity-0 group-hover:opacity-100 transition-opacity text-outline hover:text-primary p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+    </li>`).join('');
+  const rankMap = {};
+  ranking.forEach(r => rankMap[String(r.num)] = r);
+  const talkRows = (state.talks || []).map(t => {
+    const r = rankMap[String(t.num)];
+    const count = r ? r.count : 0;
+    const last = r && r.last ? formatShortDate(r.last) : '—';
+    const badge = count === 0
+      ? `<div class="bg-tertiary-fixed text-on-tertiary-fixed border border-tertiary/30 px-3 py-1 rounded-full text-[12px] font-semibold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> 0 veces</div>`
+      : count >= 5
+        ? `<div class="bg-error-container text-on-error-container border border-error/30 px-3 py-1 rounded-full text-[12px] font-semibold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">trending_up</span> ${count} veces</div>`
+        : `<div class="bg-surface-variant text-on-surface-variant border border-outline-variant px-3 py-1 rounded-full text-[12px] font-semibold">${count} veces</div>`;
+    return `<tr class="hover:bg-surface-container-low transition-colors group" data-talk-row data-talk-num="${t.num}" data-talk-title="${escapeAttr((t.title || '').toLowerCase())}">
+      <td class="py-4 px-6 font-semibold text-primary">${t.num}</td>
+      <td class="py-4 px-6"><div class="font-medium text-on-surface mb-1">${escapeHtml(t.title || '')}</div></td>
+      <td class="py-4 px-6 text-on-surface-variant">${last}</td>
+      <td class="py-4 px-6"><div class="flex justify-center items-center">${badge}</div></td>
+    </tr>`;
+  }).join('');
+  const monthBadge = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   return `<div class="flex items-center justify-between gap-3 mb-4"><h2 class="font-headline-md text-headline-md text-primary">Arreglos</h2><select id="arrMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md">${months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}</select></div>
-    <div class="grid lg:grid-cols-2 gap-6">
-      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 space-y-3">
-        <h3 class="font-title-md text-title-md text-primary">Congregación visitante</h3>
-        <input id="arrCong" value="${escapeAttr(arr.congregation || '')}" placeholder="Nombre de la congregación" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5">
-        <div class="grid grid-cols-2 gap-3"><input id="arrContact" value="${escapeAttr(arr.contact || '')}" placeholder="Contacto" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"><input id="arrPhone" value="${escapeAttr(arr.phone || '')}" placeholder="Teléfono" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"></div>
-        <select id="arrStatus" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5">${statusOpts}</select>
-        <textarea id="arrNotes" placeholder="Observaciones" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5">${escapeHtml(arr.notes || '')}</textarea>
-        <h3 class="font-title-md text-title-md text-primary pt-2">Discurso externo</h3>
-        <select id="arrExtNum" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5"><option value="">— Seleccionar disco —</option>${state.talks.map(t => `<option value="${t.num}" ${String(arr.externalTalk?.num) === String(t.num) ? 'selected' : ''}>${t.num} · ${escapeHtml(t.title)}</option>`).join('')}</select>
-        <div class="grid grid-cols-2 gap-3"><input id="arrExtSpeaker" value="${escapeAttr(arr.externalTalk?.speaker || '')}" placeholder="Orador" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"><input id="arrExtDate" type="date" value="${escapeAttr(arr.externalTalk?.date || '')}" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"></div>
-        <h3 class="font-title-md text-title-md text-primary pt-2">Oradores locales</h3>
-        <div id="localSpeakers">${localRows}</div>
-        <button id="addLocal" class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">+ Añadir orador local</button>
-        <button id="arrSave" class="mt-3 w-full px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar arreglos</button>
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+      <div class="lg:col-span-4 flex flex-col gap-gutter">
+        <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden relative"><div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+          <div class="p-6">
+            <div class="flex justify-between items-start mb-4"><h3 class="font-headline-md text-[20px] text-primary font-bold">Intercambio Mensual</h3><span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full font-label-md text-[12px] uppercase tracking-wider">${monthBadge}</span></div>
+            <div class="space-y-4">
+              <div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant"><span class="material-symbols-outlined text-[18px]">swap_horiz</span></div>
+              <div><p class="font-label-md text-label-md text-on-surface">Congregación visitante / anfitriona</p></div></div>
+              <input id="arrCong" value="${escapeAttr(arr.congregation || '')}" placeholder="Nombre de la congregación" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5"/>
+              <hr class="border-outline-variant/30"/>
+              <div><p class="font-caption text-caption text-outline mb-1 uppercase tracking-widest">Coordinador de Intercambio</p>
+                <input id="arrContact" value="${escapeAttr(arr.contact || '')}" placeholder="Nombre del coordinador" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2"/>
+                <input id="arrPhone" value="${escapeAttr(arr.phone || '')}" placeholder="Teléfono" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5"/>
+              </div>
+              <textarea id="arrNotes" placeholder="Observaciones" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5">${escapeHtml(arr.notes || '')}</textarea>
+            </div>
+          </div>
+        </section>
+        <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm flex-1 flex flex-col min-h-[400px]">
+          <div class="p-6 border-b border-outline-variant/30 flex justify-between items-center bg-surface-bright rounded-t-xl"><h2 class="font-headline-md text-[20px] text-primary font-bold">Oradores Locales</h2><button id="addLocal" class="text-primary hover:text-tertiary transition-colors"><span class="material-symbols-outlined">add_circle</span></button></div>
+          <div class="p-4 flex-1 overflow-y-auto"><ul id="localSpeakers" class="space-y-4">${localRows}</ul></div>
+        </section>
+        <button id="arrSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar arreglos</button>
       </div>
-      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4">
-        <h3 class="font-title-md text-title-md text-primary mb-3">Ranking de discursos (uso local)</h3>
-        <table class="w-full text-left"><thead><tr class="bg-surface-container border-b border-outline-variant"><th class="p-2">#</th><th class="p-2">N°</th><th class="p-2">Título</th><th class="p-2 text-center">Veces</th><th class="p-2 text-center">Último</th></tr></thead><tbody>${rankRows || '<tr><td colspan="5" class="p-6 text-center text-on-surface-variant">Sin datos.</td></tr>'}</tbody></table>
+      <div class="lg:col-span-8">
+        <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm h-full flex flex-col">
+          <div class="p-6 border-b border-outline-variant/50 bg-surface-bright rounded-t-xl">
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6"><div><h2 class="font-headline-lg text-[28px] text-primary font-bold mb-1">Catálogo de Discursos</h2><p class="font-body-md text-on-surface-variant text-[14px]">Control y rotación de los ${state.talks.length} bosquejos públicos.</p></div></div>
+            <div class="relative"><span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span><input id="talkSearch" class="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg py-3 pl-10 pr-4 focus:outline-none focus:border-primary font-body-md text-[14px]" placeholder="Consulta por número, título o palabra clave..."/></div>
+          </div>
+          <div class="flex-1 overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-surface-container-lowest sticky top-0 z-10 shadow-sm"><tr class="border-b border-outline-variant"><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-20">Núm.</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título del Discurso</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-32">Última Vez</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center w-32">Ranking</th></tr></thead><tbody id="talkBody" class="font-body-md text-[14px] text-on-surface divide-y divide-outline-variant/30">${talkRows}</tbody></table></div>
+        </section>
       </div>
     </div>`;
 }
@@ -1089,40 +1124,71 @@ function bindArrangementsTab() {
   const addLocal = $('#addLocal');
   if (addLocal) addLocal.onclick = () => {
     const box = $('#localSpeakers');
-    const i = box.children.length;
-    const div = document.createElement('div');
-    div.className = 'flex flex-wrap gap-2 items-center mb-2';
-    div.dataset.localRow = i;
-    div.innerHTML = `<select data-local="num" class="bg-surface-bright border border-outline-variant rounded-lg p-2">${state.talks.map(t => `<option value="${t.num}">${t.num} · ${escapeHtml(t.title)}</option>`).join('')}</select><input data-local="speaker" placeholder="Orador" class="flex-1 min-w-[120px] bg-surface-bright border border-outline-variant rounded-lg p-2"><input data-local="date" type="date" class="bg-surface-bright border border-outline-variant rounded-lg p-2"><button data-local-remove="${i}" class="material-symbols-outlined text-error">delete</button>`;
-    box.appendChild(div);
-    div.querySelector('[data-local-remove]').onclick = () => div.remove();
+    const li = document.createElement('li');
+    li.className = 'group flex items-start justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-transparent hover:border-outline-variant/50';
+    li.innerHTML = `<div><input data-local="speaker" placeholder="Orador" class="bg-surface-bright border border-outline-variant rounded-lg p-2 mb-2 w-full"/><input data-local="num" placeholder="Números (ej. 1,17)" class="bg-surface-bright border border-outline-variant rounded-lg p-2 w-full"/></div><button data-local-remove="x" class="text-outline hover:text-primary p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
+    box.appendChild(li);
+    li.querySelector('[data-local-remove]').onclick = () => li.remove();
   };
-  document.querySelectorAll('[data-local-remove]').forEach(b => b.onclick = () => b.closest('[data-local-row]').remove());
+  document.querySelectorAll('[data-local-remove]').forEach(b => b.onclick = () => b.closest('li')?.remove());
+  const search = $('#talkSearch');
+  if (search) search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    document.querySelectorAll('[data-talk-row]').forEach(r => {
+      const ok = !q || String(r.dataset.talkNum).includes(q) || r.dataset.talkTitle.includes(q);
+      r.style.display = ok ? '' : 'none';
+    });
+  };
   const save = $('#arrSave');
   if (save) save.onclick = async () => {
     const month = $('#arrMonth').value;
     const local = [];
-    document.querySelectorAll('#localSpeakers [data-local-row]').forEach(row => {
-      const num = row.querySelector('[data-local="num"]').value;
-      const speaker = row.querySelector('[data-local="speaker"]').value;
-      const date = row.querySelector('[data-local="date"]').value;
-      if (num) local.push({ num, speaker, date });
+    document.querySelectorAll('#localSpeakers li').forEach(li => {
+      const speaker = li.querySelector('[data-local="speaker"]')?.value || '';
+      const num = li.querySelector('[data-local="num"]')?.value || '';
+      if (speaker || num) local.push({ speaker, num, date: '' });
     });
-    const extNum = $('#arrExtNum').value;
-    const rec = {
-      id: `arrangements:${month}`,
-      congregation: $('#arrCong').value,
-      contact: $('#arrContact').value,
-      phone: $('#arrPhone').value,
-      status: $('#arrStatus').value,
-      notes: $('#arrNotes').value,
-      externalTalk: { num: extNum, title: extNum ? (state.talks.find(t => String(t.num) === String(extNum))?.title || '') : '', speaker: $('#arrExtSpeaker').value, date: $('#arrExtDate').value },
-      localSpeakers: local,
-    };
+    const rec = { id: `arrangements:${month}`, congregation: $('#arrCong').value, contact: $('#arrContact').value, phone: $('#arrPhone').value, notes: $('#arrNotes').value, localSpeakers: local };
     await db.putReport(rec);
     toast('Arreglos guardados', 'success');
     renderInformes();
   };
+}
+
+async function renderFormsTab() {
+  const months = serviceYearMonths(currentServiceYear());
+  const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : months[0];
+  const monthOpts = months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('');
+  const card = (id, title, desc, sel, btns) => `
+    <section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
+      <h3 class="font-headline-md text-headline-md text-primary mb-1">${title}</h3>
+      <p class="font-body-md text-body-md text-on-surface-variant mb-4">${desc}</p>
+      ${sel}
+      <div class="flex gap-2 mt-4">${btns}</div>
+    </section>`;
+  const pdfPng = (kind) => `
+      <button data-form="${kind}" data-fmt="pdf" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined">picture_as_pdf</span> PDF</button>
+      <button data-form="${kind}" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-surface-container-high text-primary font-label-md text-label-md border border-outline-variant hover:bg-surface-variant"><span class="material-symbols-outlined">image</span> PNG</button>`;
+  const cards = [
+    card('predicacion', 'Informe de Predicación (S-1-S)', 'Informe de predicación y asistencia a las reuniones de la congregación.', `<select id="fPredMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('predicacion')),
+    card('registro', 'Registro de Asistencia (2 años)', 'Registro de asistencia a las reuniones, dos años de servicio.', `<p class="text-on-surface-variant text-body-md">Año de servicio: ${serviceYearLabel(currentServiceYear())} y ${serviceYearLabel(currentServiceYear() + 1)}</p>`, pdfPng('registro')),
+    card('asistenciaMes', 'Informe de Asistencia Mensual (S-3-S)', 'Asistencia mensual por semanas (entre semana / fin de semana).', `<select id="fAsistMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('asistenciaMes')),
+    card('pubreg', 'Registro de Publicador', 'Formulario por publicador con su actividad del mes.', '<p class="text-on-surface-variant text-body-md">Pendiente de plantilla.</p>', `<button disabled class="flex-1 px-3 py-2 rounded-lg bg-surface-container-high text-on-surface-variant font-label-md text-label-md opacity-60 cursor-not-allowed">PDF</button><button disabled class="flex-1 px-3 py-2 rounded-lg bg-surface-container-high text-on-surface-variant font-label-md text-label-md opacity-60 cursor-not-allowed">PNG</button>`),
+  ].join('');
+  return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Formularios descargables</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${cards}</div>`;
+}
+
+function bindFormsTab() {
+  document.querySelectorAll('[data-form]').forEach(b => {
+    if (b.disabled) return;
+    b.onclick = () => {
+      const kind = b.dataset.form, fmt = b.dataset.fmt;
+      if (kind === 'predicacion') downloadPredicacion($('#fPredMes').value, fmt);
+      else if (kind === 'registro') downloadRegistro(currentServiceYear(), fmt);
+      else if (kind === 'asistenciaMes') downloadAsistenciaMes($('#fAsistMes').value, fmt);
+    };
+  });
 }
 
 function computeTalkRanking(allArr) {
@@ -1144,8 +1210,8 @@ function computeTalkRanking(allArr) {
 
 async function computePredicacion(month) {
   const report = await db.getReport(`activity:${month}`) || { people: {} };
-  const [y] = month.split('-');
-  const att = await db.getReport(`attendance:${y}`) || { midweek: {}, weekend: {} };
+  const sy = serviceYearOfMonth(month);
+  const att = await db.getReport(`attendance:${sy}`) || { midweek: {}, weekend: {} };
   const pub = { n: 0, c: 0 }, aux = { n: 0, c: 0, h: 0 }, reg = { n: 0, c: 0, h: 0 };
   state.people.forEach(p => {
     const v = report.people?.[p.id] || {};
@@ -1155,7 +1221,7 @@ async function computePredicacion(month) {
     else if (v.auxiliar) { aux.n++; aux.c += c; aux.h += Number(v.horas) || 0; }
     else { pub.n++; pub.c += c; }
   });
-  const dates = meetingDatesForYear(Number(y), state.config || {}, state.config?.events || {}).weekend.filter(d => d.date.startsWith(month) && !d.blank);
+  const dates = meetingDatesForYear(sy, state.config || {}, state.config?.events || {}).weekend.filter(d => d.date.startsWith(month) && !d.blank);
   const totals = dates.map(d => att.weekend?.[d.date]).filter(t => t != null);
   const promFin = totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : '';
   return { pub, aux, reg, activos: pub.n + aux.n + reg.n, promFin };
@@ -1181,11 +1247,11 @@ async function computeRegistro(year) {
 }
 
 async function computeAsistenciaMes(month) {
-  const [y] = month.split('-');
+  const sy = serviceYearOfMonth(month);
   const cfg = state.config || {}, events = state.config?.events || {};
-  const att = await db.getReport(`attendance:${y}`) || { midweek: {}, weekend: {} };
+  const att = await db.getReport(`attendance:${sy}`) || { midweek: {}, weekend: {} };
   const build = (kind) => {
-    const ds = meetingDatesForYear(Number(y), cfg, events)[kind].filter(d => d.date.startsWith(month) && !d.blank);
+    const ds = meetingDatesForYear(sy, cfg, events)[kind].filter(d => d.date.startsWith(month) && !d.blank);
     const weeks = {};
     ds.forEach(d => {
       const dt = new Date(d.date + 'T00:00:00');
