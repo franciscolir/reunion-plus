@@ -1,7 +1,7 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
 import { isSupabaseConfigured } from './supabase-config.js?v=217';
-import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones } from './supabase.js?v=217';
+import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones, obtenerUsuarios, guardarUsuario } from './supabase.js?v=217';
 import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
 import { login, loginWithGoogle, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
 import {
@@ -50,6 +50,8 @@ const state = {
   progMonth: null,        // mes seleccionado en Programas (selector global)
   listsTab: 'personas',   // 'personas' | 'grupos' | 'departamentos' | 'historial' (vista Personas)
   listsShowInactive: false, // mostrar también las personas desactivadas (borrado lógico)
+  reportTab: 'actividad',
+  reportMonth: null,
   aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
   atencionWeeks: [],      // labores de atención del mes activo (vista previa)
 };
@@ -483,7 +485,11 @@ function router() {
     location.hash = '#/ia';
     return;
   }
-  if (isUserRole() && !['home', 'lists'].includes(view)) {
+  if (isUserRole() && !['home', 'lists', 'grupo'].includes(view)) {
+    location.hash = '#/home';
+    return;
+  }
+  if (view === 'informes' && currentUser()?.rol !== 'admin') {
     location.hash = '#/home';
     return;
   }
@@ -521,6 +527,8 @@ function router() {
     case 'conflictos': renderConflictos(segs[1]); break;
     case 'algoritmo': renderAlgoritmo(); break;
     case 'settings': renderSettings(); break;
+    case 'informes': renderInformes(); break;
+    case 'grupo': renderGroupSummary(); break;
     case 'about':    renderAbout(); break;
     default:         renderHome();
   }
@@ -622,6 +630,7 @@ function renderSide() {
   }
   const items = isUserRole() ? [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
+    { id: 'grupo', icon: 'group_work', label: 'Mi grupo', view: 'grupo' },
     { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
   ] : [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
@@ -630,6 +639,7 @@ function renderSide() {
     { id: 'uploads', icon: 'upload_file', label: 'Carga de Archivos', view: 'uploads' },
     { id: 'eventos', icon: 'event', label: 'Eventos', view: 'eventos' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
+    ...(currentUser()?.rol === 'admin' ? [{ id: 'informes', icon: 'analytics', label: 'Informes', view: 'informes' }] : []),
   ];
   nav.innerHTML = items.map(i =>
     `<button data-go="${i.id}" class="flex items-center gap-3 px-4 py-3 ${state.view === i.view ? 'bg-secondary-container text-on-secondary-container rounded-lg font-bold' : 'text-on-surface-variant hover:bg-surface-variant rounded-lg'} transition-all w-full text-left">
@@ -700,6 +710,632 @@ async function renderIa() {
     catch (err) { console.error(err); toast('No se pudo compartir la imagen.', 'error'); }
     finally { button.disabled = false; }
   };
+}
+
+function serviceYearMonths(year) {
+  const months = [];
+  for (let i = 0; i < 12; i++) {
+    const date = new Date(year, 8 + i, 1);
+    months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return months;
+}
+
+function currentServiceYear() {
+  const now = new Date();
+  return now.getMonth() >= 8 ? now.getFullYear() + 1 : now.getFullYear();
+}
+
+function weekKeyOf(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - dt.getDay());
+  return isoDate(dt);
+}
+
+function meetingDatesForYear(year, config, events) {
+  const midDay = config?.midweek?.day ?? 2;
+  const wkDay = config?.schedule?.day ?? 6;
+  const months = serviceYearMonths(year);
+  const start = months[0] + '-01';
+  const endY = Number(months[11].slice(0, 4));
+  const endM = Number(months[11].slice(5));
+  const end = isoDate(new Date(endY, endM - 1, 31));
+  const blankWeeks = new Set();
+  (events?.assemblies || []).forEach(a => {
+    const from = a.from || a.date;
+    const to = a.to || addDays(a.date, (Number(a.days) || 1) - 1);
+    let cur = from;
+    while (cur && cur <= to) { blankWeeks.add(weekKeyOf(cur)); cur = addDays(cur, 1); }
+  });
+  const out = { midweek: [], weekend: [] };
+  let cur = start;
+  while (cur <= end) {
+    const ev = eventTypeForDate(events, cur);
+    const [y, m, d] = cur.split('-').map(Number);
+    const dow = new Date(y, m - 1, d).getDay();
+    const blank = blankWeeks.has(weekKeyOf(cur)) || ev === 'assembly' || ev === 'commemoration';
+    if (dow === midDay) out.midweek.push({ date: cur, blank, supervisor: ev === 'supervisor' });
+    if (dow === wkDay) out.weekend.push({ date: cur, blank, supervisor: ev === 'supervisor' });
+    cur = addDays(cur, 1);
+  }
+  return out;
+}
+
+function serviceYearLabel(year) {
+  return `${MONTHS_ES[8]} ${year - 1} – ${MONTHS_ES[7]} ${year}`;
+}
+
+async function renderInformes() {
+  state.month = null;
+  renderTop();
+  const year = currentServiceYear();
+  const months = serviceYearMonths(year);
+  if (!state.reportMonth || !months.includes(state.reportMonth)) state.reportMonth = months.find(m => m === isoDate(new Date()).slice(0, 7)) || months[0];
+  const tab = state.reportTab;
+  const report = await db.getReport(`activity:${state.reportMonth}`) || { id: `activity:${state.reportMonth}`, people: {}, locked: false };
+  const monthLabel = `${MONTHS_ES[Number(state.reportMonth.slice(5)) - 1]} ${state.reportMonth.slice(0, 4)}`;
+  const tabs = [
+    ['actividad', 'Actividad', 'assignment'],
+    ['asistencia', 'Asistencia', 'groups'],
+    ['arreglos', 'Arreglos', 'swap_horiz'],
+  ];
+  const banner = `<aside class="bg-primary text-on-primary rounded-xl p-5 space-y-3">
+    <h2 class="font-headline-md text-headline-md">Descargar formularios</h2>
+    <p class="font-body-sm text-body-sm opacity-90">Informe de predicación (${monthLabel})</p>
+    <div class="flex gap-2">
+      <button data-download-report="predicacion" data-fmt="pdf" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">picture_as_pdf</span> PDF</button>
+      <button data-download-report="predicacion" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">image</span> PNG</button>
+    </div>
+    <p class="font-body-sm text-body-sm opacity-90 pt-2">Registro de asistencia (2 años)</p>
+    <div class="flex gap-2">
+      <button data-download-report="registro" data-fmt="pdf" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">picture_as_pdf</span> PDF</button>
+      <button data-download-report="registro" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">image</span> PNG</button>
+    </div>
+    <p class="font-body-sm text-body-sm opacity-90 pt-2">Informe de asistencia mensual (${monthLabel})</p>
+    <div class="flex gap-2">
+      <button data-download-report="asistenciaMes" data-fmt="pdf" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">picture_as_pdf</span> PDF</button>
+      <button data-download-report="asistenciaMes" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">image</span> PNG</button>
+    </div>
+  </aside>`;
+  let body = '';
+  if (tab === 'actividad') body = await renderActivityTab(report, monthLabel);
+  else if (tab === 'asistencia') body = await renderAttendanceTab(year);
+  else body = await renderArrangementsTab();
+  const app = $('#app');
+  app.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Informes</h1><p class="text-on-surface-variant font-body-lg">Actividad, asistencia y arreglos de la congregación.</p></div>
+    <div class="flex flex-col lg:flex-row gap-6 items-start"><div class="min-w-0 flex-1 w-full">
+      <div class="flex flex-wrap items-center gap-2 mb-5"><select id="reportMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md">${months.map(m => `<option value="${m}" ${m === state.reportMonth ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}</select>
+      <div class="flex flex-wrap gap-2">${tabs.map(([id, label, icon]) => `<button data-report-tab="${id}" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg font-label-md text-label-md ${tab === id ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}"><span class="material-symbols-outlined text-[18px]">${icon}</span>${label}</button>`).join('')}</div></div>
+      ${body}
+    </div>${banner}</div>`;
+  $('#reportMonth').onchange = e => { state.reportMonth = e.target.value; renderInformes(); };
+  document.querySelectorAll('[data-report-tab]').forEach(b => b.onclick = () => { state.reportTab = b.dataset.reportTab; renderInformes(); });
+  if (tab === 'actividad') bindActivityTab(report);
+  else if (tab === 'asistencia') bindAttendanceTab(year);
+  else bindArrangementsTab();
+  document.querySelectorAll('[data-download-report]').forEach(b => b.onclick = () => {
+    const fmt = b.dataset.fmt;
+    if (b.dataset.downloadReport === 'predicacion') downloadPredicacion(state.reportMonth, fmt);
+    else if (b.dataset.downloadReport === 'registro') downloadRegistro(currentServiceYear(), fmt);
+    else if (b.dataset.downloadReport === 'asistenciaMes') downloadAsistenciaMes(state.reportMonth, fmt);
+  });
+}
+
+async function renderActivityTab(report, monthLabel) {
+  const activityRows = state.people.map(p => {
+    const value = report.people?.[p.id] || {};
+    const regular = p.precursorRegular === true;
+    const auxiliary = value.auxiliar === true;
+    return `<tr class="border-b border-outline-variant/40">
+      <td class="p-3 font-body-md text-body-md font-semibold">${escapeHtml(p.name)}</td>
+      <td class="p-3 text-center"><input type="checkbox" data-act="actividad" data-pid="${p.id}" ${value.actividad ? 'checked' : ''} ${report.locked ? 'disabled' : ''} class="accent-primary"></td>
+      <td class="p-3"><input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(value.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 mx-auto block bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-center"></td>
+      <td class="p-3 text-center"><input type="checkbox" data-act="auxiliar" data-pid="${p.id}" ${auxiliary ? 'checked' : ''} ${report.locked || regular ? 'disabled' : ''} class="accent-primary"></td>
+      <td class="p-3"><input type="number" min="0" step="1" data-act="horas" data-pid="${p.id}" value="${Number(value.horas) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 mx-auto block bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-center"></td>
+      <td class="p-3"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(value.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full min-w-[140px] bg-surface-bright border border-outline-variant rounded-lg p-1.5"></td>
+    </tr>`;
+  }).join('');
+  return `<div class="flex items-center justify-between gap-3 mb-4"><h2 class="font-headline-md text-headline-md text-primary">${monthLabel}</h2>${report.locked ? `<span class="px-3 py-1.5 rounded-lg bg-error-container text-on-error-container font-label-md text-label-md">Mes bloqueado</span> <button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Desbloquear mes</button>` : `<button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Bloquear mes</button>`}</div>
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-x-auto">
+      <table class="w-full text-left min-w-[800px]"><thead><tr class="bg-surface-container border-b border-outline-variant">
+        <th class="p-3">Publicador</th><th class="p-3 text-center">Actividad</th><th class="p-3">Cursos</th><th class="p-3 text-center">Auxiliar</th><th class="p-3">Horas</th><th class="p-3">Observaciones</th>
+      </tr></thead><tbody>${activityRows || '<tr><td colspan="6" class="p-8 text-center text-on-surface-variant">No hay personas activas.</td></tr>'}</tbody></table>
+    </div>
+    ${report.locked ? '' : '<button id="activitySave" class="mt-4 px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar actividad</button>'}
+    ${await renderMetricsSection(currentServiceYear())}`;
+}
+
+function bindActivityTab(report) {
+  const readActivity = () => {
+    const people = {};
+    state.people.forEach(p => {
+      const get = key => document.querySelector(`[data-act="${key}"][data-pid="${p.id}"]`);
+      people[p.id] = { actividad: !!get('actividad')?.checked, cursos: parseInt(get('cursos')?.value, 10) || 0, auxiliar: !!get('auxiliar')?.checked, horas: parseInt(get('horas')?.value, 10) || 0, notas: get('notas')?.value || '' };
+    });
+    return people;
+  };
+  const save = $('#activitySave');
+  if (save) save.onclick = async () => { await db.putReport({ ...report, people: readActivity() }); toast('Actividad guardada', 'success'); renderInformes(); };
+  const lock = $('#activityLock');
+  if (lock) lock.onclick = async () => { await db.putReport({ ...report, locked: !report.locked }); renderInformes(); };
+}
+
+function formatShortDate(iso) {
+  try { return new Date(iso + 'T00:00:00').toLocaleDateString('es', { day: '2-digit', month: 'short' }); }
+  catch (e) { return iso; }
+}
+
+async function computeServiceYearMetrics(year) {
+  const months = serviceYearMonths(year);
+  const reports = (await db.listReports('activity:')).filter(r => months.includes(r.id.split(':')[1]));
+  const byPerson = {};
+  state.people.forEach(p => byPerson[p.id] = { name: p.name, active: 0, courses: 0, aux: 0, hours: 0 });
+  reports.forEach(r => {
+    Object.entries(r.people || {}).forEach(([pid, v]) => {
+      const bp = byPerson[pid];
+      if (!bp) return;
+      if (v.actividad) bp.active++;
+      bp.courses += Number(v.cursos) || 0;
+      if (v.auxiliar) bp.aux++;
+      bp.hours += Number(v.horas) || 0;
+    });
+  });
+  const rows = Object.values(byPerson);
+  const totals = {
+    publishers: rows.length,
+    active: rows.filter(r => r.active > 0).length,
+    courses: rows.reduce((s, r) => s + r.courses, 0),
+    hours: rows.reduce((s, r) => s + r.hours, 0),
+    aux: rows.reduce((s, r) => s + r.aux, 0),
+  };
+  return { rows, totals };
+}
+
+async function renderMetricsSection(year) {
+  const { rows, totals } = await computeServiceYearMetrics(year);
+  const cards = [
+    ['Publicadores', totals.publishers],
+    ['Activos (meses)', totals.active],
+    ['Cursos (año)', totals.courses],
+    ['Horas (año)', totals.hours],
+    ['Meses auxiliar', totals.aux],
+  ].map(([l, v]) => `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${v}</div><div class="font-label-sm text-label-sm text-on-surface-variant">${l}</div></div>`).join('');
+  const prow = rows.filter(r => r.active > 0).sort((a, b) => b.active - a.active).map(r => `<tr class="border-b border-outline-variant/40"><td class="p-2 font-semibold">${escapeHtml(r.name)}</td><td class="p-2 text-center">${r.active}</td><td class="p-2 text-center">${r.courses}</td><td class="p-2 text-center">${r.aux}</td><td class="p-2 text-center">${r.hours}</td></tr>`).join('');
+  return `<h3 class="font-headline-md text-headline-md text-primary mt-8 mb-3">Métricas del año de servicio ${serviceYearLabel(year)}</h3>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">${cards}</div>
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-x-auto mt-4">
+      <table class="w-full text-left min-w-[500px]"><thead><tr class="bg-surface-container border-b border-outline-variant"><th class="p-2">Publicador</th><th class="p-2 text-center">Meses activo</th><th class="p-2 text-center">Cursos</th><th class="p-2 text-center">Auxiliar</th><th class="p-2 text-center">Horas</th></tr></thead><tbody>${prow || '<tr><td colspan="5" class="p-6 text-center text-on-surface-variant">Sin actividad registrada.</td></tr>'}</tbody></table>
+    </div>`;
+}
+
+async function renderAttendanceTab(year) {
+  const events = state.config?.events || {};
+  const cfg = state.config || {};
+  const data = {};
+  for (const y of [year, year + 1]) data[y] = await db.getReport(`attendance:${y}`) || { id: `attendance:${y}`, midweek: {}, weekend: {} };
+  const table = (y, kind) => {
+    const dates = meetingDatesForYear(y, cfg, events)[kind];
+    if (!dates.length) return '';
+    const saved = data[y][kind] || {};
+    const rows = dates.map(d => {
+      const total = saved[d.date];
+      const cell = d.blank ? '<td class="p-2 text-center text-on-surface-variant">—</td>'
+        : `<td class="p-2"><input type="number" min="0" step="1" data-att="${kind}" data-date="${d.date}" value="${total != null ? total : ''}" class="w-20 mx-auto block bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-center"></td>`;
+      const note = d.supervisor ? ' <span class="material-symbols-outlined align-middle text-[14px] text-primary" title="Visita del superintendente">verified</span>' : '';
+      return `<tr class="border-b border-outline-variant/40"><td class="p-2 whitespace-nowrap">${formatShortDate(d.date)}${note}</td>${cell}</tr>`;
+    }).join('');
+    return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-x-auto mb-4">
+      <h3 class="p-3 font-title-md text-title-md text-primary bg-surface-container">${kind === 'midweek' ? 'Entre semana' : 'Fin de semana'} · ${serviceYearLabel(y)}</h3>
+      <table class="w-full text-left min-w-[260px]"><thead><tr class="bg-surface-container border-b border-outline-variant"><th class="p-2">Fecha</th><th class="p-2 text-center">Asistencia</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+  };
+  return `<div class="flex items-center justify-between gap-3 mb-4"><h2 class="font-headline-md text-headline-md text-primary">Asistencia</h2><button id="attendanceSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar asistencia</button></div>
+    <p class="text-on-surface-variant font-body-md mb-3">Las semanas con asamblea y el día de la Conmemoración quedan sin reunión (celda en blanco). La visita del superintendente se marca pero cuenta como reunión.</p>
+    <div class="grid md:grid-cols-2 gap-4">${table(year, 'midweek')}${table(year, 'weekend')}${table(year + 1, 'midweek')}${table(year + 1, 'weekend')}</div>`;
+}
+
+function bindAttendanceTab(year) {
+  const save = $('#attendanceSave');
+  if (!save) return;
+  save.onclick = async () => {
+    const rec = { id: `attendance:${year}`, midweek: {}, weekend: {} };
+    const rec2 = { id: `attendance:${year + 1}`, midweek: {}, weekend: {} };
+    document.querySelectorAll('[data-att]').forEach(inp => {
+      const v = parseInt(inp.value, 10);
+      if (isNaN(v) || v < 0) return;
+      const target = inp.dataset.date.slice(0, 4) === String(year + 1) ? rec2 : rec;
+      target[inp.dataset.att][inp.dataset.date] = v;
+    });
+    await db.putReport(rec);
+    await db.putReport(rec2);
+    toast('Asistencia guardada', 'success');
+  };
+}
+
+async function renderArrangementsTab() {
+  const months = serviceYearMonths(currentServiceYear());
+  const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : months[0];
+  const arr = await db.getReport(`arrangements:${month}`) || { id: `arrangements:${month}`, congregation: '', contact: '', phone: '', notes: '', status: 'pendiente', externalTalk: { num: '', title: '', speaker: '', date: '' }, localSpeakers: [] };
+  const allArr = await db.listReports('arrangements:');
+  const ranking = computeTalkRanking(allArr);
+  const statusOpts = ['pendiente', 'confirmado', 'realizado', 'cancelado'].map(s => `<option value="${s}" ${arr.status === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('');
+  const localRows = (arr.localSpeakers || []).map((ls, i) => `
+    <div class="flex flex-wrap gap-2 items-center mb-2" data-local-row="${i}">
+      <select data-local="num" class="bg-surface-bright border border-outline-variant rounded-lg p-2">${state.talks.map(t => `<option value="${t.num}" ${String(ls.num) === String(t.num) ? 'selected' : ''}>${t.num} · ${escapeHtml(t.title)}</option>`).join('')}</select>
+      <input data-local="speaker" value="${escapeAttr(ls.speaker || '')}" placeholder="Orador" class="flex-1 min-w-[120px] bg-surface-bright border border-outline-variant rounded-lg p-2">
+      <input data-local="date" type="date" value="${escapeAttr(ls.date || '')}" class="bg-surface-bright border border-outline-variant rounded-lg p-2">
+      <button data-local-remove="${i}" class="material-symbols-outlined text-error">delete</button>
+    </div>`).join('');
+  const rankRows = ranking.slice(0, 15).map((r, i) => `<tr class="border-b border-outline-variant/40"><td class="p-2">${i + 1}</td><td class="p-2 font-semibold">${r.num}</td><td class="p-2">${escapeHtml(r.title)}</td><td class="p-2 text-center">${r.count}</td><td class="p-2 text-center">${r.last ? formatShortDate(r.last) : '—'}</td></tr>`).join('');
+  return `<div class="flex items-center justify-between gap-3 mb-4"><h2 class="font-headline-md text-headline-md text-primary">Arreglos</h2><select id="arrMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md">${months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}</select></div>
+    <div class="grid lg:grid-cols-2 gap-6">
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 space-y-3">
+        <h3 class="font-title-md text-title-md text-primary">Congregación visitante</h3>
+        <input id="arrCong" value="${escapeAttr(arr.congregation || '')}" placeholder="Nombre de la congregación" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5">
+        <div class="grid grid-cols-2 gap-3"><input id="arrContact" value="${escapeAttr(arr.contact || '')}" placeholder="Contacto" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"><input id="arrPhone" value="${escapeAttr(arr.phone || '')}" placeholder="Teléfono" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"></div>
+        <select id="arrStatus" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5">${statusOpts}</select>
+        <textarea id="arrNotes" placeholder="Observaciones" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5">${escapeHtml(arr.notes || '')}</textarea>
+        <h3 class="font-title-md text-title-md text-primary pt-2">Discurso externo</h3>
+        <select id="arrExtNum" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5"><option value="">— Seleccionar disco —</option>${state.talks.map(t => `<option value="${t.num}" ${String(arr.externalTalk?.num) === String(t.num) ? 'selected' : ''}>${t.num} · ${escapeHtml(t.title)}</option>`).join('')}</select>
+        <div class="grid grid-cols-2 gap-3"><input id="arrExtSpeaker" value="${escapeAttr(arr.externalTalk?.speaker || '')}" placeholder="Orador" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"><input id="arrExtDate" type="date" value="${escapeAttr(arr.externalTalk?.date || '')}" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5"></div>
+        <h3 class="font-title-md text-title-md text-primary pt-2">Oradores locales</h3>
+        <div id="localSpeakers">${localRows}</div>
+        <button id="addLocal" class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">+ Añadir orador local</button>
+        <button id="arrSave" class="mt-3 w-full px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar arreglos</button>
+      </div>
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4">
+        <h3 class="font-title-md text-title-md text-primary mb-3">Ranking de discursos (uso local)</h3>
+        <table class="w-full text-left"><thead><tr class="bg-surface-container border-b border-outline-variant"><th class="p-2">#</th><th class="p-2">N°</th><th class="p-2">Título</th><th class="p-2 text-center">Veces</th><th class="p-2 text-center">Último</th></tr></thead><tbody>${rankRows || '<tr><td colspan="5" class="p-6 text-center text-on-surface-variant">Sin datos.</td></tr>'}</tbody></table>
+      </div>
+    </div>`;
+}
+
+function bindArrangementsTab() {
+  const monthSel = $('#arrMonth');
+  if (monthSel) monthSel.onchange = () => { state.reportMonth = monthSel.value; renderInformes(); };
+  const addLocal = $('#addLocal');
+  if (addLocal) addLocal.onclick = () => {
+    const box = $('#localSpeakers');
+    const i = box.children.length;
+    const div = document.createElement('div');
+    div.className = 'flex flex-wrap gap-2 items-center mb-2';
+    div.dataset.localRow = i;
+    div.innerHTML = `<select data-local="num" class="bg-surface-bright border border-outline-variant rounded-lg p-2">${state.talks.map(t => `<option value="${t.num}">${t.num} · ${escapeHtml(t.title)}</option>`).join('')}</select><input data-local="speaker" placeholder="Orador" class="flex-1 min-w-[120px] bg-surface-bright border border-outline-variant rounded-lg p-2"><input data-local="date" type="date" class="bg-surface-bright border border-outline-variant rounded-lg p-2"><button data-local-remove="${i}" class="material-symbols-outlined text-error">delete</button>`;
+    box.appendChild(div);
+    div.querySelector('[data-local-remove]').onclick = () => div.remove();
+  };
+  document.querySelectorAll('[data-local-remove]').forEach(b => b.onclick = () => b.closest('[data-local-row]').remove());
+  const save = $('#arrSave');
+  if (save) save.onclick = async () => {
+    const month = $('#arrMonth').value;
+    const local = [];
+    document.querySelectorAll('#localSpeakers [data-local-row]').forEach(row => {
+      const num = row.querySelector('[data-local="num"]').value;
+      const speaker = row.querySelector('[data-local="speaker"]').value;
+      const date = row.querySelector('[data-local="date"]').value;
+      if (num) local.push({ num, speaker, date });
+    });
+    const extNum = $('#arrExtNum').value;
+    const rec = {
+      id: `arrangements:${month}`,
+      congregation: $('#arrCong').value,
+      contact: $('#arrContact').value,
+      phone: $('#arrPhone').value,
+      status: $('#arrStatus').value,
+      notes: $('#arrNotes').value,
+      externalTalk: { num: extNum, title: extNum ? (state.talks.find(t => String(t.num) === String(extNum))?.title || '') : '', speaker: $('#arrExtSpeaker').value, date: $('#arrExtDate').value },
+      localSpeakers: local,
+    };
+    await db.putReport(rec);
+    toast('Arreglos guardados', 'success');
+    renderInformes();
+  };
+}
+
+function computeTalkRanking(allArr) {
+  const map = {};
+  allArr.forEach(a => {
+    const add = (num, title, date) => {
+      if (!num) return;
+      const k = String(num);
+      if (!map[k]) map[k] = { num, title: title || '', count: 0, last: '' };
+      map[k].count++;
+      if (date && (!map[k].last || date > map[k].last)) map[k].last = date;
+      if (!map[k].title && title) map[k].title = title;
+    };
+    add(a.externalTalk?.num, a.externalTalk?.title, a.externalTalk?.date);
+    (a.localSpeakers || []).forEach(ls => add(ls.num, ls.title, ls.date));
+  });
+  return Object.values(map).sort((x, y) => y.count - x.count || (x.last < y.last ? -1 : x.last > y.last ? 1 : 0));
+}
+
+async function computePredicacion(month) {
+  const report = await db.getReport(`activity:${month}`) || { people: {} };
+  const [y] = month.split('-');
+  const att = await db.getReport(`attendance:${y}`) || { midweek: {}, weekend: {} };
+  const pub = { n: 0, c: 0 }, aux = { n: 0, c: 0, h: 0 }, reg = { n: 0, c: 0, h: 0 };
+  state.people.forEach(p => {
+    const v = report.people?.[p.id] || {};
+    if (!v.actividad) return;
+    const c = Number(v.cursos) || 0;
+    if (p.precursorRegular === true) { reg.n++; reg.c += c; reg.h += Number(v.horas) || 0; }
+    else if (v.auxiliar) { aux.n++; aux.c += c; aux.h += Number(v.horas) || 0; }
+    else { pub.n++; pub.c += c; }
+  });
+  const dates = meetingDatesForYear(Number(y), state.config || {}, state.config?.events || {}).weekend.filter(d => d.date.startsWith(month) && !d.blank);
+  const totals = dates.map(d => att.weekend?.[d.date]).filter(t => t != null);
+  const promFin = totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length) : '';
+  return { pub, aux, reg, activos: pub.n + aux.n + reg.n, promFin };
+}
+
+async function computeRegistro(year) {
+  const cfg = state.config || {}, events = state.config?.events || {};
+  const att = await db.getReport(`attendance:${year}`) || { midweek: {}, weekend: {} };
+  const out = {};
+  ['midweek', 'weekend'].forEach(kind => {
+    const dates = meetingDatesForYear(year, cfg, events)[kind];
+    const byMonth = {};
+    dates.forEach(d => { (byMonth[d.date.slice(0, 7)] ||= []).push(d); });
+    out[kind] = serviceYearMonths(year).map(m => {
+      const ds = byMonth[m] || [];
+      const nonBlank = ds.filter(d => !d.blank);
+      const total = nonBlank.reduce((s, d) => s + (att[kind]?.[d.date] ?? 0), 0);
+      const reuniones = nonBlank.length;
+      return { month: m, reuniones, total, promedio: reuniones ? Math.round(total / reuniones) : 0 };
+    });
+  });
+  return out;
+}
+
+async function computeAsistenciaMes(month) {
+  const [y] = month.split('-');
+  const cfg = state.config || {}, events = state.config?.events || {};
+  const att = await db.getReport(`attendance:${y}`) || { midweek: {}, weekend: {} };
+  const build = (kind) => {
+    const ds = meetingDatesForYear(Number(y), cfg, events)[kind].filter(d => d.date.startsWith(month) && !d.blank);
+    const weeks = {};
+    ds.forEach(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      const w = Math.min(5, Math.ceil(dt.getDate() / 7));
+      (weeks[w] ||= []).push(d);
+    });
+    const cells = [];
+    let total = 0;
+    for (let w = 1; w <= 5; w++) {
+      const sum = (weeks[w] || []).reduce((s, d) => s + (att[kind]?.[d.date] ?? 0), 0);
+      total += sum;
+      cells.push(sum || '');
+    }
+    const reuniones = ds.length;
+    return { cells, total, promedio: reuniones ? Math.round(total / reuniones) : 0 };
+  };
+  return { midweek: build('midweek'), weekend: build('weekend') };
+}
+
+const FORM_HEAD = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>T</title><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/><style>body{font-family:'Inter',sans-serif;background:#f3f4f6;display:flex;justify-content:center;padding:2rem}@media print{body{background:#fff;padding:0}}.font-serif-title{font-family:'Playfair Display',serif}.form-input-line{border-bottom:1px dotted #000;background:#f8fafc;min-height:1.5rem}.table-cell-input{background:#f8fafc;width:100%;min-height:2rem;display:flex;align-items:center;justify-content:center;font-weight:600}</style></head><body>`;
+
+function printHtmlWindow(html, title) {
+  const w = window.open('', '_blank');
+  if (!w) { toast('Permite ventanas emergentes para imprimir.', 'error'); return; }
+  w.document.write(html.replace('<title>T</title>', `<title>${escapeHtml(title)}</title>`));
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 400);
+}
+
+function buildPredicacionHtml(month, d, cfg) {
+  const cong = escapeHtml(cfg?.congregacion || '');
+  const ciudad = escapeHtml(cfg?.ciudad || '');
+  const provincia = escapeHtml(cfg?.provincia || '');
+  const monthName = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  const num = escapeHtml(cfg?.congregacionNumero || '');
+  const cell = (v) => `<div class="table-cell-input">${v != null && v !== '' ? escapeHtml(String(v)) : ''}</div>`;
+  return `${FORM_HEAD}<main class="bg-white p-8 w-full max-w-4xl shadow-lg border border-gray-200">
+<header class="text-center mb-8"><h1 class="font-serif-title font-bold text-xl md:text-2xl leading-tight uppercase">Informe de Predicación y de Asistencia<br/>A Las Reuniones de la Congregación</h1></header>
+<section class="mb-6 space-y-4 text-sm md:text-base">
+<div class="flex flex-col md:flex-row gap-4"><div class="flex-1 flex flex-col"><div class="form-input-line w-full">${cong}</div><span class="text-center text-xs mt-1">(Nombre de la congregación)</span></div>
+<div class="flex-1 flex flex-col"><div class="form-input-line w-full">${ciudad}</div><span class="text-center text-xs mt-1">(Ciudad)</span></div>
+<div class="flex-1 flex flex-col"><div class="form-input-line w-full">${provincia}</div><span class="text-center text-xs mt-1">(Provincia o estado)</span></div></div>
+<div class="flex flex-col md:flex-row gap-4 items-end"><div class="flex items-center gap-2 flex-1"><span class="whitespace-nowrap font-medium">Informe de</span><div class="flex-1 flex flex-col"><div class="form-input-line w-full">${monthName}</div><span class="text-center text-xs mt-1">(Mes y año)</span></div></div>
+<div class="flex items-center gap-2 flex-1 justify-end"><span class="whitespace-nowrap font-medium">Número de la congregación:</span><div class="w-32 form-input-line">${num}</div></div></div>
+</section>
+<section class="mb-6"><table class="w-full border-collapse border border-black text-sm md:text-base"><thead><tr><th class="border border-black p-2 w-1/3"></th><th class="border border-black p-2 w-1/5 font-semibold text-center leading-tight">Cuántos<br/>informaron</th><th class="border border-black p-2 w-1/5 font-semibold text-center leading-tight">Cursos<br/>bíblicos</th><th class="border border-black p-2 w-1/4 font-semibold text-center">Horas</th></tr></thead><tbody>
+<tr><td class="border border-black p-2 font-medium">Publicadores</td><td class="border border-black p-1">${cell(d.pub.n)}</td><td class="border border-black p-1">${cell(d.pub.c)}</td><td class="border border-black p-1 bg-gray-500"></td></tr>
+<tr><td class="border border-black p-2 font-medium">Precursores auxiliares</td><td class="border border-black p-1">${cell(d.aux.n)}</td><td class="border border-black p-1">${cell(d.aux.c)}</td><td class="border border-black p-1">${cell(d.aux.h)}</td></tr>
+<tr><td class="border border-black p-2 font-medium">Precursores regulares</td><td class="border border-black p-1">${cell(d.reg.n)}</td><td class="border border-black p-1">${cell(d.reg.c)}</td><td class="border border-black p-1">${cell(d.reg.h)}</td></tr>
+</tbody></table></section>
+<section class="flex flex-col md:flex-row gap-6 mb-12 text-sm md:text-base">
+<div class="flex border border-black w-fit"><div class="p-2 font-medium border-r border-black flex items-center leading-tight">Publicadores<br/>activos</div><div class="w-24 p-1">${cell(d.activos)}</div></div>
+<div class="flex border border-black w-fit"><div class="p-2 font-medium border-r border-black flex items-center leading-tight">Promedio de asistencia a<br/>la reunión del fin de semana</div><div class="w-24 p-1">${cell(d.promFin)}</div></div>
+</section>
+<footer class="flex justify-between items-end text-sm mt-12 relative"><div class="font-medium absolute bottom-0 left-0">S-1-S 11/23</div><div class="w-1/2 ml-auto flex flex-col items-center"><div class="form-input-line w-full mb-1"></div><span class="text-xs">(Secretario)</span></div></footer>
+</main></body></html>`;
+}
+
+function buildPredicacionSvg(month, d, cfg) {
+  const W = 850, H = 1100;
+  const cong = cfg?.congregacion || 'Congregación';
+  const monthName = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  const P = [];
+  P.push(`<text x="${W / 2}" y="60" text-anchor="middle" font-family="serif" font-size="24" font-weight="700" fill="#000">INFORME DE PREDICACIÓN Y DE ASISTENCIA</text>`);
+  P.push(`<text x="${W / 2}" y="90" text-anchor="middle" font-family="serif" font-size="18" font-weight="700" fill="#000">A LAS REUNIONES DE LA CONGREGACIÓN</text>`);
+  P.push(`<text x="60" y="140" font-family="sans-serif" font-size="15" fill="#000">${escapeHtml(cong)}</text>`);
+  P.push(`<text x="60" y="170" font-family="sans-serif" font-size="15" fill="#000">Informe de ${monthName}</text>`);
+  const rows = [['Publicadores', d.pub.n, d.pub.c, ''], ['Precursores auxiliares', d.aux.n, d.aux.c, d.aux.h], ['Precursores regulares', d.reg.n, d.reg.c, d.reg.h]];
+  let y = 230;
+  P.push(`<rect x="50" y="${y}" width="${W - 100}" height="28" fill="none" stroke="#000"/>`);
+  P.push(`<text x="60" y="${y + 19}" font-family="sans-serif" font-size="14" font-weight="700" fill="#000">Categoría</text>`);
+  P.push(`<text x="430" y="${y + 19}" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="700" fill="#000">Informaron</text>`);
+  P.push(`<text x="580" y="${y + 19}" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="700" fill="#000">Cursos</text>`);
+  P.push(`<text x="720" y="${y + 19}" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="700" fill="#000">Horas</text>`);
+  y += 28;
+  rows.forEach(r => {
+    P.push(`<rect x="50" y="${y}" width="${W - 100}" height="38" fill="none" stroke="#000"/>`);
+    P.push(`<text x="60" y="${y + 25}" font-family="sans-serif" font-size="14" fill="#000">${r[0]}</text>`);
+    P.push(`<text x="430" y="${y + 25}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${r[1]}</text>`);
+    P.push(`<text x="580" y="${y + 25}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${r[2]}</text>`);
+    P.push(`<text x="720" y="${y + 25}" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#000">${r[3]}</text>`);
+    y += 38;
+  });
+  P.push(`<text x="60" y="${y + 36}" font-family="sans-serif" font-size="15" fill="#000">Publicadores activos: ${d.activos}</text>`);
+  P.push(`<text x="60" y="${y + 64}" font-family="sans-serif" font-size="15" fill="#000">Promedio asistencia fin de semana: ${d.promFin}</text>`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#fff"/>${P.join('')}</svg>`;
+}
+
+function registroHtmlTable(title, rows, promedio) {
+  const body = rows.map(r => `<tr><td>${MONTHS_ES[Number(r.month.slice(5)) - 1]}</td><td>${r.reuniones}</td><td>${r.total}</td><td>${r.promedio}</td></tr>`).join('');
+  return `<table class="w-full custom-table"><thead><tr><th>${title}</th><th>Número de<br/>reuniones</th><th>Asistencia<br/>total</th><th>Promedio de<br/>asistencia<br/>semanal</th></tr></thead><tbody>${body}<tr><td class="text-right font-bold bg-gray-50" colspan="3">Promedio de asistencia mensual</td><td class="bg-gray-50">${promedio}</td></tr></tbody></table>`;
+}
+
+function buildRegistroHtml(year, data, data2) {
+  const avg = (arr) => { const t = arr.reduce((s, r) => s + r.total, 0); return arr.length ? Math.round(t / arr.length) : 0; };
+  const css = `<style>.custom-table th,.custom-table td{border:1px solid #d1d5db;padding:.5rem;text-align:center}.custom-table th{background:#f9fafb;font-weight:600;font-size:.8rem}.custom-table td{font-size:.8rem;height:1.6rem}.custom-table td:first-child{text-align:left;font-weight:600;width:25%}</style>`;
+  return `${FORM_HEAD}${css}<main class="bg-white w-full max-w-5xl p-8 shadow-lg border border-gray-200">
+<header class="mb-8 text-center"><h1 class="text-2xl font-serif font-bold uppercase">Registro de Asistencia a las Reuniones de Congregación</h1></header>
+<section class="mb-12"><h2 class="text-xl font-bold mb-4">Reunión de entre semana</h2><div class="grid grid-cols-2 gap-0 border border-gray-300">${registroHtmlTable('Año de servicio', data.midweek, avg(data.midweek))}${registroHtmlTable('', data2.midweek, avg(data2.midweek))}</div></section>
+<section><h2 class="text-xl font-bold mb-4">Reunión del fin de semana</h2><div class="grid grid-cols-2 gap-0 border border-gray-300">${registroHtmlTable('Año de servicio', data.weekend, avg(data.weekend))}${registroHtmlTable('', data2.weekend, avg(data2.weekend))}</div></section>
+</main></body></html>`;
+}
+
+function buildRegistroSvg(year, data, data2) {
+  const W = 1200;
+  const colW = [230, 110, 110, 90];
+  const tableW = colW.reduce((a, b) => a + b, 0);
+  const rowH = 26;
+  const avg = (arr) => { const t = arr.reduce((s, r) => s + r.total, 0); return arr.length ? Math.round(t / arr.length) : 0; };
+  const drawTable = (x, y, title, rows, prom) => {
+    const P = [];
+    P.push(`<text x="${x}" y="${y - 8}" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${title}</text>`);
+    let yy = y;
+    P.push(`<rect x="${x}" y="${yy}" width="${tableW}" height="${rowH}" fill="none" stroke="#000"/>`);
+    const heads = ['Mes', 'Reun.', 'Total', 'Prom.'];
+    let cx = x;
+    heads.forEach((h, i) => { P.push(`<text x="${cx + 6}" y="${yy + 18}" font-family="sans-serif" font-size="13" fill="#000">${h}</text>`); cx += colW[i]; });
+    yy += rowH;
+    rows.forEach(r => {
+      P.push(`<rect x="${x}" y="${yy}" width="${tableW}" height="${rowH}" fill="none" stroke="#000"/>`);
+      const vals = [MONTHS_ES[Number(r.month.slice(5)) - 1], String(r.reuniones), String(r.total), String(r.promedio)];
+      let cxp = x;
+      vals.forEach((v, i) => { P.push(`<text x="${cxp + 6}" y="${yy + 18}" font-family="sans-serif" font-size="13" fill="#000">${v}</text>`); cxp += colW[i]; });
+      yy += rowH;
+    });
+    P.push(`<rect x="${x}" y="${yy}" width="${tableW}" height="${rowH}" fill="#eee" stroke="#000"/>`);
+    P.push(`<text x="${x + 6}" y="${yy + 18}" font-family="sans-serif" font-size="13" font-weight="700" fill="#000">Promedio mensual</text>`);
+    P.push(`<text x="${x + tableW - colW[3] + 6}" y="${yy + 18}" font-family="sans-serif" font-size="13" fill="#000">${prom}</text>`);
+    return { svg: P.join(''), h: yy + rowH - y };
+  };
+  const t1 = drawTable(40, 110, `Entre semana · ${serviceYearLabel(year)}`, data.midweek, avg(data.midweek));
+  const t2 = drawTable(620, 110, `Entre semana · ${serviceYearLabel(year + 1)}`, data2.midweek, avg(data2.midweek));
+  const y2 = Math.max(t1.h, t2.h) + 130;
+  const t3 = drawTable(40, y2, `Fin de semana · ${serviceYearLabel(year)}`, data.weekend, avg(data.weekend));
+  const t4 = drawTable(620, y2, `Fin de semana · ${serviceYearLabel(year + 1)}`, data2.weekend, avg(data2.weekend));
+  const H = y2 + Math.max(t3.h, t4.h) + 30;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#fff"/>${t1.svg}${t2.svg}${t3.svg}${t4.svg}</svg>`;
+}
+
+function buildAsistenciaMesHtml(month, d, cfg) {
+  const cong = escapeHtml(cfg?.congregacion || '');
+  const monthName = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  const row = (label, r) => `<tr class="divide-x-2 divide-black h-24"><td class="p-3 text-left align-middle bg-white">${label}</td>${r.cells.map(c => `<td class="p-2 bg-white text-center font-bold">${c}</td>`).join('')}<td class="p-2 bg-white text-center font-bold">${r.total}</td><td class="p-2 bg-white text-center font-bold">${r.promedio}</td></tr>`;
+  return `${FORM_HEAD}<style>.input-line{border-bottom:1px dotted #000;display:inline-block;min-width:150px}</style><main class="bg-white max-w-4xl mx-auto p-8 shadow-lg border border-gray-200 flex flex-col">
+<header class="text-center mb-6"><h1 class="text-2xl md:text-3xl font-bold uppercase tracking-wide mb-4">Informe de Asistencia a las Reuniones</h1><p class="text-sm font-semibold">(La asistencia se contará una sola vez a mitad de cada reunión. Recuerden contar también a las personas aisladas o confinadas en casa que estén conectadas).</p></header>
+<section class="flex flex-col sm:flex-row justify-between items-end mb-6 gap-4 font-bold text-sm"><div class="flex items-center"><label class="mr-2">Nombre de la congregación:</label><span class="input-line">${cong}</span></div><div class="flex items-center"><label class="mr-2">Mes:</label><span class="input-line">${monthName}</span></div></section>
+<section class="overflow-x-auto border-2 border-black"><table class="w-full text-center border-collapse"><thead><tr class="border-b-2 border-black text-xs font-bold"><th class="p-2 w-1/5 bg-white"></th><th class="p-2 bg-white">Primera<br/>semana</th><th class="p-2 bg-white">Segunda<br/>semana</th><th class="p-2 bg-white">Tercera<br/>semana</th><th class="p-2 bg-white">Cuarta<br/>semana</th><th class="p-2 bg-white">Quinta<br/>semana</th><th class="p-2 bg-white">Total</th><th class="p-2 bg-white">Promedio</th></tr></thead><tbody class="divide-y-2 divide-black font-bold text-sm">${row('Reunión<br/>de entre<br/>semana', d.midweek)}${row('Reunión<br/>del fin de<br/>semana', d.weekend)}</tbody></table></section>
+<footer class="mt-8 text-sm font-semibold"><p>S-3-S 10/15</p></footer>
+</main></body></html>`;
+}
+
+function buildAsistenciaMesSvg(month, d, cfg) {
+  const W = 850, H = 1000;
+  const cong = cfg?.congregacion || 'Congregación';
+  const monthName = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  const P = [];
+  P.push(`<text x="${W / 2}" y="50" text-anchor="middle" font-family="serif" font-size="22" font-weight="700" fill="#000">INFORME DE ASISTENCIA A LAS REUNIONES</text>`);
+  P.push(`<text x="60" y="90" font-family="sans-serif" font-size="14" fill="#000">${escapeHtml(cong)} — ${monthName}</text>`);
+  const cols = [200, 90, 90, 90, 90, 90, 90, 90];
+  const tableW = cols.reduce((a, b) => a + b, 0);
+  const rowH = 60;
+  let y = 130;
+  P.push(`<rect x="50" y="${y}" width="${tableW}" height="34" fill="none" stroke="#000"/>`);
+  const heads = ['', 'S1', 'S2', 'S3', 'S4', 'S5', 'Total', 'Prom.'];
+  let cx = 50;
+  heads.forEach((h, i) => { P.push(`<text x="${cx + 6}" y="${y + 22}" font-family="sans-serif" font-size="13" font-weight="700" fill="#000">${h}</text>`); cx += cols[i]; });
+  y += 34;
+  [['Entre semana', d.midweek], ['Fin de semana', d.weekend]].forEach(([lab, r]) => {
+    P.push(`<rect x="50" y="${y}" width="${tableW}" height="${rowH}" fill="none" stroke="#000"/>`);
+    P.push(`<text x="56" y="${y + 36}" font-family="sans-serif" font-size="14" fill="#000">${lab}</text>`);
+    let cxp = 50 + cols[0];
+    r.cells.forEach(c => { P.push(`<text x="${cxp + 45}" y="${y + 36}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${c}</text>`); cxp += cols[r.cells.indexOf(c) + 1]; });
+    P.push(`<text x="${50 + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] + cols[5] + 45}" y="${y + 36}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${r.total}</text>`);
+    P.push(`<text x="${50 + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] + cols[5] + cols[6] + 45}" y="${y + 36}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${r.promedio}</text>`);
+    y += rowH;
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#fff"/>${P.join('')}</svg>`;
+}
+
+async function downloadPredicacion(month, fmt) {
+  const d = await computePredicacion(month);
+  const cfg = { ...state.config, congregacion: await db.getSetting('congregation', '') };
+  if (fmt === 'png') {
+    const blob = await svgToPngBlob(buildPredicacionSvg(month, d, cfg));
+    await compartirPng(blob, `predicacion-${month}.png`);
+  } else {
+    printHtmlWindow(buildPredicacionHtml(month, d, cfg), `Informe de predicación ${month}`);
+  }
+}
+
+async function downloadRegistro(year, fmt) {
+  const data = await computeRegistro(year);
+  const data2 = await computeRegistro(year + 1);
+  if (fmt === 'png') {
+    const blob = await svgToPngBlob(buildRegistroSvg(year, data, data2));
+    await compartirPng(blob, `registro-asistencia-${year}.png`);
+  } else {
+    printHtmlWindow(buildRegistroHtml(year, data, data2), `Registro de asistencia ${year}`);
+  }
+}
+
+async function downloadAsistenciaMes(month, fmt) {
+  const d = await computeAsistenciaMes(month);
+  const cfg = { ...state.config, congregacion: await db.getSetting('congregation', '') };
+  if (fmt === 'png') {
+    const blob = await svgToPngBlob(buildAsistenciaMesSvg(month, d, cfg));
+    await compartirPng(blob, `asistencia-${month}.png`);
+  } else {
+    printHtmlWindow(buildAsistenciaMesHtml(month, d, cfg), `Informe de asistencia ${month}`);
+  }
+}
+
+async function renderGroupSummary() {
+  state.month = null;
+  renderTop();
+  const me = currentUser();
+  const year = currentServiceYear();
+  const groups = (me?.grupos || []).length ? me.grupos : [];
+  const members = state.people.filter(p => groups.length ? groups.includes(p.grupoId) : false);
+  const { rows, totals } = await computeServiceYearMetrics(year);
+  const groupRows = rows.filter(r => members.some(m => m.name === r.name));
+  const history = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(); d.setMonth(d.getMonth() - i);
+    const mid = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const rep = await db.getReport(`activity:${mid}`);
+    const active = rep ? Object.values(rep.people || {}).filter(v => v.actividad).length : 0;
+    history.push({ mid, active });
+  }
+  const histRows = history.map(h => `<tr class="border-b border-outline-variant/40"><td class="p-2">${MONTHS_ES[Number(h.mid.slice(5)) - 1]} ${h.mid.slice(0, 4)}</td><td class="p-2 text-center">${h.active}</td></tr>`).join('');
+  const app = $('#app');
+  app.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Mi grupo</h1><p class="text-on-surface-variant font-body-lg">Actividad, métricas e historial de los últimos 6 meses.</p></div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${groupRows.length}</div><div class="font-label-sm text-label-sm text-on-surface-variant">Publicadores</div></div>
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${groupRows.filter(r => r.active > 0).length}</div><div class="font-label-sm text-label-sm text-on-surface-variant">Activos (año)</div></div>
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${groupRows.reduce((s, r) => s + r.courses, 0)}</div><div class="font-label-sm text-label-sm text-on-surface-variant">Cursos</div></div>
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${groupRows.reduce((s, r) => s + r.hours, 0)}</div><div class="font-label-sm text-label-sm text-on-surface-variant">Horas</div></div>
+    </div>
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 mb-6">
+      <h3 class="font-title-md text-title-md text-primary mb-3">Historial (6 meses)</h3>
+      <table class="w-full text-left"><thead><tr class="bg-surface-container border-b border-outline-variant"><th class="p-2">Mes</th><th class="p-2 text-center">Activos</th></tr></thead><tbody>${histRows}</tbody></table>
+    </div>`;
 }
 
 async function renderHome() {
@@ -4134,7 +4770,18 @@ function personAttrsFields() {
           ${cargosOpts('publicador')}
         </select>
       </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Fecha de nacimiento</label>
+        <input data-attr="nacimiento" type="date" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+      </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Fecha de bautismo</label>
+        <input data-attr="bautismo" type="date" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+      </div>
     </div>
+    <label class="flex items-center gap-2 text-left font-label-md text-label-md text-on-surface-variant cursor-pointer">
+      <input data-attr="precursorRegular" type="checkbox" class="accent-primary"> Precursor regular
+    </label>
     <div class="text-left">
       <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
       <select data-attr="enlace" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
@@ -4151,7 +4798,10 @@ function readPersonAttrs() {
   const calificacion = (document.querySelector('[data-attr="calificacion"]') || {}).value || '';
   const enlace = (document.querySelector('[data-attr="enlace"]') || {}).value || '';
   const cargo = (document.querySelector('[data-attr="cargo"]') || {}).value || 'publicador';
-  return { genero, calificacion, enlace, cargo };
+  const nacimiento = (document.querySelector('[data-attr="nacimiento"]') || {}).value || '';
+  const bautismo = (document.querySelector('[data-attr="bautismo"]') || {}).value || '';
+  const precursorRegular = !!(document.querySelector('[data-attr="precursorRegular"]') || {}).checked;
+  return { genero, calificacion, enlace, cargo, nacimiento, bautismo, precursorRegular };
 }
 
 // Aplica el enlace de pareja con la regla de direccionalidad:
@@ -4231,8 +4881,19 @@ async function openPersonProfile(person) {
           </div>
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargo</label>
-           <select id="pfCargo" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${cargosOpts(cargoOf(p).id)}</select>
+            <select id="pfCargo" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${cargosOpts(cargoOf(p).id)}</select>
           </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Fecha de nacimiento</label>
+            <input id="pfNacimiento" type="date" value="${escapeAttr(p.nacimiento || '')}" ${userMode ? 'readonly' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Fecha de bautismo</label>
+            <input id="pfBautismo" type="date" value="${escapeAttr(p.bautismo || '')}" ${userMode ? 'readonly' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+          <label class="flex items-center gap-2 font-label-md text-label-md text-on-surface-variant cursor-pointer self-end pb-2">
+            <input id="pfPrecursorRegular" type="checkbox" ${p.precursorRegular === true ? 'checked' : ''} ${userMode ? 'disabled' : ''} class="accent-primary"> Precursor regular
+          </label>
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Enlace (pareja designada)</label>
@@ -4277,6 +4938,9 @@ async function openPersonProfile(person) {
     p.calificacion = $('#pfCalif').value;
     p.cargo = $('#pfCargo').value;
     p.cargos = [p.cargo];
+    p.nacimiento = $('#pfNacimiento').value || '';
+    p.bautismo = $('#pfBautismo').value || '';
+    p.precursorRegular = $('#pfPrecursorRegular').checked === true;
     p.grupoId = $('#pfGrupo').value || '';
     p.labores = [...$('#pfLabores').querySelectorAll('.labor-chip.is-on')].map(c => c.dataset.plabore);
     await applyEnlace(p, $('#pfEnlace').value);
@@ -5245,6 +5909,12 @@ async function renderSettings() {
   const algo = { ...defaultAlgorithmConfig(), ...(config.algorithm || {}) };
   const scoring = { ...defaultScoringConfig(), ...((config.algorithm || {}).scoring || {}) };
   const personasOptions = (sel, cur) => `<option value="">—</option>${state.people.map(p => `<option value="${escapeAttr(String(p.id))}" ${String(p.id) === String(cur) ? 'selected' : ''}>${escapeAttr(p.name)}</option>`).join('')}`;
+  const usuarios = isSupabaseConfigured() ? (await obtenerUsuarios()) : [];
+  const userGroupsHtml = usuarios.filter(u => u.rol === 'user').map(u => {
+    const sel = Array.isArray(u.grupos) ? u.grupos.map(String) : [];
+    const checks = state.departments.map(d => `<label class="flex items-center gap-2 text-sm"><input type="checkbox" data-ug="${escapeAttr(u.id)}" value="${escapeAttr(String(d.id))}" ${sel.includes(String(d.id)) ? 'checked' : ''} class="accent-primary">${escapeHtml(d.name)}</label>`).join('');
+    return `<div class="border border-outline-variant rounded-lg p-3"><div class="font-label-md text-label-md mb-2">${escapeHtml(u.email || u.id)}</div><div class="flex flex-wrap gap-3">${checks || '<span class="text-on-surface-variant text-sm">Sin grupos.</span>'}</div></div>`;
+  }).join('') || '<p class="text-on-surface-variant text-sm">No hay usuarios con rol «user».</p>';
   const selVeces = (cur) => [0, 1, 2, 3, 4].map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>${v === 0 ? 'Prohibido (0 veces)' : v === 1 ? 'Preferido (1 vez al mes)' : `Hasta ${v} veces al mes`}</option>`).join('');
   const selPair = (cur) => ['NOT_ALLOWED', 'ALLOWED_LOW', 'ALLOWED_MEDIUM', 'ALLOWED_HIGH'].map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${m === 'NOT_ALLOWED' ? 'Prohibido' : m === 'ALLOWED_LOW' ? 'Solo con motivo' : m === 'ALLOWED_MEDIUM' ? 'Permitido' : 'Permitido (prioridad)'}</option>`).join('');
   const selLevel = (cur) => {
@@ -5327,6 +5997,17 @@ async function renderSettings() {
         </div>
       </div>
 
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6" data-admin>
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Asignación de grupos a usuarios</h3>
+          <p class="text-on-surface-variant text-sm">Los usuarios con rol <b>user</b> solo ven el resumen de los grupos que les asignes. Marca los grupos de cada usuario.</p>
+        </div>
+        <div id="userGroupsBox" class="space-y-4">${userGroupsHtml}</div>
+        <div class="flex gap-3 pt-2">
+          <button id="userGroupsSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar asignación</button>
+        </div>
+      </div>
+
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
         <div>
           <h3 class="font-headline-md text-headline-md text-primary mb-1">Motor de asignación automática</h3>
@@ -5400,6 +6081,20 @@ async function renderSettings() {
           <input id="setCong" type="text" value="${escapeAttr(congregation)}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
           <p class="text-on-surface-variant text-caption mt-2">Aparece en los programas generados.</p>
         </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Ciudad</label>
+            <input id="setCiudad" type="text" value="${escapeAttr(config.ciudad || '')}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Provincia o estado</label>
+            <input id="setProvincia" type="text" value="${escapeAttr(config.provincia || '')}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+          <div>
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Número de congregación</label>
+            <input id="setNum" type="text" value="${escapeAttr(config.congregacionNumero || '')}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+          </div>
+        </div>
         <button id="setSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar</button>
 
         <div class="border-t border-outline-variant pt-6">
@@ -5447,6 +6142,22 @@ async function renderSettings() {
     await db.setConfig(cfg);
     state.config = cfg;
     toast('Lista de correos guardada', 'success');
+  };
+
+  // ---- Asignación de grupos a usuarios (rol user) ----
+  const ugSave = $('#userGroupsSave');
+  if (ugSave) ugSave.onclick = async () => {
+    const updates = {};
+    document.querySelectorAll('[data-ug]').forEach(cb => {
+      const uid = cb.dataset.ug;
+      (updates[uid] ||= new Set());
+      if (cb.checked) updates[uid].add(cb.value);
+    });
+    for (const uid of Object.keys(updates)) {
+      const doc = usuarios.find(u => String(u.id) === String(uid)) || {};
+      await guardarUsuario(uid, { email: doc.email, rol: doc.rol || 'user', grupos: [...updates[uid]] });
+    }
+    toast('Asignación de grupos guardada', 'success');
   };
 
   // ---- Motor de asignación: guardar/restaurar reglas + ponderación ----
@@ -5501,6 +6212,12 @@ async function renderSettings() {
 
   $('#setSave').onclick = async () => {
     await db.setSetting('congregation', $('#setCong').value.trim());
+    const cfg = await db.getConfig();
+    cfg.ciudad = $('#setCiudad').value.trim();
+    cfg.provincia = $('#setProvincia').value.trim();
+    cfg.congregacionNumero = $('#setNum').value.trim();
+    await db.setConfig(cfg);
+    state.config = cfg;
     toast('Ajustes guardados', 'success');
   };
 

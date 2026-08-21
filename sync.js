@@ -127,6 +127,9 @@ function personaADocumento(p) {
       genero: p.genero || '',
       calificacion: p.calificacion || '',
       enlace: p.enlace || '',
+      nacimiento: p.nacimiento || '',
+      bautismo: p.bautismo || '',
+      precursorRegular: p.precursorRegular === true,
       activo: p.activo !== false,
       createdAt: p.createdAt || Date.now(),
     },
@@ -319,6 +322,10 @@ async function pushStore(store) {
       }));
       await batchWrite(docs);
       setStatus('ok', `asignaciones: ${docs.length}`);
+    } else if (store === 'reports') {
+      const reports = await db.listReports();
+      await batchWrite(reports.map(r => ({ collection: 'informes', id: String(r.id), data: r })));
+      setStatus('ok', `informes: ${reports.length}`);
     } else if (store === 'settings') {
       const [congregation, lastMonthId, config, labores] = await Promise.all([
         db.getSetting('congregation', ''),
@@ -461,7 +468,7 @@ export async function sincronizarAhora() {
   if (_syncing) return { error: 'ocupado' };
   if (!_enabled) await iniciarSync();
   setStatus('syncing', 'subiendo cambios…');
-  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings'];
+  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings', 'reports'];
   for (const store of stores) await pushStore(store);
   // Si algún store falló por cupo de Supabase, informarlo (no dar éxito).
   if (_lastStatus && _lastStatus.state === 'error') {
@@ -487,7 +494,7 @@ export async function pullAll() {
   _enabled = false;
   try {
     const f = await import('./supabase.js?v=217');
-    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos] = await Promise.all([
+    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, informes] = await Promise.all([
       f.obtenerParticipantes(),
       f.obtenerGrupos(),
       f.obtenerReuniones(),
@@ -495,6 +502,7 @@ export async function pullAll() {
       f.obtenerAsignaciones(),
       f.obtenerConfiguracion(),
       f.obtenerDiscursos(),
+      f.obtenerInformes(),
     ]);
 
     // personas: participantes → registros people
@@ -506,6 +514,9 @@ export async function pullAll() {
       genero: p.genero || '',
       calificacion: p.calificacion || '',
       enlace: p.enlace || '',
+      nacimiento: p.nacimiento || '',
+      bautismo: p.bautismo || '',
+      precursorRegular: p.precursorRegular === true,
       grupoId: p.grupoId || '',
       activo: p.activo !== false,
       createdAt: p.createdAt || Date.now(),
@@ -560,6 +571,7 @@ export async function pullAll() {
     }
     // discursos
     await db.replaceAllTalksSilent(discursos.map(d => ({ num: Number(d.num), title: d.title || '' })));
+    for (const informe of informes || []) await db.putReportSilent(informe);
     setStatus('ok', 'pull completado');
     return { ok: true, participantes: participantes.length, programas: programas.length };
   } catch (e) {

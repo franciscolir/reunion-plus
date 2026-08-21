@@ -43,6 +43,11 @@ create table if not exists public.configuracion (
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
+create table if not exists public.informes (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
 
 -- Tabla de usuarios (rol admin/reader/user/ia). El usuario crea SU fila con rol reader
 -- en el primer login; solo un admin puede cambiar/borrar roles.
@@ -133,6 +138,7 @@ select public.def_policies('programas');
 select public.def_policies('asignaciones');
 select public.def_policies('discursos');
 select public.def_policies('configuracion');
+select public.def_policies('informes');
 
 -- ===== Políticas de usuarios =====
 alter table public.usuarios enable row level security;
@@ -160,7 +166,7 @@ create policy "usuarios_borrado_admin" on public.usuarios
 -- ===== Grants (los roles anon/authenticated pueden usar las tablas; RLS decide) =====
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
-  public.programas, public.asignaciones, public.discursos, public.configuracion, public.usuarios
+  public.programas, public.asignaciones, public.discursos, public.configuracion, public.informes, public.usuarios
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
 

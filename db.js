@@ -4,7 +4,7 @@
 import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -15,6 +15,7 @@ const STORE_ASEOS = 'aseos';        // key: "YYYY-MM" (programa de aseo por mes)
 const STORE_SALIDAS = 'salidas';    // key: "YYYY-MM" (programa de salidas por mes)
 const STORE_ATENCION = 'atencion';  // key: "YYYY-MM" (programa de atención/acomodación por mes)
 const STORE_ASSIGNMENT_LOG = 'assignment_log'; // keyPath: id (compuesto person+date+program+role) · historial de asignaciones
+const STORE_REPORTS = 'reports'; // registros de actividad, asistencia y arreglos
 
 let _db = null;
 
@@ -65,6 +66,9 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(STORE_ASSIGNMENT_LOG)) {
         db.createObjectStore(STORE_ASSIGNMENT_LOG, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_REPORTS)) {
+        db.createObjectStore(STORE_REPORTS, { keyPath: 'id' });
       }
 
       // Migración v7→v8: las asignaciones de persona pasan a formato
@@ -236,6 +240,9 @@ export async function addPerson(payload) {
       genero: payload.genero || '',
       calificacion: payload.calificacion || '',
       enlace: payload.enlace || '',
+      nacimiento: payload.nacimiento || '',
+      bautismo: payload.bautismo || '',
+      precursorRegular: payload.precursorRegular === true,
       activo: payload.activo !== false,
       createdAt: Date.now(),
     };
@@ -430,6 +437,9 @@ export function defaultConfig() {
     algorithm: defaultAlgorithmConfig(),
     emailsPermitidos: [], // whitelist de correos autorizados para iniciar sesión
     excepciones: [], // conflictos autorizados (alcance puntual: persona+regla+semana)
+    congregacionNumero: '', // número de la congregación (S-1-S / S-3-S)
+    ciudad: '',
+    provincia: '',
   };
 }
 
@@ -922,4 +932,23 @@ export async function borrarSoloProgramasLocal() {
       await commitSilent(s, (store) => reqToPromise(store.clear()));
     }
   }
+}
+
+export async function getReport(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_REPORTS).get(String(id)));
+}
+
+export async function putReport(report) {
+  return commit(STORE_REPORTS, (store) => reqToPromise(store.put({ ...report, id: String(report.id), updatedAt: Date.now() })));
+}
+
+export async function putReportSilent(report) {
+  return commitSilent(STORE_REPORTS, (store) => reqToPromise(store.put({ ...report, id: String(report.id) })));
+}
+
+export async function listReports(prefix) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_REPORTS).getAll());
+  return prefix ? all.filter(r => String(r.id).startsWith(prefix)) : all;
 }

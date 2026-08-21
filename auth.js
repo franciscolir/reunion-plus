@@ -119,7 +119,8 @@ async function refreshUser(sbUser) {
     doc = { rol: 'reader' };
   }
   const rol = doc && ['admin', 'reader', 'user', 'ia'].includes(doc.rol) ? doc.rol : 'reader';
-  _currentUser = { uid: sbUser.id, email: sbUser.email, rol };
+  const grupos = Array.isArray(doc.grupos) ? doc.grupos.map(String) : [];
+  _currentUser = { uid: sbUser.id, email: sbUser.email, rol, grupos };
   notifyListeners();
   return _currentUser;
 }
