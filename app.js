@@ -772,93 +772,155 @@ async function renderInformes() {
   const year = currentServiceYear();
   const months = serviceYearMonths(year);
   if (!state.reportMonth || !months.includes(state.reportMonth)) state.reportMonth = months.find(m => m === isoDate(new Date()).slice(0, 7)) || months[0];
-  const tab = state.reportTab;
-  const report = await db.getReport(`activity:${state.reportMonth}`) || { id: `activity:${state.reportMonth}`, people: {}, locked: false };
-  const monthLabel = `${MONTHS_ES[Number(state.reportMonth.slice(5)) - 1]} ${state.reportMonth.slice(0, 4)}`;
+  const tab = state.reportTab || 'actividad';
   const tabs = [
     ['actividad', 'Actividad', 'assignment'],
     ['asistencia', 'Asistencia', 'groups'],
     ['arreglos', 'Arreglos', 'swap_horiz'],
+    ['formularios', 'Formularios', 'download'],
   ];
-  const banner = `<aside class="bg-primary text-on-primary rounded-xl p-5 space-y-3">
-    <h2 class="font-headline-md text-headline-md">Descargar formularios</h2>
-    <p class="font-body-sm text-body-sm opacity-90">Informe de predicación (${monthLabel})</p>
-    <div class="flex gap-2">
-      <button data-download-report="predicacion" data-fmt="pdf" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">picture_as_pdf</span> PDF</button>
-      <button data-download-report="predicacion" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">image</span> PNG</button>
-    </div>
-    <p class="font-body-sm text-body-sm opacity-90 pt-2">Registro de asistencia (2 años)</p>
-    <div class="flex gap-2">
-      <button data-download-report="registro" data-fmt="pdf" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">picture_as_pdf</span> PDF</button>
-      <button data-download-report="registro" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">image</span> PNG</button>
-    </div>
-    <p class="font-body-sm text-body-sm opacity-90 pt-2">Informe de asistencia mensual (${monthLabel})</p>
-    <div class="flex gap-2">
-      <button data-download-report="asistenciaMes" data-fmt="pdf" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">picture_as_pdf</span> PDF</button>
-      <button data-download-report="asistenciaMes" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-on-primary/10 hover:bg-on-primary/20 font-label-md text-label-md"><span class="material-symbols-outlined">image</span> PNG</button>
-    </div>
-  </aside>`;
   let body = '';
-  if (tab === 'actividad') body = await renderActivityTab(report, monthLabel);
-  else if (tab === 'asistencia') body = await renderAttendanceTab(year);
-  else body = await renderArrangementsTab();
+  if (tab === 'actividad') body = await renderActivityTab();
+  else if (tab === 'asistencia') body = await renderAttendanceTab();
+  else if (tab === 'arreglos') body = await renderArrangementsTab();
+  else body = await renderFormsTab();
+  const showMonth = tab === 'actividad' || tab === 'arreglos';
   const app = $('#app');
   app.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Informes</h1><p class="text-on-surface-variant font-body-lg">Actividad, asistencia y arreglos de la congregación.</p></div>
-    <div class="flex flex-col lg:flex-row gap-6 items-start"><div class="min-w-0 flex-1 w-full">
-      <div class="flex flex-wrap items-center gap-2 mb-5"><select id="reportMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md">${months.map(m => `<option value="${m}" ${m === state.reportMonth ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}</select>
-      <div class="flex flex-wrap gap-2">${tabs.map(([id, label, icon]) => `<button data-report-tab="${id}" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg font-label-md text-label-md ${tab === id ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}"><span class="material-symbols-outlined text-[18px]">${icon}</span>${label}</button>`).join('')}</div></div>
-      ${body}
-    </div>${banner}</div>`;
-  $('#reportMonth').onchange = e => { state.reportMonth = e.target.value; renderInformes(); };
-  document.querySelectorAll('[data-report-tab]').forEach(b => b.onclick = () => { state.reportTab = b.dataset.reportTab; renderInformes(); });
-  if (tab === 'actividad') bindActivityTab(report);
-  else if (tab === 'asistencia') bindAttendanceTab(year);
-  else bindArrangementsTab();
-  document.querySelectorAll('[data-download-report]').forEach(b => b.onclick = () => {
-    const fmt = b.dataset.fmt;
-    if (b.dataset.downloadReport === 'predicacion') downloadPredicacion(state.reportMonth, fmt);
-    else if (b.dataset.downloadReport === 'registro') downloadRegistro(currentServiceYear(), fmt);
-    else if (b.dataset.downloadReport === 'asistenciaMes') downloadAsistenciaMes(state.reportMonth, fmt);
-  });
-}
-
-async function renderActivityTab(report, monthLabel) {
-  const activityRows = state.people.map(p => {
-    const value = report.people?.[p.id] || {};
-    const regular = p.precursorRegular === true;
-    const auxiliary = value.auxiliar === true;
-    return `<tr class="border-b border-outline-variant/40">
-      <td class="p-3 font-body-md text-body-md font-semibold">${escapeHtml(p.name)}</td>
-      <td class="p-3 text-center"><input type="checkbox" data-act="actividad" data-pid="${p.id}" ${value.actividad ? 'checked' : ''} ${report.locked ? 'disabled' : ''} class="accent-primary"></td>
-      <td class="p-3"><input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(value.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 mx-auto block bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-center"></td>
-      <td class="p-3 text-center"><input type="checkbox" data-act="auxiliar" data-pid="${p.id}" ${auxiliary ? 'checked' : ''} ${report.locked || regular ? 'disabled' : ''} class="accent-primary"></td>
-      <td class="p-3"><input type="number" min="0" step="1" data-act="horas" data-pid="${p.id}" value="${Number(value.horas) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 mx-auto block bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-center"></td>
-      <td class="p-3"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(value.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full min-w-[140px] bg-surface-bright border border-outline-variant rounded-lg p-1.5"></td>
-    </tr>`;
-  }).join('');
-  return `<div class="flex items-center justify-between gap-3 mb-4"><h2 class="font-headline-md text-headline-md text-primary">${monthLabel}</h2>${report.locked ? `<span class="px-3 py-1.5 rounded-lg bg-error-container text-on-error-container font-label-md text-label-md">Mes bloqueado</span> <button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Desbloquear mes</button>` : `<button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Bloquear mes</button>`}</div>
-    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-x-auto">
-      <table class="w-full text-left min-w-[800px]"><thead><tr class="bg-surface-container border-b border-outline-variant">
-        <th class="p-3">Publicador</th><th class="p-3 text-center">Actividad</th><th class="p-3">Cursos</th><th class="p-3 text-center">Auxiliar</th><th class="p-3">Horas</th><th class="p-3">Observaciones</th>
-      </tr></thead><tbody>${activityRows || '<tr><td colspan="6" class="p-8 text-center text-on-surface-variant">No hay personas activas.</td></tr>'}</tbody></table>
+    <div class="mb-5 flex flex-wrap items-center gap-3">
+      ${showMonth ? `<select id="reportMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md">${months.map(m => `<option value="${m}" ${m === state.reportMonth ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}</select>` : ''}
+      <div class="flex flex-wrap gap-2">${tabs.map(([id, label, icon]) => `<button data-report-tab="${id}" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg font-label-md text-label-md ${tab === id ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}"><span class="material-symbols-outlined text-[18px]">${icon}</span>${label}</button>`).join('')}</div>
     </div>
-    ${report.locked ? '' : '<button id="activitySave" class="mt-4 px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar actividad</button>'}
-    ${await renderMetricsSection(currentServiceYear())}`;
+    ${body}`;
+  const ms = $('#reportMonth');
+  if (ms) ms.onchange = e => { state.reportMonth = e.target.value; renderInformes(); };
+  document.querySelectorAll('[data-report-tab]').forEach(b => b.onclick = () => { state.reportTab = b.dataset.reportTab; renderInformes(); });
+  if (tab === 'actividad') bindActivityTab();
+  else if (tab === 'asistencia') bindAttendanceTab();
+  else if (tab === 'arreglos') bindArrangementsTab();
+  else bindFormsTab();
 }
 
-function bindActivityTab(report) {
-  const readActivity = () => {
-    const people = {};
-    state.people.forEach(p => {
-      const get = key => document.querySelector(`[data-act="${key}"][data-pid="${p.id}"]`);
-      people[p.id] = { actividad: !!get('actividad')?.checked, cursos: parseInt(get('cursos')?.value, 10) || 0, auxiliar: !!get('auxiliar')?.checked, horas: parseInt(get('horas')?.value, 10) || 0, notas: get('notas')?.value || '' };
-    });
-    return people;
+async function renderActivityTab() {
+  const me = currentUser();
+  if (me && me.rol === 'user') {
+    const grupos = (me.grupos && me.grupos.length) ? me.grupos : [];
+    const gid = (state.reportGroup && grupos.includes(state.reportGroup)) ? state.reportGroup : grupos[0];
+    if (!gid) return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No tienes un grupo asignado.</div>`;
+    return await renderActivityGroupView(gid, false);
+  }
+  if (state.reportGroup) return await renderActivityGroupView(state.reportGroup, true);
+  return renderActivityCards();
+}
+
+function renderActivityCards() {
+  const deps = state.departments || [];
+  const cards = deps.map(dep => {
+    const members = state.people.filter(p => String(p.grupoId) === String(dep.id));
+    return `<button data-group-card="${dep.id}" class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary transition-colors">
+      <div class="flex items-center gap-3 mb-3"><span class="material-symbols-outlined text-primary">groups</span><h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(dep.name || 'Grupo')}</h3></div>
+      <p class="font-body-md text-body-md text-on-surface-variant">${members.length} publicadores</p>
+    </button>`;
+  }).join('');
+  return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Grupos</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards || '<p class="text-on-surface-variant">No hay grupos.</p>'}</div>`;
+}
+
+async function renderActivityGroupView(gid, withBack) {
+  const dep = (state.departments || []).find(d => String(d.id) === String(gid));
+  const groupName = dep ? (dep.name || 'Grupo') : 'Grupo';
+  const month = state.reportMonth;
+  const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  const report = await db.getReport(`activity:${month}`) || { id: `activity:${month}`, people: {}, locked: false };
+  const members = state.people.filter(p => String(p.grupoId) === String(gid));
+  let totalHoras = 0;
+  members.forEach(p => { totalHoras += Number(report.people?.[p.id]?.horas) || 0; });
+  const asm = await computeAsistenciaMes(month);
+  const prom = asm.midweek.promedio + asm.weekend.promedio;
+  const asistProm = prom > 0 ? Math.round(prom / 2) : '—';
+  const estado = report.locked ? 'Bloqueado' : 'En progreso';
+  const initials = (name) => { const ps = String(name || '').trim().split(/\s+/); return ((ps[0]?.[0] || '') + (ps[1]?.[0] || '')).toUpperCase(); };
+  const rows = members.map(p => {
+    const v = report.people?.[p.id] || {};
+    const regular = p.precursorRegular === true;
+    const act = regular || v.actividad === true;
+    const precBadge = regular ? `<span class="inline-block px-2 py-0.5 mt-1 bg-secondary text-on-secondary rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
+    const chk = regular
+      ? `<input class="form-checkbox text-outline rounded border-outline-variant bg-surface-dim opacity-50 cursor-not-allowed" disabled type="checkbox" checked/>`
+      : `<input class="form-checkbox text-primary rounded border-outline-variant cursor-pointer" type="checkbox" data-act="actividad" data-pid="${p.id}" ${act ? 'checked' : ''} ${report.locked ? 'disabled' : ''}/>`;
+    const horasCell = (regular || act)
+      ? `<input type="number" min="0" step="1" data-act="horas" data-pid="${p.id}" value="${Number(v.horas) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border ${act || regular ? 'border-primary' : 'border-outline-variant'} rounded bg-surface focus:border-primary text-center font-body-md"/>`
+      : `<span class="text-xs text-outline font-medium">N/A</span>`;
+    return `<div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant border-opacity-50 items-center hover:bg-surface-variant transition-colors" data-row="${p.id}">
+      <div class="col-span-1 flex justify-center">${chk}</div>
+      <div class="col-span-4 flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center font-bold text-sm">${escapeHtml(initials(p.name))}</div><div><p class="font-body-md text-body-md font-medium text-on-surface">${escapeHtml(p.name)}</p>${precBadge}</div></div>
+      <div class="col-span-2 horas-cell">${horasCell}</div>
+      <div class="col-span-2"><input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/></div>
+      <div class="col-span-3"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-outline-variant rounded bg-surface focus:border-primary font-body-md"/></div>
+    </div>`;
+  }).join('');
+  const back = withBack ? `<button id="activityBack" class="px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md">← Grupos</button>` : '';
+  const lockBtn = report.locked ? `<button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Desbloquear mes</button>` : `<button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Bloquear mes</button>`;
+  const saveBtn = report.locked ? '' : `<button id="activitySave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar</button>`;
+  return `<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
+      <div><h2 class="font-headline-lg text-headline-lg text-primary">Actividad del ${escapeHtml(groupName)}</h2><p class="font-body-lg text-body-lg text-on-surface-variant flex items-center gap-2"><span class="material-symbols-outlined text-lg">calendar_today</span>${monthLabel}</p></div>
+      <div class="flex flex-wrap gap-3">${back}${lockBtn}${saveBtn}</div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-gutter mb-8">
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-primary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Total Horas</p><p class="font-headline-lg text-headline-lg text-primary">${totalHoras}<span class="text-body-md text-on-surface-variant ml-1 font-normal">hrs</span></p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-secondary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Participantes</p><p class="font-headline-lg text-headline-lg text-primary">${members.length}</p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-tertiary-fixed-dim"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Asistencia Prom.</p><p class="font-headline-lg text-headline-lg text-primary">${asistProm}</p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-outline"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Estado</p><p class="font-headline-md text-headline-md text-primary mt-1">${estado}</p></div>
+    </div>
+    <div class="bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm flex flex-col overflow-hidden">
+      <div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant bg-surface-container-low font-label-md text-label-md text-on-surface-variant sticky top-0 z-10">
+        <div class="col-span-1 text-center">✓</div><div class="col-span-4">Nombre</div><div class="col-span-2">Horas</div><div class="col-span-2">Cursos</div><div class="col-span-3">Observación</div>
+      </div>
+      <div class="flex-1 overflow-y-auto table-scroll p-2">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>
+    </div>`;
+}
+
+function bindActivityTab() {
+  const back = $('#activityBack');
+  if (back) back.onclick = () => { state.reportGroup = null; renderInformes(); };
+  document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { state.reportGroup = b.dataset.groupCard; renderInformes(); });
+  const lock = $('#activityLock');
+  if (lock) lock.onclick = async () => {
+    const month = state.reportMonth;
+    const report = await db.getReport(`activity:${month}`) || { id: `activity:${month}`, people: {} };
+    await db.putReport({ ...report, locked: !report.locked });
+    renderInformes();
   };
   const save = $('#activitySave');
-  if (save) save.onclick = async () => { await db.putReport({ ...report, people: readActivity() }); toast('Actividad guardada', 'success'); renderInformes(); };
-  const lock = $('#activityLock');
-  if (lock) lock.onclick = async () => { await db.putReport({ ...report, locked: !report.locked }); renderInformes(); };
+  if (save) save.onclick = async () => {
+    const month = state.reportMonth;
+    const report = await db.getReport(`activity:${month}`) || { id: `activity:${month}`, people: {}, locked: false };
+    const people = { ...(report.people || {}) };
+    const gid = state.reportGroup;
+    state.people.forEach(p => {
+      if (gid && String(p.grupoId) !== String(gid)) return;
+      const get = k => document.querySelector(`[data-act="${k}"][data-pid="${p.id}"]`);
+      const chk = get('actividad');
+      const actividad = p.precursorRegular === true || !!chk?.checked;
+      people[p.id] = {
+        actividad,
+        cursos: parseInt(get('cursos')?.value, 10) || 0,
+        horas: actividad ? (parseInt(get('horas')?.value, 10) || 0) : 0,
+        notas: get('notas')?.value || '',
+      };
+    });
+    await db.putReport({ ...report, people });
+    toast('Actividad guardada', 'success');
+    renderInformes();
+  };
+  document.querySelectorAll('[data-act="actividad"]').forEach(c => c.onchange = () => {
+    const pid = c.dataset.pid;
+    const row = document.querySelector(`[data-row="${pid}"]`);
+    const cell = row?.querySelector('.horas-cell');
+    if (!cell) return;
+    if (c.checked) cell.innerHTML = `<input type="number" min="0" step="1" data-act="horas" data-pid="${pid}" value="0" class="w-20 px-2 py-1 border border-primary rounded bg-surface focus:border-primary text-center font-body-md"/>`;
+    else cell.innerHTML = `<span class="text-xs text-outline font-medium">N/A</span>`;
+  });
 }
 
 function formatShortDate(iso) {
@@ -909,48 +971,78 @@ async function renderMetricsSection(year) {
     </div>`;
 }
 
-async function renderAttendanceTab(year) {
-  const events = state.config?.events || {};
-  const cfg = state.config || {};
-  const data = {};
-  for (const y of [year, year + 1]) data[y] = await db.getReport(`attendance:${y}`) || { id: `attendance:${y}`, midweek: {}, weekend: {} };
-  const table = (y, kind) => {
-    const dates = meetingDatesForYear(y, cfg, events)[kind];
-    if (!dates.length) return '';
-    const saved = data[y][kind] || {};
-    const rows = dates.map(d => {
-      const total = saved[d.date];
-      const cell = d.blank ? '<td class="p-2 text-center text-on-surface-variant">—</td>'
-        : `<td class="p-2"><input type="number" min="0" step="1" data-att="${kind}" data-date="${d.date}" value="${total != null ? total : ''}" class="w-20 mx-auto block bg-surface-bright border border-outline-variant rounded-lg p-1.5 text-center"></td>`;
+async function renderAttendanceTab() {
+  const month = isoDate(new Date()).slice(0, 7);
+  const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  const cfg = state.config || {}, events = state.config?.events || {};
+  const sy = currentServiceYear();
+  const dates = meetingDatesForYear(sy, cfg, events);
+  const mk = dates.midweek.filter(d => d.date.startsWith(month));
+  const we = dates.weekend.filter(d => d.date.startsWith(month));
+  const att = await db.getReport(`attendance:${sy}`) || { id: `attendance:${sy}`, midweek: {}, weekend: {} };
+  const cong = await db.getSetting('congregation', '') || '';
+  const table = (kind, ds) => {
+    const saved = att[kind] || {};
+    const rows = ds.map((d, i) => {
+      const val = saved[d.date];
       const note = d.supervisor ? ' <span class="material-symbols-outlined align-middle text-[14px] text-primary" title="Visita del superintendente">verified</span>' : '';
-      return `<tr class="border-b border-outline-variant/40"><td class="p-2 whitespace-nowrap">${formatShortDate(d.date)}${note}</td>${cell}</tr>`;
+      const cell = d.blank ? `<td class="py-4 px-4 text-right text-on-surface-variant italic">—</td>`
+        : `<td class="py-4 px-4 text-right"><input type="number" min="0" step="1" data-att="${kind}" data-date="${d.date}" value="${val != null ? val : ''}" class="w-20 text-center border border-outline-variant rounded bg-surface focus:ring-1 focus:ring-primary focus:border-primary px-2 py-1 att-input"/></td>`;
+      return `<tr class="border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors"><td class="py-4 pr-4">Semana ${i + 1} (${formatShortDate(d.date)})${note}</td>${cell}</tr>`;
     }).join('');
-    return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-x-auto mb-4">
-      <h3 class="p-3 font-title-md text-title-md text-primary bg-surface-container">${kind === 'midweek' ? 'Entre semana' : 'Fin de semana'} · ${serviceYearLabel(y)}</h3>
-      <table class="w-full text-left min-w-[260px]"><thead><tr class="bg-surface-container border-b border-outline-variant"><th class="p-2">Fecha</th><th class="p-2 text-center">Asistencia</th></tr></thead><tbody>${rows}</tbody></table>
-    </div>`;
+    return `<section class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden p-6 relative"><div class="absolute left-0 top-0 bottom-0 w-1 bg-${kind === 'midweek' ? 'primary' : 'secondary'}"></div>
+      <h2 class="font-headline-md text-headline-md text-primary mb-6 flex items-center gap-3"><span class="material-symbols-outlined text-secondary">${kind === 'midweek' ? 'menu_book' : 'wb_sunny'}</span>${kind === 'midweek' ? 'Reunión de Entre Semana' : 'Reunión del Fin de Semana'}</h2>
+      <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="border-b border-outline-variant text-on-surface-variant font-label-md text-label-md"><th class="pb-3 pr-4 font-normal">Fecha</th><th class="pb-3 px-4 font-normal text-right">Asistencia</th></tr></thead><tbody class="font-body-md text-body-md">${rows}</tbody></table></div></section>`;
   };
-  return `<div class="flex items-center justify-between gap-3 mb-4"><h2 class="font-headline-md text-headline-md text-primary">Asistencia</h2><button id="attendanceSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar asistencia</button></div>
-    <p class="text-on-surface-variant font-body-md mb-3">Las semanas con asamblea y el día de la Conmemoración quedan sin reunión (celda en blanco). La visita del superintendente se marca pero cuenta como reunión.</p>
-    <div class="grid md:grid-cols-2 gap-4">${table(year, 'midweek')}${table(year, 'weekend')}${table(year + 1, 'midweek')}${table(year + 1, 'weekend')}</div>`;
+  return `<div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 pb-6 border-b border-outline-variant">
+      <div><h1 class="font-display-lg text-display-lg text-primary mb-2">${monthLabel}</h1><p class="font-body-lg text-body-lg text-on-surface-variant">${escapeHtml(cong)}</p></div>
+      <div class="flex gap-4 mt-6 md:mt-0"><button id="attDownload" class="bg-surface-container-high text-primary font-label-md text-label-md px-6 py-3 rounded border border-outline-variant hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">download</span>Descargar Informe</button></div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter mb-10">${table('midweek', mk)}${table('weekend', we)}</div>
+    <section class="bg-surface-container-high/50 backdrop-blur-sm rounded-xl border border-outline-variant p-8 flex flex-col md:flex-row items-center justify-between gap-8">
+      <div class="flex items-center gap-6"><div class="w-16 h-16 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center"><span class="material-symbols-outlined text-[32px]">bar_chart</span></div>
+      <div><h3 class="font-headline-md text-headline-md text-primary mb-1">Resumen del Mes</h3><p class="font-body-md text-body-md text-on-surface-variant">Datos consolidados de las reuniones registradas.</p></div></div>
+      <div class="flex flex-col gap-6 w-full md:w-auto">
+        <div class="flex gap-12 text-center items-center justify-between md:justify-start">
+          <div class="text-left w-32"><p class="font-label-md text-label-md text-primary mb-1">Entre Semana</p></div>
+          <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-2">Total</p><p class="font-display-lg text-display-lg text-primary" id="mw-total">0</p></div>
+          <div class="w-px h-16 bg-outline-variant hidden md:block"></div>
+          <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-2">Promedio</p><p class="font-display-lg text-display-lg text-secondary" id="mw-avg">0</p></div>
+        </div>
+        <div class="w-full h-px bg-outline-variant/50"></div>
+        <div class="flex gap-12 text-center items-center justify-between md:justify-start">
+          <div class="text-left w-32"><p class="font-label-md text-label-md text-primary mb-1">Fin de Semana</p></div>
+          <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-2">Total</p><p class="font-display-lg text-display-lg text-primary" id="we-total">0</p></div>
+          <div class="w-px h-16 bg-outline-variant hidden md:block"></div>
+          <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-2">Promedio</p><p class="font-display-lg text-display-lg text-secondary" id="we-avg">0</p></div>
+        </div>
+      </div>
+    </section>`;
 }
 
-function bindAttendanceTab(year) {
-  const save = $('#attendanceSave');
-  if (!save) return;
-  save.onclick = async () => {
-    const rec = { id: `attendance:${year}`, midweek: {}, weekend: {} };
-    const rec2 = { id: `attendance:${year + 1}`, midweek: {}, weekend: {} };
-    document.querySelectorAll('[data-att]').forEach(inp => {
+async function bindAttendanceTab() {
+  const sy = currentServiceYear();
+  const att = await db.getReport(`attendance:${sy}`) || { id: `attendance:${sy}`, midweek: {}, weekend: {} };
+  const compute = () => {
+    let mwT = 0, mwC = 0, weT = 0, weC = 0;
+    document.querySelectorAll('.att-input[data-att="midweek"]').forEach(i => { const v = parseInt(i.value, 10); if (!isNaN(v)) { mwT += v; mwC++; } });
+    document.querySelectorAll('.att-input[data-att="weekend"]').forEach(i => { const v = parseInt(i.value, 10); if (!isNaN(v)) { weT += v; weC++; } });
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    set('mw-total', mwT); set('mw-avg', mwC ? Math.round(mwT / mwC) : 0);
+    set('we-total', weT); set('we-avg', weC ? Math.round(weT / weC) : 0);
+  };
+  compute();
+  document.querySelectorAll('.att-input').forEach(inp => {
+    inp.addEventListener('input', async () => {
       const v = parseInt(inp.value, 10);
       if (isNaN(v) || v < 0) return;
-      const target = inp.dataset.date.slice(0, 4) === String(year + 1) ? rec2 : rec;
-      target[inp.dataset.att][inp.dataset.date] = v;
+      att[inp.dataset.att][inp.dataset.date] = v;
+      await db.putReport({ ...att, id: `attendance:${sy}` });
+      compute();
     });
-    await db.putReport(rec);
-    await db.putReport(rec2);
-    toast('Asistencia guardada', 'success');
-  };
+  });
+  const dl = $('#attDownload');
+  if (dl) dl.onclick = () => downloadAsistenciaMes(isoDate(new Date()).slice(0, 7), 'pdf');
 }
 
 async function renderArrangementsTab() {
