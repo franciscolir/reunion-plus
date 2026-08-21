@@ -1159,6 +1159,8 @@ async function renderFormsTab() {
   const months = serviceYearMonths(currentServiceYear());
   const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : months[0];
   const monthOpts = months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('');
+  const peopleOpts = (state.people || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => `<option value="${p.id}">${p.name || ''}</option>`).join('');
+  const yearOpts = [currentServiceYear(), currentServiceYear() + 1].map(y => `<option value="${y}">${serviceYearLabel(y)}</option>`).join('');
   const card = (id, title, desc, sel, btns) => `
     <section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
       <h3 class="font-headline-md text-headline-md text-primary mb-1">${title}</h3>
@@ -1173,20 +1175,21 @@ async function renderFormsTab() {
     card('predicacion', 'Informe de Predicación (S-1-S)', 'Informe de predicación y asistencia a las reuniones de la congregación.', `<select id="fPredMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('predicacion')),
     card('registro', 'Registro de Asistencia (2 años)', 'Registro de asistencia a las reuniones, dos años de servicio.', `<p class="text-on-surface-variant text-body-md">Año de servicio: ${serviceYearLabel(currentServiceYear())} y ${serviceYearLabel(currentServiceYear() + 1)}</p>`, pdfPng('registro')),
     card('asistenciaMes', 'Informe de Asistencia Mensual (S-3-S)', 'Asistencia mensual por semanas (entre semana / fin de semana).', `<select id="fAsistMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('asistenciaMes')),
-    card('pubreg', 'Registro de Publicador', 'Formulario por publicador con su actividad del mes.', '<p class="text-on-surface-variant text-body-md">Pendiente de plantilla.</p>', `<button disabled class="flex-1 px-3 py-2 rounded-lg bg-surface-container-high text-on-surface-variant font-label-md text-label-md opacity-60 cursor-not-allowed">PDF</button><button disabled class="flex-1 px-3 py-2 rounded-lg bg-surface-container-high text-on-surface-variant font-label-md text-label-md opacity-60 cursor-not-allowed">PNG</button>`),
+    card('pubreg', 'Registro de Publicador', 'Formulario anual por publicador con su actividad del año de servicio.', `<select id="fPubPerson" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${peopleOpts}</select><select id="fPubYear" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${yearOpts}</select>`, pdfPng('pubreg')),
   ].join('');
   return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Formularios descargables</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${cards}</div>`;
 }
 
 function bindFormsTab() {
-  document.querySelectorAll('[data-form]').forEach(b => {
+  document.querySelectorAll('button[data-form]').forEach(b => {
     if (b.disabled) return;
     b.onclick = () => {
       const kind = b.dataset.form, fmt = b.dataset.fmt;
       if (kind === 'predicacion') downloadPredicacion($('#fPredMes').value, fmt);
       else if (kind === 'registro') downloadRegistro(currentServiceYear(), fmt);
       else if (kind === 'asistenciaMes') downloadAsistenciaMes($('#fAsistMes').value, fmt);
+      else if (kind === 'pubreg') downloadPubReg($('#fPubPerson').value, fmt, $('#fPubYear').value);
     };
   });
 }
@@ -1461,6 +1464,133 @@ async function downloadAsistenciaMes(month, fmt) {
     await compartirPng(blob, `asistencia-${month}.png`);
   } else {
     printHtmlWindow(buildAsistenciaMesHtml(month, d, cfg), `Informe de asistencia ${month}`);
+  }
+}
+
+async function computePubReg(person, year) {
+  const months = serviceYearMonths(year);
+  const out = [];
+  let totalHoras = 0, totalCursos = 0;
+  for (const m of months) {
+    const rep = await db.getReport(`activity:${m}`) || { people: {} };
+    const v = rep.people?.[person.id] || {};
+    const horas = Number(v.horas) || 0;
+    const cursos = Number(v.cursos) || 0;
+    totalHoras += horas; totalCursos += cursos;
+    out.push({ label: MONTHS_ES[Number(m.slice(5)) - 1], actividad: !!v.actividad, cursos, auxiliar: !!v.auxiliar, horas, notas: v.notas || '' });
+  }
+  return { months: out, totalHoras, totalCursos };
+}
+
+function buildPubRegHtml(person, year, d) {
+  const name = escapeHtml(person.name || '');
+  const nac = escapeHtml(person.nacimiento || '');
+  const bau = escapeHtml(person.bautismo || '');
+  const hombre = person.sexo === 'M' || person.sexo === 'H';
+  const mujer = person.sexo === 'F';
+  const anciano = /anciano/i.test(person.cargo || '');
+  const siervo = /siervo/i.test(person.cargo || '');
+  const precReg = person.precursorRegular === true;
+  const chk = (b) => b ? 'checked' : '';
+  const rows = d.months.map(m => `<tr class="h-8">
+<td class="table-cell-border p-1 text-left pl-2 font-semibold bg-white">${m.label}</td>
+<td class="table-cell-border p-1 text-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(m.actividad)} disabled/></td>
+<td class="table-cell-border p-1 text-center">${m.cursos || ''}</td>
+<td class="table-cell-border p-1 text-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(m.auxiliar)} disabled/></td>
+<td class="table-cell-border p-1 text-center">${m.horas || ''}</td>
+<td class="table-cell-border p-1 text-left pl-2">${escapeHtml(m.notas || '')}</td>
+</tr>`).join('');
+  const style = `<style>
+    body{font-family:'Playfair Display',serif;background:#f9f9f9;color:#1a1c18}
+    .form-checkbox{border-radius:0;border-color:#74796d;color:#1a3636}
+    .table-cell-border{border:1px solid #74796d}
+    .table-header-bg{background:#fff}
+    .row-bg-light{background:#f4f8fe}
+    @media print{body{background:#fff;padding:0}}
+  </style>`;
+  return `${FORM_HEAD}${style}<main class="w-full max-w-4xl bg-white shadow-md rounded-lg p-6 md:p-10 border border-surface-dim">
+    <header class="text-center mb-6"><h1 class="text-xl md:text-2xl font-bold uppercase tracking-wider text-primary">Registro de Publicador de la Congregación</h1></header>
+    <section class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base font-semibold">
+      <div class="space-y-2 bg-[#f4f8fe] p-2 rounded">
+        <div class="flex items-center"><label class="w-40 shrink-0">Nombre:</label><div class="flex-grow border-b border-surface-dim">${name}</div></div>
+        <div class="flex items-center"><label class="w-40 shrink-0">Fecha de nacimiento:</label><div class="flex-grow border-b border-surface-dim">${nac}</div></div>
+        <div class="flex items-center"><label class="w-40 shrink-0">Fecha de bautismo:</label><div class="flex-grow border-b border-surface-dim">${bau}</div></div>
+      </div>
+      <div class="flex flex-col justify-center space-y-2 bg-[#f4f8fe] p-2 rounded">
+        <div class="flex space-x-8">
+          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(hombre)} disabled/><span class="ml-2">Hombre</span></label>
+          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(mujer)} disabled/><span class="ml-2">Mujer</span></label>
+        </div>
+        <div class="flex space-x-8">
+          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Otras ovejas</span></label>
+          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Ungido</span></label>
+        </div>
+      </div>
+    </section>
+    <section class="mb-6 flex flex-wrap gap-4 text-sm md:text-base font-semibold">
+      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(anciano)} disabled/><span class="ml-2">Anciano</span></label>
+      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(siervo)} disabled/><span class="ml-2">Siervo ministerial</span></label>
+      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(precReg)} disabled/><span class="ml-2">Precursor regular</span></label>
+      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Precursor especial</span></label>
+      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Misionero que sirve en el campo</span></label>
+    </section>
+    <section class="overflow-x-auto"><table class="w-full text-center border-collapse text-sm md:text-base">
+      <thead><tr class="font-bold table-header-bg">
+        <th class="table-cell-border p-2 w-1/6 row-bg-light">Año de servicio</th>
+        <th class="table-cell-border p-2 w-1/6">Participación en el ministerio</th>
+        <th class="table-cell-border p-2 w-1/12">Cursos bíblicos</th>
+        <th class="table-cell-border p-2 w-1/12">Precursor auxiliar</th>
+        <th class="table-cell-border p-2 w-1/4">Horas<span class="font-normal text-xs"><br/>(Si es precursor o misionero que sirve en el campo)</span></th>
+        <th class="table-cell-border p-2 w-1/4">Notas</th>
+      </tr></thead>
+      <tbody>${rows}
+        <tr class="h-8 font-bold"><td class="text-right pr-2" colspan="4">Total</td><td class="table-cell-border p-1 bg-white text-center">${d.totalHoras}</td><td class="table-cell-border p-1 bg-white"></td></tr>
+      </tbody>
+    </table></section>
+  </main>`;
+}
+
+function buildPubRegSvg(person, year, d) {
+  const W = 800;
+  const P = [];
+  P.push(`<text x="${W / 2}" y="50" text-anchor="middle" font-family="serif" font-size="20" font-weight="700" fill="#000">REGISTRO DE PUBLICADOR DE LA CONGREGACIÓN</text>`);
+  P.push(`<text x="40" y="90" font-family="sans-serif" font-size="14" fill="#000">${escapeHtml(person.name || '')}</text>`);
+  P.push(`<text x="40" y="115" font-family="sans-serif" font-size="13" fill="#000">Nac: ${escapeHtml(person.nacimiento || '')}   Baut: ${escapeHtml(person.bautismo || '')}</text>`);
+  const roles = [];
+  if (/anciano/i.test(person.cargo || '')) roles.push('Anciano');
+  if (/siervo/i.test(person.cargo || '')) roles.push('Siervo');
+  if (person.precursorRegular === true) roles.push('Precursor regular');
+  P.push(`<text x="40" y="138" font-family="sans-serif" font-size="13" fill="#000">${roles.join(', ')}</text>`);
+  const cols = [150, 90, 80, 80, 80, 200];
+  const labels = ['Mes', 'Part.', 'Cursos', 'Aux.', 'Horas', 'Notas'];
+  const totalW = cols.reduce((a, b) => a + b, 0);
+  let x = 40, y = 165;
+  P.push(`<rect x="40" y="${y}" width="${totalW}" height="26" fill="none" stroke="#000"/>`);
+  labels.forEach((l, i) => { P.push(`<text x="${x + 6}" y="${y + 18}" font-family="sans-serif" font-size="12" fill="#000">${l}</text>`); x += cols[i]; });
+  y += 26;
+  d.months.forEach(m => {
+    P.push(`<rect x="40" y="${y}" width="${totalW}" height="24" fill="none" stroke="#000"/>`);
+    const vals = [m.label, m.actividad ? 'X' : '', String(m.cursos || ''), m.auxiliar ? 'X' : '', String(m.horas || ''), m.notas || ''];
+    let cx = 40;
+    vals.forEach((v, i) => { P.push(`<text x="${cx + 6}" y="${y + 16}" font-family="sans-serif" font-size="12" fill="#000">${escapeHtml(String(v))}</text>`); cx += cols[i]; });
+    y += 24;
+  });
+  P.push(`<rect x="40" y="${y}" width="${totalW}" height="26" fill="#eee" stroke="#000"/>`);
+  P.push(`<text x="46" y="${y + 18}" font-family="sans-serif" font-size="13" font-weight="700" fill="#000">Total</text>`);
+  P.push(`<text x="${40 + 150 + 90 + 80 + 80 + 6}" y="${y + 18}" font-family="sans-serif" font-size="13" font-weight="700" fill="#000">${d.totalHoras}</text>`);
+  const H = y + 40;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#fff"/>${P.join('')}</svg>`;
+}
+
+async function downloadPubReg(pid, fmt, year) {
+  const person = state.people.find(p => String(p.id) === String(pid));
+  if (!person) { toast('Selecciona un publicador', 'error'); return; }
+  const d = await computePubReg(person, Number(year));
+  if (fmt === 'png') {
+    const blob = await svgToPngBlob(buildPubRegSvg(person, Number(year), d));
+    await compartirPng(blob, `registro-publicador-${person.id}-${year}.png`);
+  } else {
+    printHtmlWindow(buildPubRegHtml(person, Number(year), d), `Registro de publicador ${person.name}`);
   }
 }
 
