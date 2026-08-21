@@ -39,7 +39,7 @@ async function handleAttendance(sb: ReturnType<typeof createClient>, payload: Re
   if (!month || !week || !data) return jsonRes({ error: 'Faltan campos: month, week, data' }, 400);
 
   const id = `activity:${month}`;
-  const { data: existing } = await sb.from('informes').select('data').eq('id', id).single();
+  const { data: existing } = await sb.from('actividad').select('data').eq('id', id).single();
 
   const report = existing?.data || { id, people: {} };
   if (!report.people) report.people = {};
@@ -55,7 +55,7 @@ async function handleAttendance(sb: ReturnType<typeof createClient>, payload: Re
   };
 
   const { error } = await sb
-    .from('informes')
+    .from('actividad')
     .upsert({ id, data: report, updated_at: new Date().toISOString() }, { onConflict: 'id' });
 
   if (error) return jsonRes({ error: error.message }, 500);

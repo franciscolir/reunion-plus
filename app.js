@@ -836,7 +836,7 @@ async function renderActivityGroupView(gid, withBack) {
   const groupName = dep ? (dep.name || 'Grupo') : 'Grupo';
   const month = state.reportMonth;
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
-  const report = await db.getReport(`activity:${month}`) || { id: `activity:${month}`, people: {}, locked: false };
+  const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
   const members = state.people.filter(p => String(p.grupoId) === String(gid));
   let totalHoras = 0;
   members.forEach(p => { totalHoras += Number(report.people?.[p.id]?.horas) || 0; });
@@ -892,14 +892,14 @@ function bindActivityTab() {
   const lock = $('#activityLock');
   if (lock) lock.onclick = async () => {
     const month = state.reportMonth;
-    const report = await db.getReport(`activity:${month}`) || { id: `activity:${month}`, people: {} };
-    await db.putReport({ ...report, locked: !report.locked });
+    const report = await db.getActivity(month) || { id: month, people: {} };
+    await db.putActivity({ ...report, locked: !report.locked });
     renderInformes();
   };
   const save = $('#activitySave');
   if (save) save.onclick = async () => {
     const month = state.reportMonth;
-    const report = await db.getReport(`activity:${month}`) || { id: `activity:${month}`, people: {}, locked: false };
+    const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
     const people = { ...(report.people || {}) };
     const gid = state.reportGroup;
     state.people.forEach(p => {
@@ -914,7 +914,7 @@ function bindActivityTab() {
         notas: get('notas')?.value || '',
       };
     });
-    await db.putReport({ ...report, people });
+    await db.putActivity({ ...report, people });
     toast('Actividad guardada', 'success');
     renderInformes();
   };
@@ -935,7 +935,7 @@ function formatShortDate(iso) {
 
 async function computeServiceYearMetrics(year) {
   const months = serviceYearMonths(year);
-  const reports = (await db.listReports('activity:')).filter(r => months.includes(r.id.split(':')[1]));
+  const reports = (await db.listActivity()).filter(r => months.includes(r.id));
   const byPerson = {};
   state.people.forEach(p => byPerson[p.id] = { name: p.name, active: 0, courses: 0, aux: 0, hours: 0 });
   reports.forEach(r => {
@@ -984,7 +984,7 @@ async function renderAttendanceTab() {
   const dates = meetingDatesForYear(sy, cfg, events);
   const mk = dates.midweek.filter(d => d.date.startsWith(month));
   const we = dates.weekend.filter(d => d.date.startsWith(month));
-  const att = await db.getReport(`attendance:${sy}`) || { id: `attendance:${sy}`, midweek: {}, weekend: {} };
+  const att = await db.getAttendance(sy) || { id: sy, midweek: {}, weekend: {} };
   const cong = await db.getSetting('congregation', '') || '';
   const table = (kind, ds) => {
     const saved = att[kind] || {};
@@ -1027,7 +1027,7 @@ async function renderAttendanceTab() {
 
 async function bindAttendanceTab() {
   const sy = currentServiceYear();
-  const att = await db.getReport(`attendance:${sy}`) || { id: `attendance:${sy}`, midweek: {}, weekend: {} };
+  const att = await db.getAttendance(sy) || { id: sy, midweek: {}, weekend: {} };
   const compute = () => {
     let mwT = 0, mwC = 0, weT = 0, weC = 0;
     document.querySelectorAll('.att-input[data-att="midweek"]').forEach(i => { const v = parseInt(i.value, 10); if (!isNaN(v)) { mwT += v; mwC++; } });
@@ -1042,7 +1042,7 @@ async function bindAttendanceTab() {
       const v = parseInt(inp.value, 10);
       if (isNaN(v) || v < 0) return;
       att[inp.dataset.att][inp.dataset.date] = v;
-      await db.putReport({ ...att, id: `attendance:${sy}` });
+      await db.putAttendance({ ...att, id: sy });
       compute();
     });
   });
@@ -1053,8 +1053,8 @@ async function bindAttendanceTab() {
 async function renderArrangementsTab() {
   const months = serviceYearMonths(currentServiceYear());
   const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : months[0];
-  const arr = await db.getReport(`arrangements:${month}`) || { id: `arrangements:${month}`, congregation: '', contact: '', phone: '', notes: '', localSpeakers: [] };
-  const allArr = await db.listReports('arrangements:');
+  const arr = await db.getArrangements(month) || { id: month, congregation: '', contact: '', phone: '', notes: '', localSpeakers: [] };
+  const allArr = await db.listArrangements();
   const ranking = computeTalkRanking(allArr);
   const localRows = (arr.localSpeakers || []).map((ls, i) => `
     <li class="group flex items-start justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-transparent hover:border-outline-variant/50">
@@ -1148,8 +1148,8 @@ function bindArrangementsTab() {
       const num = li.querySelector('[data-local="num"]')?.value || '';
       if (speaker || num) local.push({ speaker, num, date: '' });
     });
-    const rec = { id: `arrangements:${month}`, congregation: $('#arrCong').value, contact: $('#arrContact').value, phone: $('#arrPhone').value, notes: $('#arrNotes').value, localSpeakers: local };
-    await db.putReport(rec);
+    const rec = { id: month, congregation: $('#arrCong').value, contact: $('#arrContact').value, phone: $('#arrPhone').value, notes: $('#arrNotes').value, localSpeakers: local };
+    await db.putArrangements(rec);
     toast('Arreglos guardados', 'success');
     renderInformes();
   };
@@ -1212,9 +1212,9 @@ function computeTalkRanking(allArr) {
 }
 
 async function computePredicacion(month) {
-  const report = await db.getReport(`activity:${month}`) || { people: {} };
+  const report = await db.getActivity(month) || { id: month, people: {} };
   const sy = serviceYearOfMonth(month);
-  const att = await db.getReport(`attendance:${sy}`) || { midweek: {}, weekend: {} };
+  const att = await db.getAttendance(sy) || { id: sy, midweek: {}, weekend: {} };
   const pub = { n: 0, c: 0 }, aux = { n: 0, c: 0, h: 0 }, reg = { n: 0, c: 0, h: 0 };
   state.people.forEach(p => {
     const v = report.people?.[p.id] || {};
@@ -1232,7 +1232,7 @@ async function computePredicacion(month) {
 
 async function computeRegistro(year) {
   const cfg = state.config || {}, events = state.config?.events || {};
-  const att = await db.getReport(`attendance:${year}`) || { midweek: {}, weekend: {} };
+  const att = await db.getAttendance(year) || { id: year, midweek: {}, weekend: {} };
   const out = {};
   ['midweek', 'weekend'].forEach(kind => {
     const dates = meetingDatesForYear(year, cfg, events)[kind];
@@ -1252,7 +1252,7 @@ async function computeRegistro(year) {
 async function computeAsistenciaMes(month) {
   const sy = serviceYearOfMonth(month);
   const cfg = state.config || {}, events = state.config?.events || {};
-  const att = await db.getReport(`attendance:${sy}`) || { midweek: {}, weekend: {} };
+  const att = await db.getAttendance(sy) || { id: sy, midweek: {}, weekend: {} };
   const build = (kind) => {
     const ds = meetingDatesForYear(sy, cfg, events)[kind].filter(d => d.date.startsWith(month) && !d.blank);
     const weeks = {};
@@ -1472,7 +1472,7 @@ async function computePubReg(person, year) {
   const out = [];
   let totalHoras = 0, totalCursos = 0;
   for (const m of months) {
-    const rep = await db.getReport(`activity:${m}`) || { people: {} };
+    const rep = await db.getActivity(m) || { id: m, people: {} };
     const v = rep.people?.[person.id] || {};
     const horas = Number(v.horas) || 0;
     const cursos = Number(v.cursos) || 0;
@@ -1607,7 +1607,7 @@ async function renderGroupSummary() {
   for (let i = 5; i >= 0; i--) {
     const d = new Date(); d.setMonth(d.getMonth() - i);
     const mid = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const rep = await db.getReport(`activity:${mid}`);
+    const rep = await db.getActivity(mid);
     const active = rep ? Object.values(rep.people || {}).filter(v => v.actividad).length : 0;
     history.push({ mid, active });
   }

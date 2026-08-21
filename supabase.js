@@ -149,7 +149,9 @@ export const guardarConfiguracion = (data) => writeDoc('configuracion', 'general
 // ===== Discursos (lista pública) =====
 export const obtenerDiscursos = () => readAll('discursos');
 export const obtenerDiscurso = (num) => readDoc('discursos', String(num));
-export const obtenerInformes = () => readAll('informes');
+export const obtenerActividad = () => readAll('actividad');
+export const obtenerAsistencia = () => readAll('asistencia');
+export const obtenerArreglos = () => readAll('arreglos');
 export const guardarDiscurso = (num, data) => writeDoc('discursos', String(num), data);
 
 // ===== Usuarios (rol admin/reader; verifica en auth.js) =====

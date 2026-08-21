@@ -43,7 +43,19 @@ create table if not exists public.configuracion (
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-create table if not exists public.informes (
+create table if not exists public.actividad (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.asistencia (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.arreglos (
   id text primary key,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
@@ -138,7 +150,9 @@ select public.def_policies('programas');
 select public.def_policies('asignaciones');
 select public.def_policies('discursos');
 select public.def_policies('configuracion');
-select public.def_policies('informes');
+select public.def_policies('actividad');
+select public.def_policies('asistencia');
+select public.def_policies('arreglos');
 
 -- ===== Políticas de usuarios =====
 alter table public.usuarios enable row level security;
@@ -166,7 +180,8 @@ create policy "usuarios_borrado_admin" on public.usuarios
 -- ===== Grants (los roles anon/authenticated pueden usar las tablas; RLS decide) =====
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
-  public.programas, public.asignaciones, public.discursos, public.configuracion, public.informes, public.usuarios
+  public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
+  public.asistencia, public.arreglos, public.usuarios
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
 

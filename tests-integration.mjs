@@ -15,7 +15,7 @@ import {
 } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports'];
+const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports', 'activity', 'attendance', 'arrangements'];
 const LABORES = [
   { id: 'presidente', label: 'Presidente' },
   { id: 'audio', label: 'Audio' },
@@ -36,12 +36,34 @@ beforeEach(async () => {
 });
 
 // --- Esquema ---
-test('esquema v9 crea todos los stores', async () => {
+test('esquema v10 crea todos los stores', async () => {
   await db.listPeople(); // fuerza la apertura/creación del esquema
-  const d = await openRaw(DB_NAME, 9);
+  const d = await openRaw(DB_NAME, 10);
   const names = [...d.objectStoreNames];
   d.close();
   for (const s of STORES) assert.ok(names.includes(s), `falta el store "${s}"`);
+});
+
+// --- Stores de informes (activity/attendance/arrangements) ---
+test('informes: activity/attendance/arrangements CRUD', async () => {
+  await db.putActivity({ id: '2026-09', people: { 1: { actividad: true, cursos: 3, horas: 10 } }, locked: false });
+  await db.putAttendance({ id: '2026', midweek: { '2026-09-05': 25 }, weekend: { '2026-09-06': 40 } });
+  await db.putArrangements({ id: '2026-09', congregation: 'Central', localSpeakers: [] });
+
+  const act = await db.getActivity('2026-09');
+  assert.equal(act.people['1'].horas, 10);
+  const att = await db.getAttendance('2026');
+  assert.equal(att.weekend['2026-09-06'], 40);
+  const arr = await db.getArrangements('2026-09');
+  assert.equal(arr.congregation, 'Central');
+
+  assert.equal((await db.listActivity()).length, 1);
+  assert.equal((await db.listAttendance()).length, 1);
+  assert.equal((await db.listArrangements()).length, 1);
+
+  await db.putActivitySilent({ id: '2026-10', people: {} });
+  const silent = await db.getActivity('2026-10');
+  assert.ok(silent && silent.id === '2026-10');
 });
 
 // --- CRUD personas ---

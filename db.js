@@ -4,7 +4,7 @@
 import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -15,7 +15,10 @@ const STORE_ASEOS = 'aseos';        // key: "YYYY-MM" (programa de aseo por mes)
 const STORE_SALIDAS = 'salidas';    // key: "YYYY-MM" (programa de salidas por mes)
 const STORE_ATENCION = 'atencion';  // key: "YYYY-MM" (programa de atención/acomodación por mes)
 const STORE_ASSIGNMENT_LOG = 'assignment_log'; // keyPath: id (compuesto person+date+program+role) · historial de asignaciones
-const STORE_REPORTS = 'reports'; // registros de actividad, asistencia y arreglos
+const STORE_ACTIVITY = 'activity';     // key: "YYYY-MM" (actividad de publicadores por mes)
+const STORE_ATTENDANCE = 'attendance'; // key: año de servicio "YYYY" (asistencia por semana)
+const STORE_ARRANGEMENTS = 'arrangements'; // key: "YYYY-MM" (intercambio, oradores, catálogo)
+const STORE_REPORTS = 'reports'; // legacy: migrado a activity/attendance/arrangements en v10
 
 let _db = null;
 
@@ -70,6 +73,15 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_REPORTS)) {
         db.createObjectStore(STORE_REPORTS, { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains(STORE_ACTIVITY)) {
+        db.createObjectStore(STORE_ACTIVITY, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_ATTENDANCE)) {
+        db.createObjectStore(STORE_ATTENDANCE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(STORE_ARRANGEMENTS)) {
+        db.createObjectStore(STORE_ARRANGEMENTS, { keyPath: 'id' });
+      }
 
       // Migración v7→v8: las asignaciones de persona pasan a formato
       // {id, src, locked}. Los datos existentes se marcan MANUAL (bloqueados)
@@ -95,6 +107,27 @@ function openDB() {
         migrarStore(STORE_MIDWEEKS, (w) => mapMidweekSlots(w, (k, v) => wrap(v)));
         migrarStore(STORE_SALIDAS, (s) => mapSalidasSlots(s, (k, v) => wrap(v)));
         migrarStore(STORE_ATENCION, (a) => mapAtencionSlots(a, (k, v) => wrap(v)));
+      }
+
+      // Migración v9→v10: el store genérico 'reports' (claves activity:/attendance:/arrangements:)
+      // se divide en tres stores dedicados. Se copia cada registro al store correspondiente
+      // (sin el prefijo) y se borra del store legacy.
+      if (e.oldVersion < 10) {
+        const t = e.target.transaction;
+        if (t.objectStoreNames.contains(STORE_REPORTS)) {
+          const cur = t.objectStore(STORE_REPORTS).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const v = c.value || {};
+            const id = String(v.id || '');
+            if (id.startsWith('activity:')) t.objectStore(STORE_ACTIVITY).put({ ...v, id: id.slice(9) });
+            else if (id.startsWith('attendance:')) t.objectStore(STORE_ATTENDANCE).put({ ...v, id: id.slice(11) });
+            else if (id.startsWith('arrangements:')) t.objectStore(STORE_ARRANGEMENTS).put({ ...v, id: id.slice(13) });
+            c.delete();
+            c.continue();
+          };
+        }
       }
     };
 
@@ -934,21 +967,56 @@ export async function borrarSoloProgramasLocal() {
   }
 }
 
-export async function getReport(id) {
+export async function getActivity(id) {
   const db = await openDB();
-  return reqToPromise(tx(db, STORE_REPORTS).get(String(id)));
+  return reqToPromise(tx(db, STORE_ACTIVITY).get(String(id)));
 }
 
-export async function putReport(report) {
-  return commit(STORE_REPORTS, (store) => reqToPromise(store.put({ ...report, id: String(report.id), updatedAt: Date.now() })));
+export async function putActivity(report) {
+  return commit(STORE_ACTIVITY, (store) => reqToPromise(store.put({ ...report, id: String(report.id), updatedAt: Date.now() })));
 }
 
-export async function putReportSilent(report) {
-  return commitSilent(STORE_REPORTS, (store) => reqToPromise(store.put({ ...report, id: String(report.id) })));
+export async function putActivitySilent(report) {
+  return commitSilent(STORE_ACTIVITY, (store) => reqToPromise(store.put({ ...report, id: String(report.id) })));
 }
 
-export async function listReports(prefix) {
+export async function listActivity() {
   const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_REPORTS).getAll());
-  return prefix ? all.filter(r => String(r.id).startsWith(prefix)) : all;
+  return reqToPromise(tx(db, STORE_ACTIVITY).getAll());
+}
+
+export async function getAttendance(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ATTENDANCE).get(String(id)));
+}
+
+export async function putAttendance(report) {
+  return commit(STORE_ATTENDANCE, (store) => reqToPromise(store.put({ ...report, id: String(report.id), updatedAt: Date.now() })));
+}
+
+export async function putAttendanceSilent(report) {
+  return commitSilent(STORE_ATTENDANCE, (store) => reqToPromise(store.put({ ...report, id: String(report.id) })));
+}
+
+export async function listAttendance() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ATTENDANCE).getAll());
+}
+
+export async function getArrangements(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ARRANGEMENTS).get(String(id)));
+}
+
+export async function putArrangements(report) {
+  return commit(STORE_ARRANGEMENTS, (store) => reqToPromise(store.put({ ...report, id: String(report.id), updatedAt: Date.now() })));
+}
+
+export async function putArrangementsSilent(report) {
+  return commitSilent(STORE_ARRANGEMENTS, (store) => reqToPromise(store.put({ ...report, id: String(report.id) })));
+}
+
+export async function listArrangements() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_ARRANGEMENTS).getAll());
 }
