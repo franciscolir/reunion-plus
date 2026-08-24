@@ -827,13 +827,19 @@ function renderActivityCards() {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards || '<p class="text-on-surface-variant">No hay grupos.</p>'}</div>`;
 }
 
-function horasCellHtml(checked, horas, disabled, pid) {
-  const sw = `<label class="inline-flex items-center cursor-pointer">
-    <input type="checkbox" data-act="actividad" data-pid="${pid}" class="sr-only peer" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}/>
+function actCellHtml(regular, aux, act, horas, disabled, pid) {
+  if (regular || aux) {
+    return `<input type="number" min="0" step="1" data-act="horas" data-pid="${pid}" value="${horas}" ${disabled ? 'disabled' : ''} class="w-20 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/>`;
+  }
+  return `<label class="inline-flex items-center cursor-pointer">
+    <input type="checkbox" data-act="actividad" data-pid="${pid}" class="sr-only peer" ${act ? 'checked' : ''} ${disabled ? 'disabled' : ''}/>
     <span class="relative w-11 h-6 bg-outline-variant peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-5"></span>
   </label>`;
-  const inp = checked ? `<input type="number" min="0" step="1" data-act="horas" data-pid="${pid}" value="${horas}" ${disabled ? 'disabled' : ''} class="w-20 mt-2 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/>` : '';
-  return `<div class="flex flex-col items-start gap-1">${sw}${inp}</div>`;
+}
+
+function auxCellHtml(regular, aux, disabled, pid) {
+  if (regular) return `<span class="text-label-md text-label-md text-on-surface-variant">Regular</span>`;
+  return `<input type="checkbox" data-act="auxiliar" data-pid="${pid}" ${aux ? 'checked' : ''} ${disabled ? 'disabled' : ''} class="form-checkbox text-primary rounded border-outline-variant cursor-pointer"/>`;
 }
 
 async function renderActivityGroupView(gid, withBack) {
@@ -861,12 +867,15 @@ async function renderActivityGroupView(gid, withBack) {
     const regular = p.precursorRegular === true;
     const act = regular || v.actividad === true;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 mt-1 bg-secondary text-on-secondary rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
-    const horasCell = horasCellHtml(act, Number(v.horas) || 0, report.locked || regular, p.id);
+    const aux = !!v.auxiliar;
+    const auxCell = auxCellHtml(regular, aux, report.locked, p.id);
+    const actCell = actCellHtml(regular, aux, act, Number(v.horas) || 0, report.locked, p.id);
     return `<div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant border-opacity-50 items-center hover:bg-surface-variant transition-colors group" data-row="${p.id}">
       <div class="col-span-4 flex items-center gap-3"><div class="w-8 h-8 rounded-full ${regular ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'} flex items-center justify-center font-bold text-sm">${escapeHtml(initials(p.name))}</div><div><p class="font-body-md text-body-md font-medium text-on-surface">${escapeHtml(p.name)}</p>${precBadge}</div></div>
-      <div class="col-span-3 horas-cell">${horasCell}</div>
+      <div class="col-span-2 flex justify-center">${auxCell}</div>
+      <div class="col-span-2 act-cell">${actCell}</div>
       <div class="col-span-2"><input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/></div>
-      <div class="col-span-3"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-transparent hover:border-outline-variant focus:border-primary rounded bg-transparent focus:bg-surface focus:ring-0 font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/></div>
+      <div class="col-span-2"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-transparent hover:border-outline-variant focus:border-primary rounded bg-transparent focus:bg-surface focus:ring-0 font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/></div>
     </div>`;
   }).join('');
   const back = withBack ? `<button id="activityBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition-colors"><span class="material-symbols-outlined text-sm">arrow_back</span> Grupos</button>` : '';
@@ -887,7 +896,7 @@ async function renderActivityGroupView(gid, withBack) {
     </div>
     <div class="bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm flex flex-col overflow-hidden h-[600px]">
       <div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant bg-surface-container-low font-label-md text-label-md text-on-surface-variant sticky top-0 z-10">
-        <div class="col-span-4">Nombre</div><div class="col-span-3">Horas</div><div class="col-span-2">Cursos</div><div class="col-span-3">Observación</div>
+        <div class="col-span-4">Nombre</div><div class="col-span-2 text-center">Auxiliar</div><div class="col-span-2">Actividad / Horas</div><div class="col-span-2">Cursos</div><div class="col-span-2">Observación</div>
       </div>
       <div class="flex-1 overflow-y-auto table-scroll p-2">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>
     </div>`;
@@ -912,12 +921,17 @@ function bindActivityTab() {
     state.people.forEach(p => {
       if (gid && String(p.grupoId) !== String(gid)) return;
       const get = k => document.querySelector(`[data-act="${k}"][data-pid="${p.id}"]`);
-      const chk = get('actividad');
-      const actividad = p.precursorRegular === true || !!chk?.checked;
+      const regular = p.precursorRegular === true;
+      const auxChk = get('auxiliar');
+      const auxiliar = regular ? false : !!auxChk?.checked;
+      const isNumber = regular || auxiliar;
+      const horas = isNumber ? (parseInt(get('horas')?.value, 10) || 0) : 0;
+      const actividad = regular || (isNumber ? true : !!get('actividad')?.checked);
       people[p.id] = {
         actividad,
+        auxiliar,
         cursos: parseInt(get('cursos')?.value, 10) || 0,
-        horas: actividad ? (parseInt(get('horas')?.value, 10) || 0) : 0,
+        horas,
         notas: get('notas')?.value || '',
       };
     });
@@ -935,18 +949,14 @@ function bindActivityTab() {
     await saveData();
     toast('Informe enviado correctamente', 'success');
   };
-  document.querySelectorAll('[data-act="actividad"]').forEach(c => c.onchange = () => onActividadChange(c));
-  function onActividadChange(c) {
+  document.querySelectorAll('[data-act="auxiliar"]').forEach(c => c.onchange = () => {
     const pid = c.dataset.pid;
     const row = document.querySelector(`[data-row="${pid}"]`);
-    const cell = row?.querySelector('.horas-cell');
+    const cell = row?.querySelector('.act-cell');
     if (!cell) return;
-    const prev = row.querySelector('[data-act="horas"]');
-    const horas = prev ? (parseInt(prev.value, 10) || 0) : 0;
-    cell.innerHTML = horasCellHtml(c.checked, c.checked ? horas : 0, c.disabled, pid);
-    const nw = cell.querySelector('[data-act="actividad"]');
-    if (nw) nw.onchange = () => onActividadChange(nw);
-  }
+    const horasPrev = row.querySelector('[data-act="horas"]')?.value || 0;
+    cell.innerHTML = actCellHtml(false, c.checked, false, horasPrev, c.disabled, pid);
+  });
 }
 
 function formatShortDate(iso) {
@@ -1092,11 +1102,18 @@ async function renderArrangementsTab() {
   const arr = await db.getArrangements(month) || { id: month, congregation: '', contact: '', phone: '', notes: '', localSpeakers: [] };
   const allArr = await db.listArrangements();
   const ranking = computeTalkRanking(allArr);
+  const oradoresSalida = state.people.filter(p => p.activo !== false && laboreEligible(p, 'salida'));
   const localRows = (arr.localSpeakers || []).map((ls, i) => `
     <li class="group flex items-start justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-transparent hover:border-outline-variant/50">
       <div><p class="font-label-md text-label-md text-on-surface mb-2 group-hover:text-primary transition-colors">${escapeHtml(ls.speaker || 'Orador')}</p>
       <div class="flex flex-wrap gap-2">${String(ls.num).split(',').map(n => `<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold">${escapeHtml(n.trim())}</span>`).join('')}</div></div>
       <button data-local-remove="${i}" class="opacity-0 group-hover:opacity-100 transition-opacity text-outline hover:text-primary p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+    </li>`).join('');
+  const salidaRows = oradoresSalida.map(p => `
+    <li class="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30">
+      <div class="w-8 h-8 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-sm">${escapeHtml(((p.name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('')).toUpperCase())}</div>
+      <div class="flex-1 min-w-0"><p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p></div>
+      <span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Orador de salida</span>
     </li>`).join('');
   const rankMap = {};
   ranking.forEach(r => rankMap[String(r.num)] = r);
@@ -1138,7 +1155,7 @@ async function renderArrangementsTab() {
         </section>
         <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm flex-1 flex flex-col min-h-[400px]">
           <div class="p-6 border-b border-outline-variant/30 flex justify-between items-center bg-surface-bright rounded-t-xl"><h2 class="font-headline-md text-[20px] text-primary font-bold">Oradores Locales</h2><button id="addLocal" class="text-primary hover:text-tertiary transition-colors"><span class="material-symbols-outlined">add_circle</span></button></div>
-          <div class="p-4 flex-1 overflow-y-auto"><ul id="localSpeakers" class="space-y-4">${localRows}</ul></div>
+          <div class="p-4 flex-1 overflow-y-auto"><ul id="localSpeakers" class="space-y-4">${salidaRows}${localRows}</ul></div>
         </section>
         <button id="arrSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar arreglos</button>
       </div>
