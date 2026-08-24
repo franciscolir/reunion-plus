@@ -31,6 +31,11 @@ import {
 import { extractEpubText } from './epub.js';
 import { generatePeopleTemplate, parsePeopleXlsx } from './xlsx.js';
 
+const APP_VERSION = '2.0.0';
+let _swReg = null;
+let _pollTimer = null;
+let _recargando = false;
+
 /* ---------- Estado ---------- */
 const state = {
   view: 'home',           // home | new | auto | edit | preview | outings | lists | uploads | eventos | labores | laboresGrupo | salidas | general | settings | about | midweeks | midweek | midweekPreview | midweekMonthPreview | midweekList
@@ -266,40 +271,54 @@ async function syncAssignmentLog() {
   }
 }
 
+function mostrarAviso() {
+  if (document.getElementById('swUpdateBanner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'swUpdateBanner';
+  banner.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-container-low text-on-surface shadow-xl border border-outline-variant max-w-[94vw]';
+  banner.innerHTML = `
+    <span class="material-symbols-outlined text-primary">system_update</span>
+    <span class="text-sm">Nueva versión disponible. Actualizar aplicación.</span>
+    <button id="swUpdateBtn" class="px-3 py-1.5 rounded-lg bg-primary text-on-primary text-sm font-semibold hover:opacity-90 whitespace-nowrap">Actualizar</button>`;
+  document.body.appendChild(banner);
+  banner.querySelector('#swUpdateBtn').onclick = () => {
+    if (_swReg && _swReg.waiting) _swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+  };
+}
+
+async function checkForUpdate() {
+  try {
+    const res = await fetch('./version.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const info = await res.json();
+    if (info.version && info.version !== APP_VERSION) mostrarAviso();
+  } catch (_) { /* offline o error de red: ignorar */ }
+}
+
+function startVersionPolling() {
+  checkForUpdate();
+  _pollTimer = setInterval(checkForUpdate, 5 * 60 * 1000);
+}
+
 function registerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then((reg) => {
-      // Aviso de nueva versión (spec 30): la actualización se activa con el botón.
-      const mostrarAviso = () => {
-        if (document.getElementById('swUpdateBanner')) return;
-        const banner = document.createElement('div');
-        banner.id = 'swUpdateBanner';
-        banner.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-4 py-3 rounded-xl bg-surface-container-low text-on-surface shadow-xl border border-outline-variant max-w-[94vw]';
-        banner.innerHTML = `
-          <span class="material-symbols-outlined text-primary">system_update</span>
-          <span class="text-sm">Nueva versión disponible. Actualizar aplicación.</span>
-          <button id="swUpdateBtn" class="px-3 py-1.5 rounded-lg bg-primary text-on-primary text-sm font-semibold hover:opacity-90 whitespace-nowrap">Actualizar</button>`;
-        document.body.appendChild(banner);
-        banner.querySelector('#swUpdateBtn').onclick = () => {
-          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-        };
-      };
-      reg.addEventListener('updatefound', () => {
-        const nuevo = reg.installing;
-        if (!nuevo) return;
-        nuevo.addEventListener('statechange', () => {
-          if (nuevo.state === 'installed' && navigator.serviceWorker.controller) mostrarAviso();
-        });
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./sw.js').then((reg) => {
+    _swReg = reg;
+    reg.addEventListener('updatefound', () => {
+      const sw = reg.installing;
+      if (!sw) return;
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'installed' && navigator.serviceWorker.controller) mostrarAviso();
       });
-    }).catch(() => {});
-    // Cuando un nuevo SW toma control (tras pulsar Actualizar), recargar.
-    let recargando = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (recargando) return;
-      recargando = true;
-      window.location.reload();
     });
-  }
+    startVersionPolling();
+  }).catch(() => {});
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (_recargando) return;
+    _recargando = true;
+    setTimeout(() => { _recargando = false; }, 10000);
+    window.location.reload();
+  });
 }
 
 function bindGlobal() {
@@ -814,11 +833,16 @@ async function renderActivityGroupView(gid, withBack) {
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
   const members = state.people.filter(p => String(p.grupoId) === String(gid));
-  let totalHoras = 0;
-  members.forEach(p => { totalHoras += Number(report.people?.[p.id]?.horas) || 0; });
-  const asm = await computeAsistenciaMes(month);
-  const prom = asm.midweek.promedio + asm.weekend.promedio;
-  const asistProm = prom > 0 ? Math.round(prom / 2) : '—';
+  let totalCursos = 0;
+  let sinActividad = 0;
+  members.forEach(p => {
+    const v = report.people?.[p.id] || {};
+    const act = p.precursorRegular === true || v.actividad === true;
+    totalCursos += Number(v.cursos) || 0;
+    if (!act) sinActividad++;
+  });
+  const totalConActividad = members.length - sinActividad;
+  const regularidad = members.length > 0 ? Math.round((totalConActividad / members.length) * 100) : 0;
   const estado = report.locked ? 'Bloqueado' : 'En progreso';
   const initials = (name) => { const ps = String(name || '').trim().split(/\s+/); return ((ps[0]?.[0] || '') + (ps[1]?.[0] || '')).toUpperCase(); };
   const rows = members.map(p => {
@@ -832,30 +856,33 @@ async function renderActivityGroupView(gid, withBack) {
     const horasCell = (regular || act)
       ? `<input type="number" min="0" step="1" data-act="horas" data-pid="${p.id}" value="${Number(v.horas) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border ${act || regular ? 'border-primary' : 'border-outline-variant'} rounded bg-surface focus:border-primary text-center font-body-md"/>`
       : `<span class="text-xs text-outline font-medium">N/A</span>`;
-    return `<div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant border-opacity-50 items-center hover:bg-surface-variant transition-colors" data-row="${p.id}">
+    return `<div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant border-opacity-50 items-center hover:bg-surface-variant transition-colors group" data-row="${p.id}">
+      <div class="col-span-4 flex items-center gap-3"><div class="w-8 h-8 rounded-full ${regular ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'} flex items-center justify-center font-bold text-sm">${escapeHtml(initials(p.name))}</div><div><p class="font-body-md text-body-md font-medium text-on-surface">${escapeHtml(p.name)}</p>${precBadge}</div></div>
       <div class="col-span-1 flex justify-center">${chk}</div>
-      <div class="col-span-4 flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center font-bold text-sm">${escapeHtml(initials(p.name))}</div><div><p class="font-body-md text-body-md font-medium text-on-surface">${escapeHtml(p.name)}</p>${precBadge}</div></div>
       <div class="col-span-2 horas-cell">${horasCell}</div>
       <div class="col-span-2"><input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/></div>
-      <div class="col-span-3"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-outline-variant rounded bg-surface focus:border-primary font-body-md"/></div>
+      <div class="col-span-3"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-transparent hover:border-outline-variant focus:border-primary rounded bg-transparent focus:bg-surface focus:ring-0 font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/></div>
     </div>`;
   }).join('');
-  const back = withBack ? `<button id="activityBack" class="px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md">← Grupos</button>` : '';
-  const lockBtn = report.locked ? `<button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Desbloquear mes</button>` : `<button id="activityLock" data-admin class="px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md">Bloquear mes</button>`;
-  const saveBtn = report.locked ? '' : `<button id="activitySave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md">Guardar</button>`;
-  return `<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
-      <div><h2 class="font-headline-lg text-headline-lg text-primary">Actividad del ${escapeHtml(groupName)}</h2><p class="font-body-lg text-body-lg text-on-surface-variant flex items-center gap-2"><span class="material-symbols-outlined text-lg">calendar_today</span>${monthLabel}</p></div>
-      <div class="flex flex-wrap gap-3">${back}${lockBtn}${saveBtn}</div>
+  const back = withBack ? `<button id="activityBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant transition-colors"><span class="material-symbols-outlined text-sm">arrow_back</span> Grupos</button>` : '';
+  const lockBtn = report.locked
+    ? `<button id="activityLock" data-admin class="flex items-center gap-2 px-6 py-2.5 border border-primary text-primary rounded hover:bg-surface-variant transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-sm">lock_open</span> Desbloquear Tabla</button>`
+    : `<button id="activityLock" data-admin class="flex items-center gap-2 px-6 py-2.5 border border-primary text-primary rounded hover:bg-surface-variant transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-sm">lock</span> Bloquear Tabla</button>`;
+  const saveBtn = report.locked ? '' : `<button id="activitySave" class="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded hover:bg-opacity-90 transition-colors font-label-md text-label-md shadow-sm"><span class="material-symbols-outlined text-sm">save</span> Guardar</button>`;
+  const sendBtn = `<button id="activitySend" class="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded hover:bg-opacity-90 transition-colors font-label-md text-label-md shadow-sm"><span class="material-symbols-outlined text-sm">send</span> Enviar Informe</button>`;
+  return `<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      <div><h1 class="font-headline-lg text-headline-lg md:text-display-lg font-bold text-primary mb-2">Actividad del ${escapeHtml(groupName)}</h1><p class="font-body-lg text-body-lg text-on-surface-variant flex items-center gap-2"><span class="material-symbols-outlined text-lg">calendar_today</span>${monthLabel}</p></div>
+      <div class="flex flex-wrap gap-4">${back}${lockBtn}${saveBtn}${sendBtn}</div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-4 gap-gutter mb-8">
-      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-primary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Total Horas</p><p class="font-headline-lg text-headline-lg text-primary">${totalHoras}<span class="text-body-md text-on-surface-variant ml-1 font-normal">hrs</span></p></div>
-      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-secondary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Participantes</p><p class="font-headline-lg text-headline-lg text-primary">${members.length}</p></div>
-      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-tertiary-fixed-dim"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Asistencia Prom.</p><p class="font-headline-lg text-headline-lg text-primary">${asistProm}</p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden group"><div class="absolute top-0 left-0 w-1 h-full bg-primary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Total CURSOS</p><p class="font-headline-lg text-headline-lg text-primary">${totalCursos}</p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-secondary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Sin actividad</p><p class="font-headline-lg text-headline-lg text-primary">${sinActividad}</p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-tertiary-fixed-dim"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Regularidad</p><p class="font-headline-lg text-headline-lg text-primary">${regularidad}%</p></div>
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-outline"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Estado</p><p class="font-headline-md text-headline-md text-primary mt-1">${estado}</p></div>
     </div>
-    <div class="bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm flex flex-col overflow-hidden">
+    <div class="bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm flex flex-col overflow-hidden h-[600px]">
       <div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant bg-surface-container-low font-label-md text-label-md text-on-surface-variant sticky top-0 z-10">
-        <div class="col-span-1 text-center">✓</div><div class="col-span-4">Nombre</div><div class="col-span-2">Horas</div><div class="col-span-2">Cursos</div><div class="col-span-3">Observación</div>
+        <div class="col-span-4">Nombre</div><div class="col-span-1 flex justify-center items-center">Auxiliar</div><div class="col-span-2">Horas</div><div class="col-span-2">Cursos</div><div class="col-span-3">Observación</div>
       </div>
       <div class="flex-1 overflow-y-auto table-scroll p-2">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>
     </div>`;
@@ -872,8 +899,7 @@ function bindActivityTab() {
     await db.putActivity({ ...report, locked: !report.locked });
     renderInformes();
   };
-  const save = $('#activitySave');
-  if (save) save.onclick = async () => {
+  const saveData = async () => {
     const month = state.reportMonth;
     const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
     const people = { ...(report.people || {}) };
@@ -891,8 +917,18 @@ function bindActivityTab() {
       };
     });
     await db.putActivity({ ...report, people });
+    return report;
+  };
+  const save = $('#activitySave');
+  if (save) save.onclick = async () => {
+    await saveData();
     toast('Actividad guardada', 'success');
     renderInformes();
+  };
+  const send = $('#activitySend');
+  if (send) send.onclick = async () => {
+    await saveData();
+    toast('Informe enviado correctamente', 'success');
   };
   document.querySelectorAll('[data-act="actividad"]').forEach(c => c.onchange = () => {
     const pid = c.dataset.pid;
