@@ -91,7 +91,7 @@ Los botones de la navegación usan `data-go` (desktop) / `data-route` (sidebar).
   - **Integración**: `node tests-integration.mjs` (capa de datos real: `db.js` sobre IndexedDB con `fake-indexeddb` + flujos cruzados PDF→lógica→persistencia).
   - **E2E**: `npm run test:e2e` (Playwright, Chromium; sirve la app local con `supabase-config.js` mockeado para correr offline — requiere `npx playwright install chromium` la primera vez).
   - **Todo**: `npm run test:all`.
-  - Después de tocar `logic.js`, `app.js`, `db.js` o la UI correr al menos unitarios + integración; para cambios de UI, además E2E.
+  - **Después de CADA cambio en el código** (cualquier archivo: `logic.js`, `app.js`, `db.js`, `auth.js`, `supabase.js`, `sync.js`, la UI, etc.) correr SIEMPRE los tres conjuntos en este orden: unitarios (`node tests.mjs`), integración (`node tests-integration.mjs`) y E2E (`node node_modules/.bin/playwright test`). No omitir el E2E salvo que el cambio sea estrictamente de lógica pura sin UI.
 - El Service Worker cachea con versión; al cambiar archivos subir el número `rp-v***` (sw.js) y `?v=***` (cargas en index.html).
 - Commit en español, estilo conventional: `feat(supabase): ...`, `fix(...): ...`, `docs: ...`.
 - Rama actual: `main` (única). PRs a `main` desde feature branches.
