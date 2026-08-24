@@ -79,17 +79,6 @@ export async function login(email, password) {
   return _currentUser;
 }
 
-// Inicia sesión con Google (redirección). Al volver, restoreSession recupera la
-// sesión. Exige whitelist.
-export async function loginWithGoogle() {
-  const sb = await initAuth();
-  if (!sb) throw new Error('Supabase no configurado');
-  const redirectTo = window.location.origin + window.location.pathname;
-  const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
-  if (error) throw new Error(errorLogin(error.message || error.code));
-  return { pending: true }; // la página redirige a Google
-}
-
 // Reautentica al usuario actual con su contraseña (p. ej. antes de una acción
 // sensible como borrar datos). Requiere sesión activa. Lanza error si falla.
 export async function reauthenticate(password) {
