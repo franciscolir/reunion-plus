@@ -832,7 +832,7 @@ function actCellHtml(regular, aux, act, horas, disabled, pid) {
     return `<input type="number" min="0" step="1" data-act="horas" data-pid="${pid}" value="${horas}" ${disabled ? 'disabled' : ''} class="w-20 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/>`;
   }
   const estado = act ? 'Sí' : 'No';
-  return `<label class="inline-flex items-center gap-2 cursor-pointer">
+  return `<label class="inline-flex items-center gap-2 cursor-pointer" onmousedown="event.preventDefault()">
     <input type="checkbox" data-act="actividad" data-pid="${pid}" class="sr-only peer" ${act ? 'checked' : ''} ${disabled ? 'disabled' : ''}/>
     <span class="relative w-11 h-6 bg-outline-variant peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-5"></span>
     <span class="text-label-md ${act ? 'text-primary' : 'text-on-surface-variant'} font-medium select-none" data-act-label>${estado}</span>
