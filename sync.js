@@ -82,7 +82,7 @@ async function registrarGuardado() {
 // Stores de PROGRAMAS: se suben SOLO al pulsar Guardar (borrador local + cola).
 // El resto de stores (catálogos: people/departments/settings/talks) se suben
 // automáticamente en cada commit, como hasta ahora.
-const PROGRAM_STORES = new Set(['months', 'salidas', 'atencion', 'midweeks', 'assignment_log']);
+const PROGRAM_STORES = new Set(['months', 'salidas', 'atencion', 'midweeks', 'assignment_log', 'activity']);
 
 // Hook del punto único de escritura (db.js commit). Para programas solo marca
 // el borrador local pendiente; los catálogos se suben de inmediato.

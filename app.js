@@ -864,6 +864,9 @@ async function renderActivityGroupView(gid, withBack) {
   const allActivity = await db.listActivity();
   const reg = computeRegularity(members, allActivity, months6);
   const estado = report.locked ? 'Bloqueado' : 'En progreso';
+  const todosInformaron = sinActividad === 0;
+  const sinActLabel = todosInformaron ? 'Todos informaron' : 'Sin actividad';
+  const sinActValue = todosInformaron ? '✓' : sinActividad;
   const initials = (name) => { const ps = String(name || '').trim().split(/\s+/); return ((ps[0]?.[0] || '') + (ps[1]?.[0] || '')).toUpperCase(); };
   const rows = members.map(p => {
     const v = report.people?.[p.id] || {};
@@ -886,14 +889,13 @@ async function renderActivityGroupView(gid, withBack) {
     ? `<button id="activityLock" data-admin class="flex items-center gap-2 px-6 py-2.5 border border-primary text-primary rounded hover:bg-surface-variant transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-sm">lock_open</span> Desbloquear Tabla</button>`
     : `<button id="activityLock" data-admin class="flex items-center gap-2 px-6 py-2.5 border border-primary text-primary rounded hover:bg-surface-variant transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-sm">lock</span> Bloquear Tabla</button>`;
   const saveBtn = report.locked ? '' : `<button id="activitySave" class="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded hover:bg-opacity-90 transition-colors font-label-md text-label-md shadow-sm"><span class="material-symbols-outlined text-sm">save</span> Guardar</button>`;
-  const sendBtn = `<button id="activitySend" class="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded hover:bg-opacity-90 transition-colors font-label-md text-label-md shadow-sm"><span class="material-symbols-outlined text-sm">send</span> Enviar Informe</button>`;
   return `<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
       <div><h1 class="font-headline-lg text-headline-lg md:text-display-lg font-bold text-primary mb-2">Actividad del ${escapeHtml(groupName)}</h1><p class="font-body-lg text-body-lg text-on-surface-variant flex items-center gap-2"><span class="material-symbols-outlined text-lg">calendar_today</span>${monthLabel}</p></div>
-      <div class="flex flex-wrap gap-4">${back}${lockBtn}${saveBtn}${sendBtn}</div>
+      <div class="flex flex-wrap gap-4">${back}${lockBtn}${saveBtn}</div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-4 gap-gutter mb-8">
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden group"><div class="absolute top-0 left-0 w-1 h-full bg-primary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Total CURSOS</p><p class="font-headline-lg text-headline-lg text-primary">${totalCursos}</p></div>
-      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-secondary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Sin actividad</p><p class="font-headline-lg text-headline-lg text-primary">${sinActividad}</p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-secondary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">${sinActLabel}</p><p class="font-headline-lg text-headline-lg text-primary">${sinActValue}</p></div>
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-tertiary-fixed-dim"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Regularidad (6 m)</p><p class="font-headline-lg text-headline-lg text-primary">${reg.percentage}%</p><p class="text-caption text-on-surface-variant mt-1">${reg.regular} de ${reg.total} regulares</p></div>
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-outline"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Estado</p><p class="font-headline-md text-headline-md text-primary mt-1">${estado}</p></div>
     </div>
@@ -945,12 +947,10 @@ function bindActivityTab() {
   if (save) save.onclick = async () => {
     await saveData();
     toast('Actividad guardada', 'success');
+    if (currentUser()?.rol === 'admin') {
+      try { await subirStores(['activity']); } catch (e) { /* sin Supabase: solo local */ }
+    }
     renderInformes();
-  };
-  const send = $('#activitySend');
-  if (send) send.onclick = async () => {
-    await saveData();
-    toast('Informe enviado correctamente', 'success');
   };
   document.querySelectorAll('[data-act="auxiliar"]').forEach(c => c.onchange = () => {
     const pid = c.dataset.pid;
@@ -1227,42 +1227,38 @@ function bindArrangementsTab() {
 
 async function openExchangeModal(monthId) {
   const mLabel = `${MONTHS_ES[Number(monthId.slice(5)) - 1]} ${monthId.slice(0, 4)}`;
-  const arr = await db.getArrangements(monthId) || { id: monthId, congregation: '', contact: '', phone: '', notes: '', localSpeakers: [] };
-  const oradoresSalida = state.people.filter(p => p.activo !== false && laboreEligible(p, 'salida'));
-  const speakerRows = oradoresSalida.map(p => `
-    <div class="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30">
-      <div class="w-8 h-8 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-sm">${escapeHtml(((p.name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('')).toUpperCase())}</div>
-      <div class="flex-1 min-w-0"><p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p></div>
-      <span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Orador de salida</span>
-    </div>`).join('');
-  const localItems = (arr.localSpeakers || []).map((ls, i) => `
-    <li class="group flex items-start justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-transparent hover:border-outline-variant/50">
-      <div class="flex-1 min-w-0"><p class="font-label-md text-label-md text-on-surface mb-1">${escapeHtml(ls.speaker || 'Orador')}</p>
-      <div class="flex flex-wrap gap-1">${String(ls.num || '').split(',').map(n => n.trim() ? `<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold">${escapeHtml(n.trim())}</span>` : '').join('')}</div></div>
-      <button data-exch-local-remove="${i}" class="opacity-0 group-hover:opacity-100 transition-opacity text-outline hover:text-primary p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
-    </li>`).join('');
+  const arr = await db.getArrangements(monthId) || { id: monthId, congregation: '', contact: '', phone: '', notes: '', fijo: false, localSpeakers: [] };
   const html = `
-    <div class="flex flex-col gap-6">
+    <div class="flex flex-col gap-5">
       <div class="flex items-center justify-between">
-        <div><h2 class="font-headline-md text-headline-md text-primary font-bold">Intercambio Mensual</h2><p class="text-on-surface-variant font-body-md text-body-md flex items-center gap-2 mt-1"><span class="material-symbols-outlined text-[16px]">calendar_today</span>${mLabel}</p></div>
+        <div>
+          <h2 class="font-headline-md text-headline-md text-primary font-bold">Arreglo de Intercambio</h2>
+          <p class="text-on-surface-variant font-body-md text-body-md flex items-center gap-2 mt-1"><span class="material-symbols-outlined text-[16px]">calendar_today</span>${mLabel}</p>
+        </div>
         <button id="exchClose" class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">close</span></button>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Congregacion</p><input id="exchCong" value="${escapeAttr(arr.congregation || '')}" placeholder="Nombre de la congregacion" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/></div>
-        <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Coordinador</p><input id="exchContact" value="${escapeAttr(arr.contact || '')}" placeholder="Nombre del coordinador" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2 focus:border-primary"/><input id="exchPhone" value="${escapeAttr(arr.phone || '')}" placeholder="Telefono" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/></div>
+      <div>
+        <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Congregacion</p>
+        <input id="exchCong" value="${escapeAttr(arr.congregation || '')}" placeholder="Nombre de la congregacion" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
       </div>
-      <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Observaciones</p><textarea id="exchNotes" placeholder="Notas adicionales..." class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary" rows="3">${escapeHtml(arr.notes || '')}</textarea></div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-3">Oradores de Salida</p>
-          <div class="flex flex-col gap-2 max-h-[200px] overflow-y-auto">${speakerRows || '<p class="text-caption text-outline">No hay oradores configurados</p>'}</div>
+          <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Coordinador</p>
+          <input id="exchContact" value="${escapeAttr(arr.contact || '')}" placeholder="Nombre del coordinador" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
         </div>
         <div>
-          <div class="flex justify-between items-center mb-3"><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest">Oradores Locales</p><button id="exchAddLocal" class="text-primary hover:text-tertiary transition-colors"><span class="material-symbols-outlined text-[20px]">add_circle</span></button></div>
-          <ul id="exchLocalList" class="flex flex-col gap-2 max-h-[200px] overflow-y-auto">${localItems || '<li class="text-caption text-outline p-2">Sin oradores locales</li>'}</ul>
+          <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Telefono</p>
+          <input id="exchPhone" value="${escapeAttr(arr.phone || '')}" placeholder="Telefono" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
         </div>
       </div>
-      <div class="flex justify-end gap-3 pt-4 border-t border-outline-variant/30">
+      <label class="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors">
+        <input id="exchFijo" type="checkbox" ${arr.fijo ? 'checked' : ''} class="w-5 h-5 accent-primary"/>
+        <div>
+          <p class="font-label-md text-label-md text-on-surface">Fijo</p>
+          <p class="font-body-sm text-body-sm text-on-surface-variant">Se repite automaticamente en los mismos meses de los anos siguientes</p>
+        </div>
+      </label>
+      <div class="flex justify-end gap-3 pt-3 border-t border-outline-variant/30">
         <button id="exchCancel" class="border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors rounded px-5 py-2.5 font-label-md text-label-md">Cancelar</button>
         <button id="exchSave" class="bg-primary text-on-primary hover:opacity-90 transition-opacity rounded px-6 py-2.5 font-label-md text-label-md shadow-sm">Guardar</button>
       </div>
@@ -1270,58 +1266,57 @@ async function openExchangeModal(monthId) {
   openModal(html, true);
   $('#exchClose').onclick = closeModal;
   $('#exchCancel').onclick = closeModal;
-  $('#exchAddLocal').onclick = () => {
-    const box = $('#exchLocalList');
-    const li = document.createElement('li');
-    li.className = 'group flex items-start justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-transparent hover:border-outline-variant/50';
-    li.innerHTML = `<div class="flex-1"><input data-exch-local="speaker" placeholder="Orador" class="bg-surface-bright border border-outline-variant rounded-lg p-2 mb-2 w-full text-sm"/><input data-exch-local="num" placeholder="Numeros (ej. 1,17)" class="bg-surface-bright border border-outline-variant rounded-lg p-2 w-full text-sm"/></div><button data-exch-local-remove="x" class="text-outline hover:text-primary p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
-    box.appendChild(li);
-    li.querySelector('[data-exch-local-remove]').onclick = () => li.remove();
-  };
-  document.querySelectorAll('[data-exch-local-remove]').forEach(b => b.onclick = () => b.closest('li')?.remove());
   $('#exchSave').onclick = async () => {
-    const local = [];
-    document.querySelectorAll('#exchLocalList li').forEach(li => {
-      const speaker = li.querySelector('[data-exch-local="speaker"]')?.value || '';
-      const num = li.querySelector('[data-exch-local="num"]')?.value || '';
-      if (speaker || num) local.push({ speaker, num, date: '' });
-    });
-    const rec = { id: monthId, congregation: $('#exchCong').value, contact: $('#exchContact').value, phone: $('#exchPhone').value, notes: $('#exchNotes').value, localSpeakers: local };
+    const rec = {
+      id: monthId,
+      congregation: $('#exchCong').value.trim(),
+      contact: $('#exchContact').value.trim(),
+      phone: $('#exchPhone').value.trim(),
+      fijo: $('#exchFijo').checked
+    };
     await db.putArrangements(rec);
+    if (rec.fijo && rec.congregation) {
+      for (let y = 1; y <= 3; y++) {
+        const futureId = addMonths(monthId, 12 * y);
+        const existing = await db.getArrangements(futureId);
+        if (!existing || existing.fijo) {
+          await db.putArrangements({ id: futureId, congregation: rec.congregation, contact: rec.contact, phone: rec.phone, fijo: true });
+        }
+      }
+    }
     toast('Intercambio guardado', 'success');
     closeModal();
-    renderInformes();
+    if (location.hash === '#/exchangeannual') renderExchangeAnnual();
   };
 }
 
 async function renderExchangeAnnual() {
-  const sy = currentServiceYear();
-  const year1 = sy;
-  const year2 = sy + 1;
-  const months12 = serviceYearMonths(sy);
+  const now = new Date();
+  const year1 = now.getFullYear();
+  const year2 = year1 + 1;
+  const calMonths = Array.from({ length: 12 }, (_, i) => `${year1}-${String(i + 1).padStart(2, '0')}`);
   const allArr = await db.listArrangements();
   const arrMap = {};
   allArr.forEach(a => { arrMap[a.id] = a; });
-  const cellContent = (m, a, field) => {
-    const val = a[field] || '';
-    if (!val) return `<span class="text-on-surface-variant italic">Por confirmar</span>`;
-    return escapeHtml(val);
+  const cellText = (a) => {
+    if (!a.congregation) return `<span class="text-on-surface-variant italic">Por confirmar</span>`;
+    let html = `<span class="font-medium">${escapeHtml(a.congregation)}</span>`;
+    if (a.contact) html += `<span class="text-caption text-on-surface-variant block">${escapeHtml(a.contact)}${a.phone ? ' · ' + escapeHtml(a.phone) : ''}</span>`;
+    return html;
   };
-  const rows = months12.map((m, i) => {
+  const rows = calMonths.map((m, i) => {
     const a1 = arrMap[m] || {};
     const mNext = addMonths(m, 12);
     const a2 = arrMap[mNext] || {};
     const mNum = Number(m.slice(5));
     const mLabel = MONTHS_ES[mNum - 1];
     const bg = i % 2 === 1 ? 'bg-surface-container-low/30' : '';
-    const hasData1 = a1.congregation || a1.contact;
-    const hasData2 = a2.congregation || a2.contact;
+    const fijoBadge = a1.fijo ? '<span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">FIJO</span>' : '';
+    const fijoBadge2 = a2.fijo ? '<span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">FIJO</span>' : '';
     return `<tr class="${bg} border-b border-outline-variant/20 hover:bg-surface-container-lowest transition-colors group">
-      <td class="p-4 font-label-md text-label-md text-primary border-r border-outline-variant/30 bg-surface-container-low/50 font-bold">${mLabel}</td>
-      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${m}.congregation">${cellContent(m, a1, 'congregation')}</td>
-      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${m}.contact">${cellContent(m, a1, 'contact')}${a1.phone ? `<span class="text-caption text-on-surface-variant block">${escapeHtml(a1.phone)}</span>` : ''}</td>
-      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${mNext}.congregation">${cellContent(mNext, a2, 'congregation')}</td>
-      <td class="p-4 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${mNext}.contact">${cellContent(mNext, a2, 'contact')}${a2.phone ? `<span class="text-caption text-on-surface-variant block">${escapeHtml(a2.phone)}</span>` : ''}</td>
+      <td class="p-4 font-label-md text-label-md text-primary border-r border-outline-variant/30 bg-surface-container-low/50 font-bold">${mLabel}${fijoBadge}</td>
+      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${m}">${cellText(a1)}</td>
+      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${mNext}">${cellText(a2)}${fijoBadge2}</td>
     </tr>`;
   }).join('');
   const app = $('#app');
@@ -1333,11 +1328,10 @@ async function renderExchangeAnnual() {
           <h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary mb-2">Planificacion Anual de Intercambios</h1>
           <p class="font-body-md text-body-md text-on-surface-variant">Gestion de acuerdos con congregaciones vecinas · Pulsa en cualquier celda para editar</p>
         </div>
-        <button id="annualExchangeSaveAll" class="bg-primary text-on-primary font-label-md text-label-md px-6 py-3 rounded-lg shadow-sm hover:bg-primary/90 transition-all active:scale-95 flex items-center gap-2 whitespace-nowrap"><span class="material-symbols-outlined text-[18px]">save</span> Guardar Cambios</button>
       </div>
       <div class="bg-surface rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant/50 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse min-w-[800px]">
+          <table class="w-full text-left border-collapse min-w-[700px]">
             <thead>
               <tr class="bg-surface-container-low border-b border-outline-variant/50">
                 <th class="p-4 font-label-md text-label-md text-on-surface align-bottom w-32 border-r border-outline-variant/30" rowspan="2">Mes</th>
@@ -1345,10 +1339,10 @@ async function renderExchangeAnnual() {
                 <th class="p-4 text-center font-headline-md text-[18px] font-bold text-primary bg-secondary-container/20" colspan="2">${year2}</th>
               </tr>
               <tr class="bg-surface-container border-b border-outline-variant/50">
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion</th>
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Contacto</th>
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion</th>
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant">Contacto</th>
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion / Contacto</th>
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Notas</th>
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion / Contacto</th>
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant">Notas</th>
               </tr>
             </thead>
             <tbody class="font-body-md text-body-md text-on-surface">${rows}</tbody>
@@ -1358,12 +1352,8 @@ async function renderExchangeAnnual() {
     </div>`;
   $('#exchangeAnnualBack').onclick = () => { location.hash = '#/informes'; };
   document.querySelectorAll('[data-exch-cell]').forEach(td => {
-    td.onclick = () => {
-      const [monthId, field] = td.dataset.exchCell.split('.');
-      openExchangeModal(monthId);
-    };
+    td.onclick = () => openExchangeModal(td.dataset.exchCell);
   });
-  $('#annualExchangeSaveAll').onclick = () => { toast('Cambios guardados', 'success'); };
 }
 
 function openSpeakerCard(person) {
