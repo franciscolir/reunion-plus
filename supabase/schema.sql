@@ -82,7 +82,7 @@ create index if not exists idx_programas_mes on public.programas ((data->>'mes')
 
 -- Rol: es admin quien tiene un registro en usuarios con data->>'rol' = 'admin'.
 -- SECURITY DEFINER para evitar recursión de RLS al consultar usuarios.
-create or replace function public.is_admin()
+create or replace function internal.is_admin()
 returns boolean
 language sql
 security definer
@@ -99,7 +99,7 @@ $$;
 -- Whitelist: ¿el correo del usuario está autorizado a leer los datos?
 -- Lee la whitelist de la app (configuracion/general → config.emailsPermitidos).
 -- SECURITY DEFINER para leer configuracion aunque su RLS esté restringida.
-create or replace function public.email_autorizado()
+create or replace function internal.email_autorizado()
 returns boolean
 language plpgsql
 security definer
@@ -113,7 +113,7 @@ begin
   if v_email = '' then
     return false;
   end if;
-  if public.is_admin() then
+  if internal.is_admin() then
     return true;
   end if;
   if exists (
@@ -142,14 +142,14 @@ as $$
 begin
   execute format('alter table public.%I enable row level security;', tabla);
   execute format('drop policy if exists "lectura_autorizados" on public.%I;', tabla);
-  execute format('create policy "lectura_autorizados" on public.%I for select to authenticated using (public.email_autorizado());', tabla);
+  execute format('create policy "lectura_autorizados" on public.%I for select to authenticated using (internal.email_autorizado());', tabla);
   execute format('drop policy if exists "escritura_admin" on public.%I;', tabla);
-  execute format('create policy "escritura_admin" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin());', tabla);
+  execute format('create policy "escritura_admin" on public.%I for all to authenticated using (internal.is_admin()) with check (internal.is_admin());', tabla);
 end;
 $$;
 
 -- def_policies vive en el esquema internal (no expuesto por la API), así que
--- no aparece en /rest/v1/rpc/. Por seguridad, también se revoca EXECUTE a
+-- no aparece en /rest/v1/rpc/. Por seguridad, se revoca EXECUTE a
 -- anon/authenticated (postgres, dueño, conserva EXECUTE para la instalación).
 revoke execute on function internal.def_policies(text) from public, anon, authenticated;
 
@@ -165,13 +165,13 @@ select internal.def_policies('actividad');
 select internal.def_policies('asistencia');
 select internal.def_policies('arreglos');
 
--- ===== Hardening de funciones expuestas =====
--- is_admin / email_autorizado solo se usan dentro de las políticas RLS. Se
--- revoca EXECUTE a anon/authenticated para que no sean invocables vía
--- /rest/v1/rpc/. La evaluación de RLS corre como dueño de la tabla (postgres),
--- que conserva EXECUTE, así que las políticas siguen funcionando.
-revoke execute on function public.is_admin() from public, anon, authenticated;
-revoke execute on function public.email_autorizado() from public, anon, authenticated;
+-- ===== Hardening de funciones =====
+-- is_admin / email_autorizado se movieron al esquema internal (no expuesto por
+-- la API de PostgREST), así que no aparecen en /rest/v1/rpc/ y el linter no las
+-- señala. Se mantiene EXECUTE para anon/authenticated porque la evaluación de
+-- RLS (que las invoca) corre con el rol que consulta y necesita EXECUTE.
+-- Concedemos USAGE sobre internal para que la RLS pueda resolver el esquema.
+grant usage on schema internal to anon, authenticated;
 
 -- rls_auto_enable está amarrada a un event trigger (ensure_rls) que auto-habilita
 -- RLS, por lo que NO se borra. Solo se revoca EXECUTE para que no sea invocable
@@ -182,8 +182,8 @@ declare r record;
 begin
   for r in
     select format('revoke execute on function %I.%I(%s) from public, anon, authenticated', n.nspname, p.proname, pg_get_function_arguments(p.oid)) as ddl
-    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.proname = 'rls_auto_enable'
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname = 'rls_auto_enable'
   loop execute r.ddl; end loop;
 end $$;
 
@@ -193,7 +193,7 @@ alter table public.usuarios enable row level security;
 drop policy if exists "usuarios_lectura" on public.usuarios;
 create policy "usuarios_lectura" on public.usuarios
   for select to authenticated
-  using (auth.uid()::text = id or public.is_admin());
+  using (auth.uid()::text = id or internal.is_admin());
 
 drop policy if exists "usuarios_crear_propio" on public.usuarios;
 create policy "usuarios_crear_propio" on public.usuarios
@@ -203,12 +203,12 @@ create policy "usuarios_crear_propio" on public.usuarios
 drop policy if exists "usuarios_escritura_admin" on public.usuarios;
 create policy "usuarios_escritura_admin" on public.usuarios
   for update to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+  using (internal.is_admin()) with check (internal.is_admin());
 
 drop policy if exists "usuarios_borrado_admin" on public.usuarios;
 create policy "usuarios_borrado_admin" on public.usuarios
   for delete to authenticated
-  using (public.is_admin());
+  using (internal.is_admin());
 
 -- ===== Grants (los roles anon/authenticated pueden usar las tablas; RLS decide) =====
 grant usage on schema public to anon, authenticated;
@@ -217,6 +217,12 @@ grant select, insert, update, delete on public.participantes, public.grupos, pub
   public.asistencia, public.arreglos, public.usuarios
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
+
+-- Elimina las versiones públicas obsoletas de is_admin / email_autorizado (de
+-- cuando vivían en public). Las políticas ahora usan internal.*, así que estas
+-- ya no se referencian y solo quedaban expuestas en /rest/v1/rpc/.
+drop function if exists public.email_autorizado() cascade;
+drop function if exists public.is_admin() cascade;
 
 -- =============================================================
 -- BOOTSTRAP DEL PRIMER ADMIN
