@@ -146,7 +146,9 @@ $$;
 
 -- def_policies solo se usa durante la instalación del esquema (lo ejecuta el
 -- rol postgres en el SQL Editor). No debe ser invocable vía RPC por anon/authenticated.
-revoke execute on function public.def_policies(text) from anon, authenticated;
+-- Postgres otorga EXECUTE a PUBLIC por defecto; anon hereda de PUBLIC, así que
+-- hay que revocar de PUBLIC explícitamente (postgres, dueño, conserva EXECUTE).
+revoke execute on function public.def_policies(text) from public, anon, authenticated;
 
 -- ===== Políticas de datos =====
 select public.def_policies('participantes');
