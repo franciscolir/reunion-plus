@@ -1177,7 +1177,7 @@ async function renderArrangementsTab() {
       <div class="lg:col-span-4 flex flex-col gap-gutter">
         <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden relative"><div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
           <div class="p-6">
-            <div class="flex justify-between items-start mb-4"><h3 class="font-headline-md text-[20px] text-primary font-bold">Intercambio Mensual</h3></div>
+            <div class="flex justify-between items-start mb-4"><h3 class="font-headline-md text-[20px] text-primary font-bold">Intercambio Mensual</h3><button id="annualExchangeBtn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors font-label-md text-[12px]"><span class="material-symbols-outlined text-[16px]">calendar_month</span> Gestionar</button></div>
             <div class="flex flex-col gap-3">
               ${exchangeCard(month, arr, false)}
               ${exchangeCard(nextM, arrNext, true)}
@@ -1204,6 +1204,8 @@ async function renderArrangementsTab() {
 function bindArrangementsTab() {
   const monthSel = $('#arrMonth');
   if (monthSel) monthSel.onchange = () => { state.reportMonth = monthSel.value; renderInformes(); };
+  const annualBtn = $('#annualExchangeBtn');
+  if (annualBtn) annualBtn.onclick = () => openAnnualExchangeModal();
   document.querySelectorAll('[data-exchange-card]').forEach(el => el.onclick = () => {
     openExchangeModal(el.dataset.exchangeCard);
   });
@@ -1289,6 +1291,68 @@ async function openExchangeModal(monthId) {
     closeModal();
     renderInformes();
   };
+}
+
+async function openAnnualExchangeModal() {
+  const sy = currentServiceYear();
+  const year1 = sy;
+  const year2 = sy + 1;
+  const months12 = serviceYearMonths(sy);
+  const allArr = await db.listArrangements();
+  const arrMap = {};
+  allArr.forEach(a => { arrMap[a.id] = a; });
+  const cellContent = (val, sub) => {
+    if (val) return `<span class="font-medium">${escapeHtml(val)}</span>${sub ? `<span class="text-caption text-on-surface-variant block">${escapeHtml(sub)}</span>` : ''}`;
+    return `<span class="text-on-surface-variant italic">Por confirmar</span>`;
+  };
+  const rows = months12.map((m, i) => {
+    const a1 = arrMap[m] || {};
+    const mNext = addMonths(m, 12);
+    const a2 = arrMap[mNext] || {};
+    const mNum = Number(m.slice(5));
+    const mLabel = MONTHS_ES[mNum - 1];
+    const bg = i % 2 === 1 ? 'bg-surface-container-low/30' : '';
+    return `<tr class="${bg} border-b border-outline-variant/20 hover:bg-surface-container-lowest transition-colors group">
+      <td class="p-4 font-label-md text-label-md text-primary border-r border-outline-variant/30 bg-surface-container-low/50">${mLabel}</td>
+      <td class="p-4 border-r border-outline-variant/30">${cellContent(a1.congregation)}</td>
+      <td class="p-4 border-r border-outline-variant/30">${cellContent(a1.contact, a1.phone)}</td>
+      <td class="p-4 border-r border-outline-variant/30">${cellContent(a2.congregation)}</td>
+      <td class="p-4">${cellContent(a2.contact, a2.phone)}</td>
+    </tr>`;
+  }).join('');
+  const html = `
+    <div class="flex flex-col gap-6">
+      <div class="flex items-center justify-between">
+        <div><h2 class="font-headline-md text-headline-md text-primary font-bold">Planificacion Anual de Intercambios</h2><p class="text-on-surface-variant font-body-md text-body-md mt-1">Gestion de acuerdos con congregaciones vecinas</p></div>
+        <button id="annualClose" class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div class="bg-surface rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant/50 overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse min-w-[700px]">
+            <thead>
+              <tr class="bg-surface-container-low border-b border-outline-variant/50">
+                <th class="p-4 font-label-md text-label-md text-on-surface align-bottom w-28 border-r border-outline-variant/30" rowspan="2">Mes</th>
+                <th class="p-4 text-center font-headline-md text-[16px] font-bold text-primary border-r border-outline-variant/30 bg-primary/5" colspan="2">${year1}</th>
+                <th class="p-4 text-center font-headline-md text-[16px] font-bold text-primary bg-secondary-container/20" colspan="2">${year2}</th>
+              </tr>
+              <tr class="bg-surface-container border-b border-outline-variant/50">
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion</th>
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Contacto</th>
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion</th>
+                <th class="p-3 font-label-md text-label-md text-on-surface-variant">Contacto</th>
+              </tr>
+            </thead>
+            <tbody class="font-body-md text-body-md text-on-surface">${rows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="flex justify-end gap-3 pt-2">
+        <button id="annualExchangeSave" class="bg-primary text-on-primary hover:opacity-90 transition-opacity rounded px-6 py-2.5 font-label-md text-label-md shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">save</span> Guardar</button>
+      </div>
+    </div>`;
+  openModal(html, true);
+  $('#annualClose').onclick = closeModal;
+  $('#annualExchangeSave').onclick = () => { toast('Anual guardado', 'success'); closeModal(); };
 }
 
 function openSpeakerCard(person) {
