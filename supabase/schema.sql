@@ -144,6 +144,10 @@ begin
 end;
 $$;
 
+-- def_policies solo se usa durante la instalación del esquema (lo ejecuta el
+-- rol postgres en el SQL Editor). No debe ser invocable vía RPC por anon/authenticated.
+revoke execute on function public.def_policies(text) from anon, authenticated;
+
 -- ===== Políticas de datos =====
 select public.def_policies('participantes');
 select public.def_policies('grupos');
