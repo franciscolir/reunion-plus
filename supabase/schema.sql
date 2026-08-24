@@ -173,13 +173,15 @@ select internal.def_policies('arreglos');
 revoke execute on function public.is_admin() from public, anon, authenticated;
 revoke execute on function public.email_autorizado() from public, anon, authenticated;
 
--- Limpia la función obsoleta rls_auto_enable (de un esquema anterior) que quedó
--- expuesta en public. Se elimina cualquier sobrecarga sin importar sus args.
+-- rls_auto_enable está amarrada a un event trigger (ensure_rls) que auto-habilita
+-- RLS, por lo que NO se borra. Solo se revoca EXECUTE para que no sea invocable
+-- vía /rest/v1/rpc/. El event trigger corre como superusuario y conserva el
+-- privilegio, así que sigue funcionando.
 do $$
 declare r record;
 begin
   for r in
-    select format('drop function if exists %I.%I(%s)', n.nspname, p.proname, pg_get_function_arguments(p.oid)) as ddl
+    select format('revoke execute on function %I.%I(%s) from public, anon, authenticated', n.nspname, p.proname, pg_get_function_arguments(p.oid)) as ddl
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'rls_auto_enable'
   loop execute r.ddl; end loop;
