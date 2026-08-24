@@ -132,7 +132,9 @@ $$;
 --   Lectura: solo usuarios autenticados Y con correo en la whitelist.
 --   Escritura: solo admin.
 create or replace function public.def_policies(tabla text) returns void
-language plpgsql security definer as $$
+language plpgsql security definer
+set search_path = public
+as $$
 begin
   execute format('alter table public.%I enable row level security;', tabla);
   execute format('drop policy if exists "lectura_autorizados" on public.%I;', tabla);
