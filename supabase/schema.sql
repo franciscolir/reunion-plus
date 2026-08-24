@@ -4,6 +4,10 @@
 -- Orden: primero las tablas, luego las funciones y las políticas.
 -- =============================================================
 
+-- Esquema auxiliar no expuesto por la API (PostgREST solo expone public/
+-- graphql_public). Aquí vive def_policies, que solo se usa en la instalación.
+create schema if not exists internal;
+
 -- Modelo de documento: cada tabla tiene id (text PK) + data (jsonb).
 -- El documento completo de la app vive en `data`; updated_at para ordenar.
 
@@ -131,7 +135,7 @@ $$;
 -- Helper: políticas genéricas
 --   Lectura: solo usuarios autenticados Y con correo en la whitelist.
 --   Escritura: solo admin.
-create or replace function public.def_policies(tabla text) returns void
+create or replace function internal.def_policies(tabla text) returns void
 language plpgsql security definer
 set search_path = public
 as $$
@@ -144,23 +148,22 @@ begin
 end;
 $$;
 
--- def_policies solo se usa durante la instalación del esquema (lo ejecuta el
--- rol postgres en el SQL Editor). No debe ser invocable vía RPC por anon/authenticated.
--- Postgres otorga EXECUTE a PUBLIC por defecto; anon hereda de PUBLIC, así que
--- hay que revocar de PUBLIC explícitamente (postgres, dueño, conserva EXECUTE).
-revoke execute on function public.def_policies(text) from public, anon, authenticated;
+-- def_policies vive en el esquema internal (no expuesto por la API), así que
+-- no aparece en /rest/v1/rpc/. Por seguridad, también se revoca EXECUTE a
+-- anon/authenticated (postgres, dueño, conserva EXECUTE para la instalación).
+revoke execute on function internal.def_policies(text) from public, anon, authenticated;
 
 -- ===== Políticas de datos =====
-select public.def_policies('participantes');
-select public.def_policies('grupos');
-select public.def_policies('reuniones');
-select public.def_policies('programas');
-select public.def_policies('asignaciones');
-select public.def_policies('discursos');
-select public.def_policies('configuracion');
-select public.def_policies('actividad');
-select public.def_policies('asistencia');
-select public.def_policies('arreglos');
+select internal.def_policies('participantes');
+select internal.def_policies('grupos');
+select internal.def_policies('reuniones');
+select internal.def_policies('programas');
+select internal.def_policies('asignaciones');
+select internal.def_policies('discursos');
+select internal.def_policies('configuracion');
+select internal.def_policies('actividad');
+select internal.def_policies('asistencia');
+select internal.def_policies('arreglos');
 
 -- ===== Políticas de usuarios =====
 alter table public.usuarios enable row level security;
