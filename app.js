@@ -958,7 +958,20 @@ function bindActivityTab() {
     if (!cell) return;
     const horasPrev = row.querySelector('[data-act="horas"]')?.value || 0;
     cell.innerHTML = actCellHtml(false, c.checked, false, horasPrev, c.disabled, pid);
+    bindActividad(c.parentElement);
   });
+  function bindActividad(scope) {
+    (scope || document).querySelectorAll('[data-act="actividad"]').forEach(c => {
+      c.onchange = () => {
+        const lbl = c.closest('label')?.querySelector('[data-act-label]');
+        if (!lbl) return;
+        lbl.textContent = c.checked ? 'Sí' : 'No';
+        lbl.classList.toggle('text-primary', c.checked);
+        lbl.classList.toggle('text-on-surface-variant', !c.checked);
+      };
+    });
+  }
+  bindActividad();
 }
 
 function formatShortDate(iso) {
