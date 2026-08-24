@@ -149,6 +149,50 @@ export function addDays(iso, days) {
   return isoDate(dt);
 }
 
+// Devuelve los `n` meses (ids "YYYY-MM") terminando en `monthId` inclusive,
+// en orden descendente (el más reciente primero). Útil para ventanas móviles.
+export function lastMonths(monthId, n = 6) {
+  const [y, m] = monthId.split('-').map(Number);
+  const out = [];
+  let yy = y, mm = m;
+  for (let i = 0; i < n; i++) {
+    out.push(`${yy}-${String(mm).padStart(2, '0')}`);
+    mm -= 1;
+    if (mm === 0) { mm = 12; yy -= 1; }
+  }
+  return out;
+}
+
+// Regularidad de entrega de informes (ventana de los últimos `n` meses).
+// Un participante es IRREGULAR si en al menos uno de los meses evaluados no
+// entregó su informe; lo es una sola vez aunque falte en varios meses. La
+// unidad de cálculo es siempre el participante único.
+//   entregó(mes, pid) = precursorRegular || actividad === true
+//   regularidad = (regulares / total) × 100
+// `reports` = documentos de actividad [{ id: "YYYY-MM", people: { [pid]: { actividad } } }]
+// `months`  = lista de ids "YYYY-MM" a evaluar (p.ej. lastMonths(...)).
+export function computeRegularity(people, reports, months) {
+  const byMonth = {};
+  (reports || []).forEach(r => { byMonth[r.id] = (r && r.people) || {}; });
+  const evaluados = (people || []).filter(p => p.activo !== false);
+  const irregular = new Set();
+  for (const p of evaluados) {
+    const pioneer = p.precursorRegular === true;
+    let missed = false;
+    for (const m of months) {
+      const v = byMonth[m] && byMonth[m][p.id];
+      const delivered = pioneer || (v && v.actividad === true);
+      if (!delivered) { missed = true; break; }
+    }
+    if (missed) irregular.add(String(p.id));
+  }
+  const total = evaluados.length;
+  const irregularCount = irregular.size;
+  const regularCount = total - irregularCount;
+  const percentage = total ? Math.round((regularCount / total) * 100) : 0;
+  return { total, regular: regularCount, irregular: irregularCount, percentage };
+}
+
 /* =============================================================== */
 /* FORMATO DE ASIGNACIÓN: { id, src, locked }                       */
 /*                                                                  */

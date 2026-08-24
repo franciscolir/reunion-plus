@@ -12,6 +12,7 @@ import {
   dedupPersons, eligiblePeople, isAtencionPerson, ATENCION_DEF, collectMidweekPersons,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, DAYS_ES_NAMES, addDays,
+  lastMonths, computeRegularity,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   collectPersonAssignments,
@@ -841,8 +842,9 @@ async function renderActivityGroupView(gid, withBack) {
     totalCursos += Number(v.cursos) || 0;
     if (!act) sinActividad++;
   });
-  const totalConActividad = members.length - sinActividad;
-  const regularidad = members.length > 0 ? Math.round((totalConActividad / members.length) * 100) : 0;
+  const months6 = lastMonths(month, 6);
+  const allActivity = await db.listActivity();
+  const reg = computeRegularity(members, allActivity, months6);
   const estado = report.locked ? 'Bloqueado' : 'En progreso';
   const initials = (name) => { const ps = String(name || '').trim().split(/\s+/); return ((ps[0]?.[0] || '') + (ps[1]?.[0] || '')).toUpperCase(); };
   const rows = members.map(p => {
@@ -877,7 +879,7 @@ async function renderActivityGroupView(gid, withBack) {
     <div class="grid grid-cols-1 md:grid-cols-4 gap-gutter mb-8">
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden group"><div class="absolute top-0 left-0 w-1 h-full bg-primary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Total CURSOS</p><p class="font-headline-lg text-headline-lg text-primary">${totalCursos}</p></div>
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-secondary"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Sin actividad</p><p class="font-headline-lg text-headline-lg text-primary">${sinActividad}</p></div>
-      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-tertiary-fixed-dim"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Regularidad</p><p class="font-headline-lg text-headline-lg text-primary">${regularidad}%</p></div>
+      <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-tertiary-fixed-dim"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Regularidad (6 m)</p><p class="font-headline-lg text-headline-lg text-primary">${reg.percentage}%</p><p class="text-caption text-on-surface-variant mt-1">${reg.regular} de ${reg.total} regulares</p></div>
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-outline"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Estado</p><p class="font-headline-md text-headline-md text-primary mt-1">${estado}</p></div>
     </div>
     <div class="bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm flex flex-col overflow-hidden h-[600px]">

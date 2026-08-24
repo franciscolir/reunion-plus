@@ -10,6 +10,7 @@ import {
   ATENCION_DEF, ATENCION_ROLES, isAtencionPerson, splitWords,
   capitalize, escapeHtml, escapeAttr, cryptoId,
   isoDate, eventTypeForDate, upcomingEvents, isSpecialDate, DAYS_ES_NAMES, addDays, eventEndDate,
+  lastMonths, computeRegularity,
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair,
   midweekSlotsOf, camposFinSemana, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana, automatizarSalidas,
@@ -2035,6 +2036,41 @@ console.log('[isAssignmentLabore / isServiceLabore]');
   ok('acomodador es labor de servicio', isServiceLabore('acomodador'));
   ok('labor personalizada es de servicio', isServiceLabore('ujier'));
   ok('id vacío es de servicio', isServiceLabore(''));
+}
+
+console.log('[lastMonths]');
+{
+  eq('ventana de 6 meses termina en el mes dado', lastMonths('2026-09', 6),
+    ['2026-09', '2026-08', '2026-07', '2026-06', '2026-05', '2026-04']);
+  eq('cruza año calendario', lastMonths('2026-02', 3), ['2026-02', '2026-01', '2025-12']);
+}
+
+console.log('[computeRegularity]');
+{
+  const people = [
+    { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 },
+    { id: 6, activo: false }, // excluido de la evaluación
+  ];
+  const months = ['2026-09', '2026-08', '2026-07', '2026-06', '2026-05', '2026-04'];
+  // Todos regulares → 100%
+  const allOk = months.map(m => ({ id: m, people: { 1: { actividad: true }, 2: { actividad: true }, 3: { actividad: true }, 4: { actividad: true }, 5: { actividad: true } } }));
+  eq('todos regulares = 100%', computeRegularity(people, allOk, months), { total: 5, regular: 5, irregular: 0, percentage: 100 });
+
+  // El id=2 falta en 1 mes → 4/5 = 80%
+  const r2 = months.map((m, i) => ({ id: m, people: i === 0 ? { 1: { actividad: true }, 3: { actividad: true }, 4: { actividad: true }, 5: { actividad: true } } : { 1: { actividad: true }, 2: { actividad: true }, 3: { actividad: true }, 4: { actividad: true }, 5: { actividad: true } } }));
+  eq('un ausente 1 mes = 80%', computeRegularity(people, r2, months), { total: 5, regular: 4, irregular: 1, percentage: 80 });
+
+  // El id=2 falta en los 6 meses → sigue siendo 1 irregular = 80% (no acumulativo)
+  const r3fixed = months.map(m => ({ id: m, people: { 1: { actividad: true }, 3: { actividad: true }, 4: { actividad: true }, 5: { actividad: true } } }));
+  eq('ausente 6 meses cuenta una vez = 80%', computeRegularity(people, r3fixed, months), { total: 5, regular: 4, irregular: 1, percentage: 80 });
+
+  // Precursor regular siempre cuenta como entregado aunque no tenga registro
+  const peopleP = [{ id: 7, precursorRegular: true }, { id: 8 }];
+  const repP = months.map(m => ({ id: m, people: { 8: { actividad: true } } }));
+  eq('precursor regular siempre regular', computeRegularity(peopleP, repP, months), { total: 2, regular: 2, irregular: 0, percentage: 100 });
+
+  // Sin participantes → 0% sin división por cero
+  eq('sin participantes = 0%', computeRegularity([], [], months), { total: 0, regular: 0, irregular: 0, percentage: 0 });
 }
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);
