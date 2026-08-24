@@ -827,6 +827,15 @@ function renderActivityCards() {
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards || '<p class="text-on-surface-variant">No hay grupos.</p>'}</div>`;
 }
 
+function horasCellHtml(checked, horas, disabled, pid) {
+  const sw = `<label class="inline-flex items-center cursor-pointer">
+    <input type="checkbox" data-act="actividad" data-pid="${pid}" class="sr-only peer" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}/>
+    <span class="relative w-11 h-6 bg-outline-variant peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-5"></span>
+  </label>`;
+  const inp = checked ? `<input type="number" min="0" step="1" data-act="horas" data-pid="${pid}" value="${horas}" ${disabled ? 'disabled' : ''} class="w-20 mt-2 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/>` : '';
+  return `<div class="flex flex-col items-start gap-1">${sw}${inp}</div>`;
+}
+
 async function renderActivityGroupView(gid, withBack) {
   const dep = (state.departments || []).find(d => String(d.id) === String(gid));
   const groupName = dep ? (dep.name || 'Grupo') : 'Grupo';
@@ -852,16 +861,10 @@ async function renderActivityGroupView(gid, withBack) {
     const regular = p.precursorRegular === true;
     const act = regular || v.actividad === true;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 mt-1 bg-secondary text-on-secondary rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
-    const chk = regular
-      ? `<input class="form-checkbox text-outline rounded border-outline-variant bg-surface-dim opacity-50 cursor-not-allowed" disabled type="checkbox" checked/>`
-      : `<input class="form-checkbox text-primary rounded border-outline-variant cursor-pointer" type="checkbox" data-act="actividad" data-pid="${p.id}" ${act ? 'checked' : ''} ${report.locked ? 'disabled' : ''}/>`;
-    const horasCell = (regular || act)
-      ? `<input type="number" min="0" step="1" data-act="horas" data-pid="${p.id}" value="${Number(v.horas) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border ${act || regular ? 'border-primary' : 'border-outline-variant'} rounded bg-surface focus:border-primary text-center font-body-md"/>`
-      : `<span class="text-xs text-outline font-medium">N/A</span>`;
+    const horasCell = horasCellHtml(act, Number(v.horas) || 0, report.locked || regular, p.id);
     return `<div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant border-opacity-50 items-center hover:bg-surface-variant transition-colors group" data-row="${p.id}">
       <div class="col-span-4 flex items-center gap-3"><div class="w-8 h-8 rounded-full ${regular ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'} flex items-center justify-center font-bold text-sm">${escapeHtml(initials(p.name))}</div><div><p class="font-body-md text-body-md font-medium text-on-surface">${escapeHtml(p.name)}</p>${precBadge}</div></div>
-      <div class="col-span-1 flex justify-center">${chk}</div>
-      <div class="col-span-2 horas-cell">${horasCell}</div>
+      <div class="col-span-3 horas-cell">${horasCell}</div>
       <div class="col-span-2"><input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/></div>
       <div class="col-span-3"><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-transparent hover:border-outline-variant focus:border-primary rounded bg-transparent focus:bg-surface focus:ring-0 font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/></div>
     </div>`;
@@ -884,7 +887,7 @@ async function renderActivityGroupView(gid, withBack) {
     </div>
     <div class="bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm flex flex-col overflow-hidden h-[600px]">
       <div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant bg-surface-container-low font-label-md text-label-md text-on-surface-variant sticky top-0 z-10">
-        <div class="col-span-4">Nombre</div><div class="col-span-1 flex justify-center items-center">Auxiliar</div><div class="col-span-2">Horas</div><div class="col-span-2">Cursos</div><div class="col-span-3">Observación</div>
+        <div class="col-span-4">Nombre</div><div class="col-span-3">Horas</div><div class="col-span-2">Cursos</div><div class="col-span-3">Observación</div>
       </div>
       <div class="flex-1 overflow-y-auto table-scroll p-2">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>
     </div>`;
@@ -932,14 +935,18 @@ function bindActivityTab() {
     await saveData();
     toast('Informe enviado correctamente', 'success');
   };
-  document.querySelectorAll('[data-act="actividad"]').forEach(c => c.onchange = () => {
+  document.querySelectorAll('[data-act="actividad"]').forEach(c => c.onchange = () => onActividadChange(c));
+  function onActividadChange(c) {
     const pid = c.dataset.pid;
     const row = document.querySelector(`[data-row="${pid}"]`);
     const cell = row?.querySelector('.horas-cell');
     if (!cell) return;
-    if (c.checked) cell.innerHTML = `<input type="number" min="0" step="1" data-act="horas" data-pid="${pid}" value="0" class="w-20 px-2 py-1 border border-primary rounded bg-surface focus:border-primary text-center font-body-md"/>`;
-    else cell.innerHTML = `<span class="text-xs text-outline font-medium">N/A</span>`;
-  });
+    const prev = row.querySelector('[data-act="horas"]');
+    const horas = prev ? (parseInt(prev.value, 10) || 0) : 0;
+    cell.innerHTML = horasCellHtml(c.checked, c.checked ? horas : 0, c.disabled, pid);
+    const nw = cell.querySelector('[data-act="actividad"]');
+    if (nw) nw.onchange = () => onActividadChange(nw);
+  }
 }
 
 function formatShortDate(iso) {
