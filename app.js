@@ -755,8 +755,8 @@ function meetingDatesForYear(year, config, events) {
     const [y, m, d] = cur.split('-').map(Number);
     const dow = new Date(y, m - 1, d).getDay();
     const blank = blankWeeks.has(weekKeyOf(cur)) || ev === 'assembly' || ev === 'commemoration';
-    if (dow === midDay) out.midweek.push({ date: cur, blank, supervisor: ev === 'supervisor' });
-    if (dow === wkDay) out.weekend.push({ date: cur, blank, supervisor: ev === 'supervisor' });
+    if (dow === midDay) out.midweek.push({ date: cur, blank, supervisor: ev === 'supervisor', ev });
+    if (dow === wkDay) out.weekend.push({ date: cur, blank, supervisor: ev === 'supervisor', ev });
     cur = addDays(cur, 1);
   }
   return out;
@@ -998,14 +998,24 @@ async function renderAttendanceTab() {
   const we = dates.weekend.filter(d => d.date.startsWith(month));
   const att = await db.getAttendance(sy) || { id: sy, midweek: {}, weekend: {} };
   const cong = await db.getSetting('congregation', '') || '';
+  const todayKey = weekKeyOf(isoDate(new Date()));
   const table = (kind, ds) => {
     const saved = att[kind] || {};
     const rows = ds.map((d, i) => {
       const val = saved[d.date];
-      const note = d.supervisor ? ' <span class="material-symbols-outlined align-middle text-[14px] text-primary" title="Visita del superintendente">verified</span>' : '';
-      const cell = d.blank ? `<td class="py-4 px-4 text-right text-on-surface-variant italic">—</td>`
+      const isActual = weekKeyOf(d.date) === todayKey;
+      let badge = '';
+      if (d.ev === 'commemoration') badge += ' <span class="ml-2 px-2 py-0.5 bg-secondary text-on-secondary text-caption rounded-full uppercase tracking-tighter">Conmemoración</span>';
+      else if (d.ev === 'assembly') badge += ' <span class="ml-2 px-2 py-0.5 bg-secondary text-on-secondary text-caption rounded-full uppercase tracking-tighter">Asamblea</span>';
+      if (d.supervisor) badge += ' <span class="material-symbols-outlined align-middle text-[14px] text-primary" title="Visita del superintendente">verified</span>';
+      if (isActual) badge += ' <span class="ml-2 px-2 py-0.5 bg-primary text-on-primary text-caption rounded-full uppercase tracking-tighter">Actual</span>';
+      const cell = d.blank ? `<td class="py-4 px-4 text-right text-on-surface-variant italic">Sin reunión</td>`
         : `<td class="py-4 px-4 text-right"><input type="number" min="0" step="1" data-att="${kind}" data-date="${d.date}" value="${val != null ? val : ''}" class="w-20 text-center border border-outline-variant rounded bg-surface focus:ring-1 focus:ring-primary focus:border-primary px-2 py-1 att-input"/></td>`;
-      return `<tr class="border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors"><td class="py-4 pr-4">Semana ${i + 1} (${formatShortDate(d.date)})${note}</td>${cell}</tr>`;
+      let rowCls = 'border-b border-outline-variant/30 hover:bg-surface-container-low transition-colors';
+      if (isActual || d.ev === 'assembly' || d.ev === 'commemoration') rowCls += ' border-l-4 border-primary font-semibold';
+      if (isActual) rowCls += ' bg-tertiary-fixed';
+      else if (d.ev === 'assembly' || d.ev === 'commemoration') rowCls += ' bg-secondary-container';
+      return `<tr class="${rowCls}"><td class="py-4 pr-4">Semana ${i + 1} (${formatShortDate(d.date)})${badge}</td>${cell}</tr>`;
     }).join('');
     return `<section class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden p-6 relative"><div class="absolute left-0 top-0 bottom-0 w-1 bg-${kind === 'midweek' ? 'primary' : 'secondary'}"></div>
       <h2 class="font-headline-md text-headline-md text-primary mb-6 flex items-center gap-3"><span class="material-symbols-outlined text-secondary">${kind === 'midweek' ? 'menu_book' : 'wb_sunny'}</span>${kind === 'midweek' ? 'Reunión de Entre Semana' : 'Reunión del Fin de Semana'}</h2>
@@ -1013,7 +1023,10 @@ async function renderAttendanceTab() {
   };
   return `<div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 pb-6 border-b border-outline-variant">
       <div><h1 class="font-display-lg text-display-lg text-primary mb-2">${monthLabel}</h1><p class="font-body-lg text-body-lg text-on-surface-variant">${escapeHtml(cong)}</p></div>
-      <div class="flex gap-4 mt-6 md:mt-0"><button id="attDownload" class="bg-surface-container-high text-primary font-label-md text-label-md px-6 py-3 rounded border border-outline-variant hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">download</span>Descargar Informe</button></div>
+      <div class="flex gap-4 mt-6 md:mt-0">
+        <button id="attSave" class="bg-surface-container-high text-primary font-label-md text-label-md px-6 py-3 rounded border border-outline-variant hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">save</span>Guardar</button>
+        <button id="attDownload" class="bg-primary text-on-primary font-label-md text-label-md px-6 py-3 rounded shadow-sm hover:bg-tertiary transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">download</span>Descargar Informe</button>
+      </div>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter mb-10">${table('midweek', mk)}${table('weekend', we)}</div>
     <section class="bg-surface-container-high/50 backdrop-blur-sm rounded-xl border border-outline-variant p-8 flex flex-col md:flex-row items-center justify-between gap-8">
@@ -1060,6 +1073,8 @@ async function bindAttendanceTab() {
   });
   const dl = $('#attDownload');
   if (dl) dl.onclick = () => downloadAsistenciaMes(isoDate(new Date()).slice(0, 7), 'pdf');
+  const sv = $('#attSave');
+  if (sv) sv.onclick = () => toast('Asistencia guardada', 'success');
 }
 
 async function renderArrangementsTab() {
