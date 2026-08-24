@@ -524,6 +524,7 @@ function router() {
     case 'algoritmo': renderAlgoritmo(); break;
     case 'settings': renderSettings(); break;
     case 'informes': renderInformes(); break;
+    case 'exchangeannual': renderExchangeAnnual(); break;
     case 'grupo': renderGroupSummary(); break;
     case 'about':    renderAbout(); break;
     default:         renderHome();
@@ -1205,7 +1206,7 @@ function bindArrangementsTab() {
   const monthSel = $('#arrMonth');
   if (monthSel) monthSel.onchange = () => { state.reportMonth = monthSel.value; renderInformes(); };
   const annualBtn = $('#annualExchangeBtn');
-  if (annualBtn) annualBtn.onclick = () => openAnnualExchangeModal();
+  if (annualBtn) annualBtn.onclick = () => { location.hash = '#/exchangeannual'; };
   document.querySelectorAll('[data-exchange-card]').forEach(el => el.onclick = () => {
     openExchangeModal(el.dataset.exchangeCard);
   });
@@ -1293,7 +1294,7 @@ async function openExchangeModal(monthId) {
   };
 }
 
-async function openAnnualExchangeModal() {
+async function renderExchangeAnnual() {
   const sy = currentServiceYear();
   const year1 = sy;
   const year2 = sy + 1;
@@ -1301,9 +1302,10 @@ async function openAnnualExchangeModal() {
   const allArr = await db.listArrangements();
   const arrMap = {};
   allArr.forEach(a => { arrMap[a.id] = a; });
-  const cellContent = (val, sub) => {
-    if (val) return `<span class="font-medium">${escapeHtml(val)}</span>${sub ? `<span class="text-caption text-on-surface-variant block">${escapeHtml(sub)}</span>` : ''}`;
-    return `<span class="text-on-surface-variant italic">Por confirmar</span>`;
+  const cellContent = (m, a, field) => {
+    const val = a[field] || '';
+    if (!val) return `<span class="text-on-surface-variant italic">Por confirmar</span>`;
+    return escapeHtml(val);
   };
   const rows = months12.map((m, i) => {
     const a1 = arrMap[m] || {};
@@ -1312,28 +1314,35 @@ async function openAnnualExchangeModal() {
     const mNum = Number(m.slice(5));
     const mLabel = MONTHS_ES[mNum - 1];
     const bg = i % 2 === 1 ? 'bg-surface-container-low/30' : '';
+    const hasData1 = a1.congregation || a1.contact;
+    const hasData2 = a2.congregation || a2.contact;
     return `<tr class="${bg} border-b border-outline-variant/20 hover:bg-surface-container-lowest transition-colors group">
-      <td class="p-4 font-label-md text-label-md text-primary border-r border-outline-variant/30 bg-surface-container-low/50">${mLabel}</td>
-      <td class="p-4 border-r border-outline-variant/30">${cellContent(a1.congregation)}</td>
-      <td class="p-4 border-r border-outline-variant/30">${cellContent(a1.contact, a1.phone)}</td>
-      <td class="p-4 border-r border-outline-variant/30">${cellContent(a2.congregation)}</td>
-      <td class="p-4">${cellContent(a2.contact, a2.phone)}</td>
+      <td class="p-4 font-label-md text-label-md text-primary border-r border-outline-variant/30 bg-surface-container-low/50 font-bold">${mLabel}</td>
+      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${m}.congregation">${cellContent(m, a1, 'congregation')}</td>
+      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${m}.contact">${cellContent(m, a1, 'contact')}${a1.phone ? `<span class="text-caption text-on-surface-variant block">${escapeHtml(a1.phone)}</span>` : ''}</td>
+      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${mNext}.congregation">${cellContent(mNext, a2, 'congregation')}</td>
+      <td class="p-4 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${mNext}.contact">${cellContent(mNext, a2, 'contact')}${a2.phone ? `<span class="text-caption text-on-surface-variant block">${escapeHtml(a2.phone)}</span>` : ''}</td>
     </tr>`;
   }).join('');
-  const html = `
+  const app = $('#app');
+  app.innerHTML = `
     <div class="flex flex-col gap-6">
-      <div class="flex items-center justify-between">
-        <div><h2 class="font-headline-md text-headline-md text-primary font-bold">Planificacion Anual de Intercambios</h2><p class="text-on-surface-variant font-body-md text-body-md mt-1">Gestion de acuerdos con congregaciones vecinas</p></div>
-        <button id="annualClose" class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">close</span></button>
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div class="flex items-center gap-3 mb-2"><button id="exchangeAnnualBack" class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">arrow_back</span> Arreglos</button></div>
+          <h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary mb-2">Planificacion Anual de Intercambios</h1>
+          <p class="font-body-md text-body-md text-on-surface-variant">Gestion de acuerdos con congregaciones vecinas · Pulsa en cualquier celda para editar</p>
+        </div>
+        <button id="annualExchangeSaveAll" class="bg-primary text-on-primary font-label-md text-label-md px-6 py-3 rounded-lg shadow-sm hover:bg-primary/90 transition-all active:scale-95 flex items-center gap-2 whitespace-nowrap"><span class="material-symbols-outlined text-[18px]">save</span> Guardar Cambios</button>
       </div>
       <div class="bg-surface rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant/50 overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse min-w-[700px]">
+          <table class="w-full text-left border-collapse min-w-[800px]">
             <thead>
               <tr class="bg-surface-container-low border-b border-outline-variant/50">
-                <th class="p-4 font-label-md text-label-md text-on-surface align-bottom w-28 border-r border-outline-variant/30" rowspan="2">Mes</th>
-                <th class="p-4 text-center font-headline-md text-[16px] font-bold text-primary border-r border-outline-variant/30 bg-primary/5" colspan="2">${year1}</th>
-                <th class="p-4 text-center font-headline-md text-[16px] font-bold text-primary bg-secondary-container/20" colspan="2">${year2}</th>
+                <th class="p-4 font-label-md text-label-md text-on-surface align-bottom w-32 border-r border-outline-variant/30" rowspan="2">Mes</th>
+                <th class="p-4 text-center font-headline-md text-[18px] font-bold text-primary border-r border-outline-variant/30 bg-primary/5" colspan="2">${year1}</th>
+                <th class="p-4 text-center font-headline-md text-[18px] font-bold text-primary bg-secondary-container/20" colspan="2">${year2}</th>
               </tr>
               <tr class="bg-surface-container border-b border-outline-variant/50">
                 <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion</th>
@@ -1346,13 +1355,15 @@ async function openAnnualExchangeModal() {
           </table>
         </div>
       </div>
-      <div class="flex justify-end gap-3 pt-2">
-        <button id="annualExchangeSave" class="bg-primary text-on-primary hover:opacity-90 transition-opacity rounded px-6 py-2.5 font-label-md text-label-md shadow-sm flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">save</span> Guardar</button>
-      </div>
     </div>`;
-  openModal(html, true);
-  $('#annualClose').onclick = closeModal;
-  $('#annualExchangeSave').onclick = () => { toast('Anual guardado', 'success'); closeModal(); };
+  $('#exchangeAnnualBack').onclick = () => { location.hash = '#/informes'; };
+  document.querySelectorAll('[data-exch-cell]').forEach(td => {
+    td.onclick = () => {
+      const [monthId, field] = td.dataset.exchCell.split('.');
+      openExchangeModal(monthId);
+    };
+  });
+  $('#annualExchangeSaveAll').onclick = () => { toast('Cambios guardados', 'success'); };
 }
 
 function openSpeakerCard(person) {
