@@ -835,7 +835,7 @@ function actCellHtml(regular, aux, act, horas, disabled, pid) {
   return `<label class="inline-flex items-center gap-2 cursor-pointer">
     <input type="checkbox" data-act="actividad" data-pid="${pid}" class="sr-only peer" ${act ? 'checked' : ''} ${disabled ? 'disabled' : ''}/>
     <span class="relative w-11 h-6 bg-outline-variant peer-checked:bg-primary rounded-full transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-5"></span>
-    <span class="text-label-md ${act ? 'text-primary' : 'text-on-surface-variant'} font-medium select-none">${estado}</span>
+    <span class="text-label-md ${act ? 'text-primary' : 'text-on-surface-variant'} font-medium select-none" data-act-label>${estado}</span>
   </label>`;
 }
 
@@ -1112,9 +1112,9 @@ async function renderArrangementsTab() {
       <button data-local-remove="${i}" class="opacity-0 group-hover:opacity-100 transition-opacity text-outline hover:text-primary p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
     </li>`).join('');
   const salidaRows = oradoresSalida.map(p => `
-    <li class="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30">
+    <li class="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-speaker-card="${p.id}">
       <div class="w-8 h-8 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-sm">${escapeHtml(((p.name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('')).toUpperCase())}</div>
-      <div class="flex-1 min-w-0"><p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p></div>
+      <div class="flex-1 min-w-0"><p class="font-body-md text-body-md font-medium text-on-surface truncate hover:text-primary transition-colors">${escapeHtml(p.name)}</p></div>
       <span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Orador de salida</span>
     </li>`).join('');
   const rankMap = {};
@@ -1186,6 +1186,11 @@ function bindArrangementsTab() {
     li.querySelector('[data-local-remove]').onclick = () => li.remove();
   };
   document.querySelectorAll('[data-local-remove]').forEach(b => b.onclick = () => b.closest('li')?.remove());
+  document.querySelectorAll('[data-speaker-card]').forEach(el => el.onclick = () => {
+    const pid = el.dataset.speakerCard;
+    const person = state.people.find(p => String(p.id) === String(pid));
+    if (person) openSpeakerCard(person);
+  });
   const search = $('#talkSearch');
   if (search) search.oninput = () => {
     const q = search.value.trim().toLowerCase();
@@ -1208,6 +1213,116 @@ function bindArrangementsTab() {
     toast('Arreglos guardados', 'success');
     renderInformes();
   };
+}
+
+function openSpeakerCard(person) {
+  const name = person.name || 'Orador';
+  const phone = person.telefono || '';
+  const bio = person.notas || '';
+  const initials = ((name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('')).toUpperCase();
+  const talks = (state.talks || []).slice(0, 8);
+  const talkList = talks.map((t, i) => `
+    <li class="flex items-start gap-4 py-3 border-b border-outline-variant/10 last:border-0 group">
+      <div class="bg-surface-variant text-on-surface-variant font-label-md text-label-md w-[40px] text-center rounded py-1 shrink-0 group-hover:bg-primary-fixed group-hover:text-on-primary-fixed transition-colors">#${t.num}</div>
+      <p class="font-body-md text-body-md text-on-surface pt-[2px]">${escapeHtml(t.title || '')}</p>
+    </li>`).join('');
+  const bioSection = bio ? `
+    <div class="relative py-6">
+      <span class="material-symbols-outlined absolute top-0 left-0 text-primary-fixed-dim text-opacity-30 text-[48px] -translate-x-2 -translate-y-4">format_quote</span>
+      <p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed relative z-10 pl-2 border-l-2 border-outline-variant/30">${escapeHtml(bio)}</p>
+    </div>` : '';
+  const phoneSection = phone ? `<span class="font-body-md text-body-md text-on-surface-variant flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">call</span>${escapeHtml(phone)}</span>` : '';
+  const cardId = `speaker-card-${person.id}`;
+  const modalHtml = `
+    <div class="relative w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden flex flex-col md:flex-row">
+      <div class="absolute left-0 top-0 bottom-0 w-2 bg-primary hidden md:block"></div>
+      <div class="absolute left-0 top-0 right-0 h-2 bg-primary block md:hidden"></div>
+      <div class="flex-1 p-6 md:p-10 md:pl-12 flex flex-col justify-between">
+        <div class="flex flex-col gap-6">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <span class="inline-flex items-center justify-center px-2.5 py-1 rounded bg-secondary-container text-on-secondary-container font-label-md text-label-md uppercase tracking-wider text-[11px]">Orador de salida</span>
+              ${phoneSection}
+            </div>
+            <h2 class="font-headline-lg text-headline-lg md:text-[40px] leading-tight text-on-surface text-balance">${escapeHtml(name)}</h2>
+          </div>
+          ${bioSection}
+          ${talks.length ? `
+          <div class="mt-4">
+            <h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-4">Discursos Disponibles</h3>
+            <ul class="flex flex-col">${talkList}</ul>
+          </div>` : ''}
+        </div>
+        <div class="mt-10 pt-6 border-t border-outline-variant/20 flex justify-end gap-3">
+          <button id="speakerCloseBtn" class="border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors rounded px-6 py-3 flex items-center gap-3 font-label-md text-label-md">Cerrar</button>
+          <button id="speakerDlBtn" class="bg-primary text-on-primary hover:bg-primary-container hover:text-on-primary-container transition-all shadow-sm hover:shadow-md rounded px-6 py-3 flex items-center gap-3 font-label-md text-label-md group">
+            <span class="material-symbols-outlined text-[20px] group-hover:-translate-y-0.5 transition-transform">download</span>
+            Descargar como Imagen
+          </button>
+        </div>
+      </div>
+    </div>`;
+  openModal(modalHtml, true);
+  $('#speakerCloseBtn').onclick = closeModal;
+  $('#speakerDlBtn').onclick = () => {
+    const svgStr = speakerCardSvg(person);
+    svgToPngBlob(svgStr).then(blob => {
+      downloadBlob(blob, `orador-${(person.name || 'orador').replace(/\s+/g, '-').toLowerCase()}.png`);
+      toast('Imagen descargada', 'success');
+    }).catch(() => toast('No se pudo generar la imagen', 'error'));
+  };
+}
+
+function speakerCardSvg(person) {
+  const name = person.name || 'Orador';
+  const phone = person.telefono || '';
+  const bio = person.notas || '';
+  const talks = (state.talks || []).slice(0, 8);
+  const W = 800, PAD = 40;
+  const C = { bg: '#ffffff', primary: '#032121', text: '#1a1c1c', muted: '#414848', accent: '#cae8e8', border: '#c1c8c7', badge: '#f6dcb5', badgeText: '#736041', surface: '#f3f3f3' };
+  let y = PAD;
+  const lines = [];
+  const barW = 8;
+  lines.push(`<rect x="0" y="0" width="${W}" height="1" fill="${C.bg}"/>`);
+  lines.push(`<rect x="0" y="0" width="${barW}" height="100%" fill="${C.primary}"/>`);
+  lines.push(`<rect x="${PAD}" y="${y}" width="110" height="24" rx="4" fill="${C.badge}"/>`);
+  lines.push(`<text x="${PAD + 55}" y="${y + 16}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="${C.badgeText}">ORADOR DE SALIDA</text>`);
+  if (phone) {
+    lines.push(`<text x="${W - PAD}" y="${y + 16}" text-anchor="end" font-family="system-ui, sans-serif" font-size="13" fill="${C.muted}">${svgEscape(phone)}</text>`);
+  }
+  y += 44;
+  const nameLines = svgTextLines(name, 36, W - PAD * 2 - barW);
+  nameLines.forEach((ln, i) => {
+    lines.push(svgT(PAD + barW, y + 36 + i * 42, ln, 36, 700, C.text));
+  });
+  y += nameLines.length * 42 + 20;
+  if (bio) {
+    lines.push(`<line x1="${PAD + barW}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.border}" stroke-opacity="0.3" stroke-width="1"/>`);
+    y += 20;
+    const bioLines = svgTextLines(bio, 16, W - PAD * 2 - barW - 20);
+    bioLines.forEach((ln, i) => {
+      lines.push(`<line x1="${PAD + barW}" y1="${y - 4}" x2="${PAD + barW}" y2="${y + 18}" stroke="${C.border}" stroke-opacity="0.3" stroke-width="2"/>`);
+      lines.push(svgT(PAD + barW + 16, y + 14, ln, 16, 400, C.muted));
+      y += 22;
+    });
+    y += 10;
+  }
+  if (talks.length) {
+    lines.push(`<text x="${PAD + barW}" y="${y + 14}" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="${C.muted}" letter-spacing="0.1em">DISCURSOS DISPONIBLES</text>`);
+    y += 30;
+    talks.forEach((t) => {
+      lines.push(`<rect x="${PAD + barW}" y="${y}" width="44" height="24" rx="4" fill="${C.surface}"/>`);
+      lines.push(`<text x="${PAD + barW + 22}" y="${y + 16}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="${C.muted}">#${t.num}</text>`);
+      lines.push(svgT(PAD + barW + 56, y + 16, t.title || '', 14, 400, C.text));
+      y += 34;
+    });
+  }
+  y += PAD;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${y}" viewBox="0 0 ${W} ${y}">
+    <rect width="${W}" height="${y}" fill="${C.bg}"/>
+    ${lines.join('\n    ')}
+  </svg>`;
+  return svg;
 }
 
 async function renderFormsTab() {
