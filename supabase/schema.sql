@@ -165,6 +165,26 @@ select internal.def_policies('actividad');
 select internal.def_policies('asistencia');
 select internal.def_policies('arreglos');
 
+-- ===== Hardening de funciones expuestas =====
+-- is_admin / email_autorizado solo se usan dentro de las políticas RLS. Se
+-- revoca EXECUTE a anon/authenticated para que no sean invocables vía
+-- /rest/v1/rpc/. La evaluación de RLS corre como dueño de la tabla (postgres),
+-- que conserva EXECUTE, así que las políticas siguen funcionando.
+revoke execute on function public.is_admin() from public, anon, authenticated;
+revoke execute on function public.email_autorizado() from public, anon, authenticated;
+
+-- Limpia la función obsoleta rls_auto_enable (de un esquema anterior) que quedó
+-- expuesta en public. Se elimina cualquier sobrecarga sin importar sus args.
+do $$
+declare r record;
+begin
+  for r in
+    select format('drop function if exists %I.%I(%s)', n.nspname, p.proname, pg_get_function_arguments(p.oid)) as ddl
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'rls_auto_enable'
+  loop execute r.ddl; end loop;
+end $$;
+
 -- ===== Políticas de usuarios =====
 alter table public.usuarios enable row level security;
 
