@@ -42,8 +42,8 @@ GUIA-DESPLIEGUE.md  Documentación de despliegue (Supabase + GitHub Pages)
 | Store | keyPath | Contenido |
 |---|---|---|
 | `months` | `id` ("YYYY-MM") | Programas mensuales completos |
-| `people` | `id` (auto) | Participantes |
-| `departments` | `id` (auto) | Grupos de la congregación (fuente única: la cantidad se deriva de los grupos activos; `config.groups` fue eliminado) |
+| `people` | `id` (auto) | Participantes (campos: name, phone, email, prioridad, labores[], cargos[], genero, calificacion, enlace, activo) |
+| `departments` | `id` (auto) | Grupos de la congregación (campo: encargadoId) |
 | `settings` | string | Configuración |
 | `talks` | `num` | Discursos (n° y título) |
 | `midweeks` | `id` ("YYYY-MM-DD") | Reuniones de entre semana |
@@ -51,12 +51,21 @@ GUIA-DESPLIEGUE.md  Documentación de despliegue (Supabase + GitHub Pages)
 | `salidas` | `id` ("YYYY-MM") | Programa de salidas por mes |
 | `atencion` | `id` ("YYYY-MM") | Programa de atención/acomodación por mes |
 | `assignment_log` | `id` (compuesto) | Historial de asignaciones |
+| `activity` | `id` ("YYYY-MM") | Informes de actividad (campo: estado pendiente/borrador/enviado) |
+| `attendance` | `id` ("YYYY") | Asistencia por semana |
+| `arrangements` | `id` (congregación, p.ej. `c<timestamp>`) | Intercambios con congregaciones externas; `years` = { "YYYY": { month, contact, phone, notes, localSpeakers[] } }, `fijo` repite el mes |
+| `cargos` | `id` (auto) | Catálogo de cargos (anciano, ministerial, publicador, etc.) |
+| `capacidades` | `id` (auto) | Cargo → labores que otorga (index: cargoId) |
+| `excepciones` | `id` (auto) | Persona → capacidad extra/restringida (index: personId) |
+| `restricciones` | `id` (auto) | Persona → regla estructurada (index: personId) |
+| `speaker_talks` | `id` (auto) | Orador ↔ discurso N:N (indexes: personId, talkNum) |
+| `audit_log` | `id` (auto) | Historial de modificaciones (indexes: entity, entityId) |
 
-Migraciones de esquema se manejan en `openDB()` (DB_VERSION 7). El store `labores` se renombró a `atencion`.
+Migraciones de esquema se manejan en `openDB()` (DB_VERSION 11). El store `labores` se renombró a `atencion` en v7. v11 agrega catálogos de cargos/capacidades/excepciones/restricciones, speaker_talks y audit_log.
 
 ## Tablas de Supabase (supabase/schema.sql)
 
-`usuarios` (rol admin/reader) · `participantes` · `grupos` · `reuniones` (entre semana, id "YYYY-MM-DD") · `programas` (mensual agregado) · `asignaciones` · `discursos` · `configuracion`.
+`usuarios` (rol admin/reader/user/ia) · `participantes` · `grupos` · `reuniones` (entre semana, id "YYYY-MM-DD") · `programas` (mensual agregado) · `asignaciones` · `discursos` · `configuracion` · `actividad` · `asistencia` · `arreglos` · `cargos` · `capacidades` · `excepciones` · `restricciones` · `speaker_talks` · `audit_log`.
 
 - Modelo documento: cada tabla tiene `id text PK` + `data jsonb` + `updated_at`. El documento de la app vive entero en `data`.
 - Lectura: usuarios autenticados cuyo correo está en la whitelist (`configuracion.data.config.emailsPermitidos`) o son admin (`usuarios.data.rol = 'admin'`). Escritura: solo `admin`.

@@ -109,7 +109,8 @@ async function refreshUser(sbUser) {
   }
   const rol = doc && ['admin', 'reader', 'user', 'ia'].includes(doc.rol) ? doc.rol : 'reader';
   const grupos = Array.isArray(doc.grupos) ? doc.grupos.map(String) : [];
-  _currentUser = { uid: sbUser.id, email: sbUser.email, rol, grupos };
+  const personaId = doc && doc.personaId ? String(doc.personaId) : '';
+  _currentUser = { uid: sbUser.id, email: sbUser.email, rol, grupos, personaId };
   notifyListeners();
   return _currentUser;
 }
@@ -143,6 +144,15 @@ export function currentUser() {
 // ¿El usuario actual es admin?
 export function isAdmin() {
   return !!_currentUser && _currentUser.rol === 'admin';
+}
+
+// Vincula (o desvincula, con id vacío) la cuenta actual con una ficha de
+// participante (Persona). Solo actualiza el estado en cliente; la persistencia
+// en Supabase la hace quien llame (p. ej. guardarUsuario).
+export function setCurrentPersonaId(id) {
+  if (!_currentUser) return;
+  _currentUser = { ..._currentUser, personaId: id ? String(id) : '' };
+  notifyListeners();
 }
 
 // Registra un listener que se invoca cuando cambia la sesión. Devuelve una

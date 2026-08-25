@@ -65,6 +65,38 @@ create table if not exists public.arreglos (
   updated_at timestamptz not null default now()
 );
 
+-- Nuevas tablas para el modelo de datos v2
+create table if not exists public.cargos (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.capacidades (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.excepciones (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.restricciones (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.speaker_talks (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.audit_log (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 -- Tabla de usuarios (rol admin/reader/user/ia). El usuario crea SU fila con rol reader
 -- en el primer login; solo un admin puede cambiar/borrar roles.
 create table if not exists public.usuarios (
@@ -77,6 +109,14 @@ create table if not exists public.usuarios (
 create index if not exists idx_asignaciones_participante on public.asignaciones ((data->>'participanteId'));
 create index if not exists idx_asignaciones_programa on public.asignaciones ((data->>'programaId'));
 create index if not exists idx_programas_mes on public.programas ((data->>'mes'));
+create index if not exists idx_cargos_nombre on public.cargos ((data->>'name'));
+create index if not exists idx_capacidades_cargo on public.capacidades ((data->>'cargoId'));
+create index if not exists idx_excepciones_persona on public.excepciones ((data->>'personId'));
+create index if not exists idx_restricciones_persona on public.restricciones ((data->>'personId'));
+create index if not exists idx_speaker_talks_persona on public.speaker_talks ((data->>'personId'));
+create index if not exists idx_speaker_talks_talk on public.speaker_talks ((data->>'talkNum'));
+create index if not exists idx_audit_log_entity on public.audit_log ((data->>'entity'));
+create index if not exists idx_audit_log_entityId on public.audit_log ((data->>'entityId'));
 
 -- ===== Funciones auxiliares =====
 
@@ -164,6 +204,12 @@ select internal.def_policies('configuracion');
 select internal.def_policies('actividad');
 select internal.def_policies('asistencia');
 select internal.def_policies('arreglos');
+select internal.def_policies('cargos');
+select internal.def_policies('capacidades');
+select internal.def_policies('excepciones');
+select internal.def_policies('restricciones');
+select internal.def_policies('speaker_talks');
+select internal.def_policies('audit_log');
 
 -- ===== Hardening de funciones =====
 -- is_admin / email_autorizado se movieron al esquema internal (no expuesto por
@@ -214,7 +260,8 @@ create policy "usuarios_borrado_admin" on public.usuarios
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
-  public.asistencia, public.arreglos, public.usuarios
+  public.asistencia, public.arreglos, public.cargos, public.capacidades, public.excepciones,
+  public.restricciones, public.speaker_talks, public.audit_log, public.usuarios
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
 

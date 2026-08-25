@@ -438,15 +438,20 @@ export function runEngine(people, programs, opts = {}) {
   const manualKeys = manualSlotKeys(programs);
   const p = unwrapPrograms(programs);
   const reportes = {};
+  const ctxV2 = {
+    restricciones: opts.restricciones || [],
+    excepciones: opts.excepciones || [],
+    capacidades: opts.capacidades || [],
+  };
 
   if (scope === 'all' || scope === 'entre') {
-    reportes.entre = automatizarEntreSemana(people, p.midweeks, opts.ocupadosEntre || null, opts.entreOpts || {});
+    reportes.entre = automatizarEntreSemana(people, p.midweeks, opts.ocupadosEntre || null, { ...(opts.entreOpts || {}), ...ctxV2 });
   }
   if (scope === 'all' || scope === 'fin') {
-    reportes.fin = automatizarFinSemana(people, p.months, p.salidas, p.atencion, p.midweeks, opts.finOpts || {});
+    reportes.fin = automatizarFinSemana(people, p.months, p.salidas, p.atencion, p.midweeks, { ...(opts.finOpts || {}), ...ctxV2 });
   }
   if (scope === 'all' || scope === 'labores') {
-    reportes.atencion = automatizarAtencion(people, p.atencion, p.midweeks, opts.atencionOpts || {});
+    reportes.atencion = automatizarAtencion(people, p.atencion, p.midweeks, { ...(opts.atencionOpts || {}), ...ctxV2 });
   }
 
   const wrapped = wrapGeneratedPrograms(p, manualKeys);
@@ -1310,6 +1315,8 @@ export function convertPdfMidweeks(text) {
   const newWeek = (h) => ({
     id: `${year}-${String(h.month).padStart(2, '0')}-${String(h.mIni).padStart(2, '0')}`,
     header: h.header,
+    type: 'normal', // normal | supervisor | assembly | commemoration (según evento)
+    estado: 'normal', // estado de la reunión: normal | modificada | cancelada | trasladada | reemplazada
     reading: '',
     songIn: 0, songOut: 0,
     introTitle: 'Palabras de introducción', introMins: 1,
@@ -1744,10 +1751,53 @@ const ALIASES_LABORE = {
 // ¿La persona puede ejercer una labor? Debe tener al menos una labor marcada (los
 // que no tienen ninguna no pueden usarse en ningún programa) y, si la labor tiene
 // alias, se acepta cualquiera de ellos.
-export function laboreEligible(p, labore) {
+// Cuando se pasa `ctx` ({ restricciones, excepciones, capacidades }) aplica el
+// modelo v2: capacidades otorgadas por cargo, restricciones y excepciones.
+export function laboreEligible(p, labore, ctx) {
+  if (ctx) return isEligibleV2(p, labore, ctx).eligible;
   const lista = ALIASES_LABORE[labore] || [labore];
   return (Array.isArray(p.labores) && p.labores.length > 0 && lista.some(l => (p.labores || []).includes(l)))
     && laboreAllowedForPerson(p, labore);
+}
+
+// ---- Modelo v2: restricciones, excepciones, capacidades por cargo ----
+// Restricciones permanentes de una persona para una labor concreta.
+// `restricciones` es un array de objetos { personId, laborId, permanente }.
+export function hasRestriction(personId, labore, restricciones) {
+  return (restricciones || []).some(r =>
+    String(r.personId) === String(personId) && r.laborId === labore && r.permanente !== false && r.activo !== false
+  );
+}
+
+// Excepciones: persona autorizada o restringida para una labor que normalmente
+// no podría (o podría) hacer. `tipo: 'autorizar'` añade, 'restringir' quita.
+export function hasException(personId, labore, excepciones) {
+  const exc = (excepciones || []).find(e =>
+    String(e.personId) === String(personId) && e.laborId === labore && e.activo !== false
+  );
+  return exc || null;
+}
+
+// Capacidades que otorga un cargo. Devuelve las labores que el cargo habilita.
+export function cargoCapacities(cargoId, capacidades) {
+  return (capacidades || []).filter(c => String(c.cargoId) === String(cargoId) && c.activo !== false).map(c => c.laborId);
+}
+
+// Comprobación completa de elegibilidad v2: labor base + restricciones +
+// excepciones + capacidades por cargo. Devuelve { eligible, motivo }.
+export function isEligibleV2(p, labore, { restricciones = [], excepciones = [], capacidades = [] } = {}) {
+  const lista = ALIASES_LABORE[labore] || [labore];
+  const base = Array.isArray(p.labores) && p.labores.length > 0 && lista.some(l => p.labores.includes(l));
+  if (!base) {
+    // Verificar si el cargo otorga esta capacidad
+    const cargoCaps = (Array.isArray(p.cargos) ? p.cargos : []).flatMap(c => cargoCapacities(c, capacidades));
+    if (!cargoCaps.includes(labore)) return { eligible: false, motivo: 'No tiene la labor requerida ni capacidad por cargo.' };
+  }
+  if (!laboreAllowedForPerson(p, labore)) return { eligible: false, motivo: 'Restricción de género.' };
+  if (hasRestriction(p.id, labore, restricciones)) return { eligible: false, motivo: 'Restricción permanente registrada.' };
+  const exc = hasException(p.id, labore, excepciones);
+  if (exc && exc.tipo === 'restringir') return { eligible: false, motivo: 'Excepción individual: restringido para esta labor.' };
+  return { eligible: true, motivo: exc && exc.tipo === 'autorizar' ? 'Autorizado por excepción individual.' : '' };
 }
 
 // Agrupación de las tarjetas de asignaciones (Congregación → Asignaciones).
@@ -1870,10 +1920,12 @@ export function campoFinLabore(campo) {
 // `ocupadosSemana`: opcional, Map sábado -> Set de personas ocupadas esa semana
 // (p. ej. acomodación y salidas) que no deben recibir la parte (E1/E2).
 export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, opts = {}) {
-  // `opts`: { historial, nombres } — historial: [{ personId, date, roleKey }] de
-  // asignaciones pasadas para priorizar a quien participó hace más tiempo.
+  // `opts`: { historial, nombres, restricciones, excepciones, capacidades }
   const historial = opts.historial || [];
   const nombres = opts.nombres || {};
+  const restricciones = opts.restricciones || [];
+  const excepciones = opts.excepciones || [];
+  const capacidades = opts.capacidades || [];
   const reporte = { asignados: 0, vacios: [], motivos: [], flexiones: [] };
   const rolPorPersona = {}; // personaId -> Set de partes ya usadas en el mes (E3)
   const enSemana = {};      // weekId -> Set de personas ya asignadas esa semana
@@ -1930,7 +1982,9 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
     let cand = esLector
       ? people.filter(p => isStudentPerson(p) && readerLevelEligible(readerLevel, p.calificacion))
       : isStudentLabore(labore) ? people.filter(isStudentPerson) : peopleForLabore(people, labore);
-    cand = cand.filter(p => laboreAllowedForPerson(p, labore));
+    // Modelo v2: elegibilidad completa (labor base, capacidad por cargo,
+    // restricciones y excepciones individuales).
+    cand = cand.filter(p => isEligibleV2(p, labore, { restricciones, excepciones, capacidades }).eligible);
     // Orden de preferencia: calificación (estudiantes) → menor carga mensual →
     // última participación más antigua → nombre (estable).
     cand = cand.slice().sort((a, b) => {
@@ -2105,6 +2159,19 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
   // Si serviceRolesOnlyMale está activo (default), las labores de acomodación
   // solo admiten varones; alineado con el scoring y la vista de acomodación.
   const serviceRolesOnlyMale = opts.serviceRolesOnlyMale !== false;
+  const restricciones = opts.restricciones || [];
+  const excepciones = opts.excepciones || [];
+  const capacidades = opts.capacidades || [];
+  const cumpleV2 = (p, lab) => {
+    // La restricción de género en acomodación la gobierna serviceRolesOnlyMale
+    // (abajo), no laboreAllowedForPerson; aquí solo restricciones/excepciones
+    // individuales y capacidad otorgada por cargo.
+    if (hasRestriction(p.id, lab, restricciones)) return false;
+    const exc = hasException(p.id, lab, excepciones);
+    if (exc && exc.tipo === 'restringir') return false;
+    return (Array.isArray(p.labores) && p.labores.includes(lab)) ||
+      (Array.isArray(p.cargos) && p.cargos.some(c => cargoCapacities(c, capacidades).includes(lab)));
+  };
   const esAtencion = (p) => isAtencionPerson(p) && (!serviceRolesOnlyMale || p.genero !== 'femenino');
   const ocupMw = new Map(); // saturday -> Set de personas de entre semana esa semana
   midweeks.forEach(mw => {
@@ -2178,7 +2245,7 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
         // semana. Sonido ya NO relaja la exigencia de labor: si no hay candidato,
         // el puesto queda vacío y se reporta (como el resto de labores).
         const elegir = () => people
-          .filter(p => laboresRequeridas.length === 0 || (Array.isArray(p.labores) && p.labores.some(r => laboresRequeridas.includes(r))))
+          .filter(p => laboresRequeridas.some(lab => cumpleV2(p, lab)))
           .filter(x => !serviceRolesOnlyMale || x.genero !== 'femenino')
           .filter(x => !ocup.has(String(x.id)))
           .filter(x => {
@@ -2244,7 +2311,7 @@ export function automatizarAtencion(people, atencion, midweeks, opts = {}) {
 // Automatiza los oradores de salida de un mes: asigna a quien tenga la labor
 // "orador" (o sin labores) y no esté ya ocupado esa semana por acomodación,
 // salidas o la reunión de fin de semana. Muta `salidas` (plain). Devuelve reporte.
-export function automatizarSalidas(people, salidas, { midweeks = [], months = [], atencion = [] } = {}) {
+export function automatizarSalidas(people, salidas, { midweeks = [], months = [], atencion = [], restricciones = [], excepciones = [], capacidades = [] } = {}) {
   const reporte = { asignados: 0, vacios: [] };
   const ocupados = new Map();
   const marcar = (sat, id) => { if (id) { const s = new Set(ocupados.get(sat) || []); s.add(String(id)); ocupados.set(sat, s); } };
@@ -2260,7 +2327,7 @@ export function automatizarSalidas(people, salidas, { midweeks = [], months = []
     if (w.presidente) marcar(sat, w.presidente);
     (w.sections || []).forEach(sec => (sec.parts || []).forEach(p => Object.values(p.assignments || {}).forEach(id => marcar(sat, id))));
   });
-  const peopleForSalida = people.filter(p => laboreEligible(p, 'salida'));
+  const peopleForSalida = people.filter(p => isEligibleV2(p, 'salida', { restricciones, excepciones, capacidades }).eligible);
   salidas.forEach(p => (p.weeks || []).forEach(w => {
     if (w.sinSalida) return;
     const sat = String(w.saturday);
@@ -2428,6 +2495,9 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
   const permId = opts.permanentConductorId ? String(opts.permanentConductorId) : '';
   const backupId = (opts.permanentConductorBackupId && String(opts.permanentConductorBackupId) !== permId) ? String(opts.permanentConductorBackupId) : '';
   const backupId2 = (opts.permanentConductorBackupId2 && String(opts.permanentConductorBackupId2) !== permId && String(opts.permanentConductorBackupId2) !== backupId) ? String(opts.permanentConductorBackupId2) : '';
+  const restricciones = opts.restricciones || [];
+  const excepciones = opts.excepciones || [];
+  const capacidades = opts.capacidades || [];
 
   // Ocupados por SALIDAS (solo oradorSalida) — esto es lo que puede forzar al suplente.
   const ocupadosSalidas = {};
@@ -2510,7 +2580,8 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
     camposFinSemana(w).forEach(({ campo, labore }) => {
       if (w[campo]) return;
       if (campo === 'conductor' && (permId || backupId || backupId2)) return;
-      const p = peopleForLabore(people, labore)
+      let cands = peopleForLabore(people, labore).filter(p => isEligibleV2(p, labore, { restricciones, excepciones, capacidades }).eligible);
+      const p = cands
         .filter(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)))
         .sort((a, b) => (cargoMes[String(a.id)] || new Set()).size - (cargoMes[String(b.id)] || new Set()).size)[0];
       if (!p) { reporte.vacios.push({ semana: sat, labore: campo }); return; }
@@ -2701,6 +2772,9 @@ export function generateOneProposal(input, config = {}, seed = 1) {
   };
   const salidas = runEngine(people, programs, {
     scope: 'all',
+    restricciones: input.restricciones || [],
+    excepciones: input.excepciones || [],
+    capacidades: input.capacidades || [],
     entreOpts: { historial, nombres, readerLevel: config4.studentReaderLevel },
     finOpts: {
       permanentConductorId: config4.permanentConductorId,

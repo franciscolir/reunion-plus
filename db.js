@@ -4,7 +4,7 @@
 import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -19,6 +19,12 @@ const STORE_ACTIVITY = 'activity';     // key: "YYYY-MM" (actividad de publicado
 const STORE_ATTENDANCE = 'attendance'; // key: año de servicio "YYYY" (asistencia por semana)
 const STORE_ARRANGEMENTS = 'arrangements'; // key: "YYYY-MM" (intercambio, oradores, catálogo)
 const STORE_REPORTS = 'reports'; // legacy: migrado a activity/attendance/arrangements en v10
+const STORE_CARGOS = 'cargos';           // keyPath: id (catálogo de cargos: anciano, ministerial, publicador, etc.)
+const STORE_CAPACIDADES = 'capacidades'; // keyPath: id (cargo → labores que otorga)
+const STORE_EXCEPCIONES = 'excepciones'; // keyPath: id (persona → capacidad extra o restringida)
+const STORE_RESTRICCIONES = 'restricciones'; // keyPath: id (persona → regla estructurada)
+const STORE_SPEAKER_TALKS = 'speaker_talks'; // keyPath: id (orador ↔ discurso N:N)
+const STORE_AUDIT_LOG = 'audit_log';     // keyPath: id (historial de modificaciones)
 
 let _db = null;
 
@@ -83,6 +89,34 @@ function openDB() {
         db.createObjectStore(STORE_ARRANGEMENTS, { keyPath: 'id' });
       }
 
+      // v11: Nuevos stores para el modelo de datos mejorado
+      if (!db.objectStoreNames.contains(STORE_CARGOS)) {
+        const s = db.createObjectStore(STORE_CARGOS, { keyPath: 'id', autoIncrement: true });
+        s.createIndex('name', 'name', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_CAPACIDADES)) {
+        const s = db.createObjectStore(STORE_CAPACIDADES, { keyPath: 'id', autoIncrement: true });
+        s.createIndex('cargoId', 'cargoId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_EXCEPCIONES)) {
+        const s = db.createObjectStore(STORE_EXCEPCIONES, { keyPath: 'id', autoIncrement: true });
+        s.createIndex('personId', 'personId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_RESTRICCIONES)) {
+        const s = db.createObjectStore(STORE_RESTRICCIONES, { keyPath: 'id', autoIncrement: true });
+        s.createIndex('personId', 'personId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_SPEAKER_TALKS)) {
+        const s = db.createObjectStore(STORE_SPEAKER_TALKS, { keyPath: 'id', autoIncrement: true });
+        s.createIndex('personId', 'personId', { unique: false });
+        s.createIndex('talkNum', 'talkNum', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_AUDIT_LOG)) {
+        const s = db.createObjectStore(STORE_AUDIT_LOG, { keyPath: 'id', autoIncrement: true });
+        s.createIndex('entity', 'entity', { unique: false });
+        s.createIndex('entityId', 'entityId', { unique: false });
+      }
+
       // Migración v7→v8: las asignaciones de persona pasan a formato
       // {id, src, locked}. Los datos existentes se marcan MANUAL (bloqueados)
       // para no perder trabajo del usuario; los vacíos quedan como ''.
@@ -129,6 +163,93 @@ function openDB() {
           };
         }
       }
+
+      // Migración v10→v11: Nuevo modelo de datos mejorado.
+      // 1. Semilla de catálogo de cargos por defecto
+      // 2. Campos nuevos en personas (phone, email, prioridad)
+      // 3. Campo encargadoId en departments
+      // 4. Migrar excepciones de config al store dedicado
+      // 5. Agregar estado a informes de actividad
+      if (e.oldVersion < 11) {
+        const t = e.target.transaction;
+        const DEFAULT_CARGOS = [
+          { name: 'Publicador', nivel: 1 },
+          { name: 'Siervo Ministerial', nivel: 2 },
+          { name: 'Anciano', nivel: 3 },
+        ];
+        if (t.objectStoreNames.contains(STORE_CARGOS)) {
+          const cs = t.objectStore(STORE_CARGOS);
+          for (const c of DEFAULT_CARGOS) {
+            cs.add({ ...c, activo: true, createdAt: Date.now() });
+          }
+        }
+        // Migrar personas: asegurar que tengan los campos nuevos
+        if (t.objectStoreNames.contains(STORE_PEOPLE)) {
+          const cur = t.objectStore(STORE_PEOPLE).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const p = c.value || {};
+            let changed = false;
+            if (!('phone' in p)) { p.phone = ''; changed = true; }
+            if (!('email' in p)) { p.email = ''; changed = true; }
+            if (!('prioridad' in p)) { p.prioridad = 0; changed = true; }
+            if (changed) c.update(p);
+            c.continue();
+          };
+        }
+        // Migrar departments: asegurar encargadoId
+        if (t.objectStoreNames.contains(STORE_DEPARTMENTS)) {
+          const cur = t.objectStore(STORE_DEPARTMENTS).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const d = c.value || {};
+            if (!('encargadoId' in d)) { d.encargadoId = ''; c.update(d); }
+            c.continue();
+          };
+        }
+        // Migrar informes de actividad: agregar estado 'enviado' por defecto
+        if (t.objectStoreNames.contains(STORE_ACTIVITY)) {
+          const cur = t.objectStore(STORE_ACTIVITY).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const a = c.value || {};
+            if (!('estado' in a)) { a.estado = 'enviado'; c.update(a); }
+            c.continue();
+          };
+        }
+        // Migrar reuniones de entre semana: agregar estado 'normal' por defecto
+        if (t.objectStoreNames.contains(STORE_MIDWEEKS)) {
+          const cur = t.objectStore(STORE_MIDWEEKS).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const w = c.value || {};
+            if (!('estado' in w)) { w.estado = 'normal'; c.update(w); }
+            c.continue();
+          };
+        }
+        // Migrar programas de fin de semana: agregar estado 'normal' en cada semana
+        if (t.objectStoreNames.contains(STORE_MONTHS)) {
+          const cur = t.objectStore(STORE_MONTHS).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const m = c.value || {};
+            if (Array.isArray(m.weeks)) {
+              let changed = false;
+              const weeks = m.weeks.map(w => {
+                if (w && !('estado' in w)) { changed = true; return { ...w, estado: 'normal' }; }
+                return w;
+              });
+              if (changed) c.update({ ...m, weeks });
+            }
+            c.continue();
+          };
+        }
+      }
     };
 
     req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
@@ -138,6 +259,86 @@ function openDB() {
 
 function tx(db, store, mode = 'readonly') {
   return db.transaction(store, mode).objectStore(store);
+}
+
+const DEFAULT_CARGOS = [
+  { id: 'publicador',  name: 'Publicador',        nivel: 1 },
+  { id: 'ministerial', name: 'Siervo Ministerial', nivel: 2 },
+  { id: 'anciano',     name: 'Anciano',           nivel: 3 },
+];
+
+// Capaciadades que otorga cada cargo por defecto (laborId). Los publicadores
+// dependen siempre de las labores marcadas explícitamente; los cargos de
+// responsabilidad habilitan las labores de dirección que suelen desempeñar.
+const DEFAULT_CAPACIDADES = [
+  { cargoId: 'anciano',     laborId: 'presidente' },
+  { cargoId: 'anciano',     laborId: 'presidenteFin' },
+  { cargoId: 'anciano',     laborId: 'conductor1' },
+  { cargoId: 'anciano',     laborId: 'conductor2' },
+  { cargoId: 'anciano',     laborId: 'orador' },
+  { cargoId: 'anciano',     laborId: 'salida' },
+  { cargoId: 'anciano',     laborId: 'lector1' },
+  { cargoId: 'anciano',     laborId: 'lector2' },
+  { cargoId: 'anciano',     laborId: 'acomodador' },
+  { cargoId: 'anciano',     laborId: 'microf' },
+  { cargoId: 'anciano',     laborId: 'plataforma' },
+  { cargoId: 'anciano',     laborId: 'asignacion1' },
+  { cargoId: 'anciano',     laborId: 'asignacion2' },
+  { cargoId: 'anciano',     laborId: 'asignacion3' },
+  { cargoId: 'anciano',     laborId: 'asignacion4' },
+  { cargoId: 'anciano',     laborId: 'discursoInicial' },
+  { cargoId: 'anciano',     laborId: 'perlas' },
+  { cargoId: 'ministerial', laborId: 'presidente' },
+  { cargoId: 'ministerial', laborId: 'presidenteFin' },
+  { cargoId: 'ministerial', laborId: 'conductor1' },
+  { cargoId: 'ministerial', laborId: 'conductor2' },
+  { cargoId: 'ministerial', laborId: 'orador' },
+  { cargoId: 'ministerial', laborId: 'salida' },
+  { cargoId: 'ministerial', laborId: 'lector1' },
+  { cargoId: 'ministerial', laborId: 'lector2' },
+  { cargoId: 'ministerial', laborId: 'acomodador' },
+  { cargoId: 'ministerial', laborId: 'microf' },
+  { cargoId: 'ministerial', laborId: 'plataforma' },
+  { cargoId: 'ministerial', laborId: 'asignacion1' },
+  { cargoId: 'ministerial', laborId: 'asignacion2' },
+  { cargoId: 'ministerial', laborId: 'asignacion3' },
+  { cargoId: 'ministerial', laborId: 'asignacion4' },
+  { cargoId: 'ministerial', laborId: 'discursoInicial' },
+  { cargoId: 'ministerial', laborId: 'perlas' },
+];
+
+function seedCargosIfEmpty(db) {
+  try {
+    const t = db.transaction(STORE_CARGOS, 'readwrite');
+    const store = t.objectStore(STORE_CARGOS);
+    const countReq = store.count();
+    countReq.onsuccess = () => {
+      if (countReq.result === 0) {
+        const now = Date.now();
+        for (const c of DEFAULT_CARGOS) {
+          store.add({ ...c, activo: true, createdAt: now });
+        }
+      }
+    };
+  } catch (_) { /* ignore */ }
+}
+
+function seedCapacidadesIfEmpty(db) {
+  try {
+    const t = db.transaction([STORE_CARGOS, STORE_CAPACIDADES], 'readwrite');
+    const cargoStore = t.objectStore(STORE_CARGOS);
+    const capStore = t.objectStore(STORE_CAPACIDADES);
+    cargoStore.count().onsuccess = (ce) => {
+      if (ce.target.result === 0) return; // los cargos aún no existen
+      capStore.count().onsuccess = (pe) => {
+        if (pe.target.result > 0) return;
+        const now = Date.now();
+        for (const c of DEFAULT_CAPACIDADES) {
+          capStore.add({ ...c, activo: true, createdAt: now });
+        }
+      };
+    };
+  } catch (_) { /* ignore */ }
 }
 
 function reqToPromise(request) {
@@ -262,7 +463,7 @@ export async function addPerson(payload) {
   if (typeof payload === 'string') {
     const name = payload.trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, labores: [], cargos: [], genero: '', calificacion: '', activo: true, createdAt: Date.now() };
+    record = { name, labores: [], cargos: [], genero: '', calificacion: '', phone: '', email: '', prioridad: 0, activo: true, createdAt: Date.now() };
   } else {
     const name = (payload.name || '').trim();
     if (!name) throw new Error('Nombre vacío');
@@ -273,6 +474,9 @@ export async function addPerson(payload) {
       genero: payload.genero || '',
       calificacion: payload.calificacion || '',
       enlace: payload.enlace || '',
+      phone: payload.phone || '',
+      email: payload.email || '',
+      prioridad: payload.prioridad || 0,
       nacimiento: payload.nacimiento || '',
       bautismo: payload.bautismo || '',
       precursorRegular: payload.precursorRegular === true,
@@ -334,6 +538,9 @@ export async function replaceAllPeople(data) {
       genero: p.genero || '',
       calificacion: p.calificacion || '',
       enlace: p.enlace || '',
+      phone: p.phone || '',
+      email: p.email || '',
+      prioridad: p.prioridad || 0,
       grupoId: p.grupoId || '',
       activo: p.activo !== false,
     })).filter(p => p.name);
@@ -403,7 +610,7 @@ export async function listDepartmentsInactive() {
 export async function addDepartment(name, opts = {}) {
   name = (name || '').trim();
   if (!name) throw new Error('Nombre vacío');
-  const record = { name, activo: true, createdAt: Date.now() };
+  const record = { name, activo: true, encargadoId: opts.encargadoId || '', createdAt: Date.now() };
   if (opts.orden !== undefined) record.orden = opts.orden;
   if (opts.labores !== undefined) record.labores = opts.labores;
   return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.add(record)));
@@ -768,6 +975,14 @@ export async function exportAll() {
     salidas: await listSalidas(),
     atencion: await listAtencion(),
     assignmentLog: await listAssignmentLog(),
+    activity: await listActivity(),
+    attendance: await listAttendance(),
+    arrangements: await listArrangements(),
+    cargos: await listCargos(),
+    capacidades: await listCapacidades(),
+    excepciones: await listExcepciones(),
+    restricciones: await listRestricciones(),
+    speakerTalks: await listSpeakerTalks(),
     settings: {
       congregation: await getSetting('congregation', ''),
       lastMonthId: await getSetting('lastMonthId', null),
@@ -913,7 +1128,7 @@ export async function replaceAllTalksSilent(talks) {
 // sync. Se usa tras limpiar Supabase para dejar la caché local vacía.
 export async function limpiarIndexedDBLocal() {
   const db = await openDB();
-  const stores = [STORE_MONTHS, STORE_PEOPLE, STORE_DEPARTMENTS, STORE_TALKS, STORE_MIDWEEKS, STORE_ASEOS, STORE_SALIDAS, STORE_ATENCION, STORE_ASSIGNMENT_LOG];
+  const stores = [STORE_MONTHS, STORE_PEOPLE, STORE_DEPARTMENTS, STORE_TALKS, STORE_MIDWEEKS, STORE_ASEOS, STORE_SALIDAS, STORE_ATENCION, STORE_ASSIGNMENT_LOG, STORE_CARGOS, STORE_CAPACIDADES, STORE_EXCEPCIONES, STORE_RESTRICCIONES, STORE_SPEAKER_TALKS, STORE_AUDIT_LOG];
   for (const s of stores) {
     if (db.objectStoreNames.contains(s)) {
       await commitSilent(s, (store) => reqToPromise(store.clear()));
@@ -1019,4 +1234,234 @@ export async function putArrangementsSilent(report) {
 export async function listArrangements() {
   const db = await openDB();
   return reqToPromise(tx(db, STORE_ARRANGEMENTS).getAll());
+}
+
+export async function deleteArrangements(id) {
+  return commit(STORE_ARRANGEMENTS, (store) => reqToPromise(store.delete(String(id))));
+}
+
+// ===== CARGOS (catálogo de cargos) =====
+export async function listCargos() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_CARGOS).getAll());
+  if (all.length === 0) {
+    const now = Date.now();
+    await commitSilent(STORE_CARGOS, (store) => new Promise((resolve) => {
+      let pending = DEFAULT_CARGOS.length;
+      const done = () => { pending--; if (pending === 0) resolve(); };
+      for (const c of DEFAULT_CARGOS) {
+        const r = store.add({ ...c, activo: true, createdAt: now });
+        r.onsuccess = done; r.onerror = done;
+      }
+    }));
+    return reqToPromise(tx(db, STORE_CARGOS).getAll());
+  }
+  return all.sort((a, b) => (a.nivel || 0) - (b.nivel || 0));
+}
+
+export async function addCargo(cargo) {
+  const record = { name: String(cargo.name || '').trim(), nivel: cargo.nivel || 1, activo: cargo.activo !== false, createdAt: Date.now() };
+  if (!record.name) throw new Error('Nombre de cargo vacío');
+  return commit(STORE_CARGOS, (store) => reqToPromise(store.add(record)));
+}
+
+export async function updateCargo(cargo) {
+  return commit(STORE_CARGOS, (store) => reqToPromise(store.put({ ...cargo, updatedAt: Date.now() })));
+}
+
+export async function deleteCargo(id) {
+  return commit(STORE_CARGOS, (store) => reqToPromise(store.delete(id)));
+}
+
+export async function getCargo(id) {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_CARGOS).get(id));
+}
+
+// ===== CAPACIDADES (cargo → labores que otorga) =====
+export async function listCapacidades() {
+  const db = await openDB();
+  let all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  if (all.length === 0) {
+    const now = Date.now();
+    await commitSilent(STORE_CAPACIDADES, (store) => new Promise((resolve) => {
+      let pending = DEFAULT_CAPACIDADES.length;
+      if (pending === 0) return resolve();
+      const done = () => { pending--; if (pending === 0) resolve(); };
+      for (const c of DEFAULT_CAPACIDADES) {
+        const r = store.add({ ...c, activo: true, createdAt: now });
+        r.onsuccess = done; r.onerror = done;
+      }
+    }));
+    all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  }
+  return all;
+}
+
+export async function listCapacidadesByCargo(cargoId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  return all.filter(c => String(c.cargoId) === String(cargoId));
+}
+
+export async function addCapacidad(cap) {
+  const record = { cargoId: cap.cargoId, laborId: cap.laborId, label: cap.label || '', activo: cap.activo !== false, createdAt: Date.now() };
+  return commit(STORE_CAPACIDADES, (store) => reqToPromise(store.add(record)));
+}
+
+export async function updateCapacidad(cap) {
+  return commit(STORE_CAPACIDADES, (store) => reqToPromise(store.put({ ...cap, updatedAt: Date.now() })));
+}
+
+export async function deleteCapacidad(id) {
+  return commit(STORE_CAPACIDADES, (store) => reqToPromise(store.delete(id)));
+}
+
+export async function clearCapacidadesByCargo(cargoId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  const toDelete = all.filter(c => String(c.cargoId) === String(cargoId));
+  return commit(STORE_CAPACIDADES, (store) => new Promise((resolve, reject) => {
+    let pending = toDelete.length;
+    if (pending === 0) return resolve();
+    for (const c of toDelete) {
+      const r = store.delete(c.id);
+      r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
+      r.onerror = () => reject(r.error);
+    }
+  }));
+}
+
+// ===== EXCEPCIONES (persona → capacidad extra o restringida) =====
+export async function listExcepciones() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_EXCEPCIONES).getAll());
+}
+
+export async function listExcepcionesByPerson(personId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_EXCEPCIONES).getAll());
+  return all.filter(e => String(e.personId) === String(personId));
+}
+
+export async function addExcepcion(exc) {
+  const record = { personId: exc.personId, laborId: exc.laborId, tipo: exc.tipo || 'autorizar', motivo: exc.motivo || '', activo: exc.activo !== false, createdAt: Date.now() };
+  return commit(STORE_EXCEPCIONES, (store) => reqToPromise(store.add(record)));
+}
+
+export async function updateExcepcion(exc) {
+  return commit(STORE_EXCEPCIONES, (store) => reqToPromise(store.put({ ...exc, updatedAt: Date.now() })));
+}
+
+export async function deleteExcepcion(id) {
+  return commit(STORE_EXCEPCIONES, (store) => reqToPromise(store.delete(id)));
+}
+
+// ===== RESTRICCIONES (persona → regla estructurada) =====
+export async function listRestricciones() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_RESTRICCIONES).getAll());
+}
+
+export async function listRestriccionesByPerson(personId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_RESTRICCIONES).getAll());
+  return all.filter(r => String(r.personId) === String(personId));
+}
+
+export async function addRestriccion(res) {
+  const record = { personId: res.personId, tipo: res.tipo || 'asignacion', laborId: res.laborId || '', motivo: res.motivo || '', permanente: res.permanente !== false, activo: res.activo !== false, createdAt: Date.now() };
+  return commit(STORE_RESTRICCIONES, (store) => reqToPromise(store.add(record)));
+}
+
+export async function updateRestriccion(res) {
+  return commit(STORE_RESTRICCIONES, (store) => reqToPromise(store.put({ ...res, updatedAt: Date.now() })));
+}
+
+export async function deleteRestriccion(id) {
+  return commit(STORE_RESTRICCIONES, (store) => reqToPromise(store.delete(id)));
+}
+
+// ===== SPEAKER_TALKS (orador ↔ discurso N:N) =====
+export async function listSpeakerTalks() {
+  const db = await openDB();
+  return reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
+}
+
+export async function listSpeakerTalksByPerson(personId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
+  return all.filter(s => String(s.personId) === String(personId));
+}
+
+export async function listSpeakerTalksByTalk(talkNum) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
+  return all.filter(s => String(s.talkNum) === String(talkNum));
+}
+
+export async function addSpeakerTalk(st) {
+  const record = { personId: st.personId, talkNum: st.talkNum, preparedAt: st.preparedAt || Date.now(), createdAt: Date.now() };
+  return commit(STORE_SPEAKER_TALKS, (store) => reqToPromise(store.add(record)));
+}
+
+export async function deleteSpeakerTalk(id) {
+  return commit(STORE_SPEAKER_TALKS, (store) => reqToPromise(store.delete(id)));
+}
+
+export async function clearSpeakerTalksByPerson(personId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
+  const toDelete = all.filter(c => String(c.personId) === String(personId));
+  return commit(STORE_SPEAKER_TALKS, (store) => new Promise((resolve, reject) => {
+    let pending = toDelete.length;
+    if (pending === 0) return resolve();
+    for (const c of toDelete) {
+      const r = store.delete(c.id);
+      r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
+      r.onerror = () => reject(r.error);
+    }
+  }));
+}
+
+// ===== AUDIT_LOG (historial de modificaciones) =====
+export async function listAuditLog() {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_AUDIT_LOG).getAll());
+  return all.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
+
+export async function listAuditLogByEntity(entity, entityId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_AUDIT_LOG).getAll());
+  const filtered = all.filter(e => e.entity === entity);
+  return entityId ? filtered.filter(e => e.entityId === entityId) : filtered;
+}
+
+export async function addAuditEntry(entry) {
+  const record = {
+    entity: entry.entity,
+    entityId: entry.entityId,
+    action: entry.action || 'update',
+    field: entry.field || '',
+    oldValue: entry.oldValue,
+    newValue: entry.newValue,
+    timestamp: Date.now(),
+    createdAt: Date.now(),
+  };
+  return commit(STORE_AUDIT_LOG, (store) => reqToPromise(store.add(record)));
+}
+
+export async function addAuditEntrySilent(entry) {
+  const record = {
+    entity: entry.entity,
+    entityId: entry.entityId,
+    action: entry.action || 'update',
+    field: entry.field || '',
+    oldValue: entry.oldValue,
+    newValue: entry.newValue,
+    timestamp: Date.now(),
+    createdAt: Date.now(),
+  };
+  await commitSilent(STORE_AUDIT_LOG, (store) => reqToPromise(store.add(record)));
 }

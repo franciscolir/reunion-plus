@@ -127,6 +127,9 @@ function personaADocumento(p) {
       genero: p.genero || '',
       calificacion: p.calificacion || '',
       enlace: p.enlace || '',
+      phone: p.phone || '',
+      email: p.email || '',
+      prioridad: p.prioridad || 0,
       nacimiento: p.nacimiento || '',
       bautismo: p.bautismo || '',
       precursorRegular: p.precursorRegular === true,
@@ -145,6 +148,7 @@ function grupoADocumento(g) {
       nombre: g.name || '',
       orden: g.orden || 0,
       labores: g.labores || '',
+      encargadoId: g.encargadoId || '',
       activo: g.activo !== false,
       createdAt: g.createdAt || Date.now(),
     },
@@ -166,6 +170,7 @@ function reunionADocumento(mw) {
       closingTitle: mw.closingTitle || 'Palabras de conclusión',
       closingMins: mw.closingMins || 3,
       header: mw.header || '',
+      estado: mw.estado || 'normal',
       sections: (mw.sections || []).map(sec => ({
         id: sec.id,
         title: sec.title,
@@ -515,7 +520,7 @@ export async function pullAll() {
       f.obtenerArreglos(),
     ]);
 
-    // personas: participantes → registros people
+// personas: participantes → registros people
     const personasDesdeCloud = participantes.map(p => ({
       id: Number(p.id) || String(p.id),
       name: p.nombre || '',
@@ -524,6 +529,9 @@ export async function pullAll() {
       genero: p.genero || '',
       calificacion: p.calificacion || '',
       enlace: p.enlace || '',
+      phone: p.phone || '',
+      email: p.email || '',
+      prioridad: p.prioridad || 0,
       nacimiento: p.nacimiento || '',
       bautismo: p.bautismo || '',
       precursorRegular: p.precursorRegular === true,
@@ -535,7 +543,7 @@ export async function pullAll() {
 
     // grupos
     await db.replaceAllDepartmentsSilent(grupos.map(g => ({
-      id: String(g.id), name: g.nombre || '', orden: g.orden || 0, labores: g.labores || '', activo: g.activo !== false, createdAt: g.createdAt || Date.now(),
+      id: String(g.id), name: g.nombre || '', orden: g.orden || 0, labores: g.labores || '', encargadoId: g.encargadoId || '', activo: g.activo !== false, createdAt: g.createdAt || Date.now(),
     })));
 
     // reuniones
@@ -550,6 +558,7 @@ export async function pullAll() {
         introMins: r.introMins,
         closingTitle: r.closingTitle,
         closingMins: r.closingMins,
+        estado: r.estado || 'normal',
         sections: r.sections || [],
         createdAt: r.createdAt || Date.now(),
       });
