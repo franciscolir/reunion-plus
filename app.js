@@ -698,27 +698,73 @@ async function renderIa() {
   _homeAtencion = atencion;
   const week = currentGeneralWeek(0);
   const app = $('#app');
-  app.innerHTML = `<div class="max-w-3xl mx-auto text-center">
-    <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Imagen de la semana</h1>
-    <p class="text-on-surface-variant font-body-md mb-6">Solo está disponible la semana en curso.</p>
-    ${week ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-3 md:p-5 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+  const whUrl = await db.getSetting('iaWebhookUrl', '');
+  app.innerHTML = `<div class="max-w-3xl mx-auto">
+    <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Asistente IA</h1>
+    <p class="text-on-surface-variant font-body-md mb-6">Imagen de la semana y consola para que la IA ingrese información en cualquier formulario vía webhook.</p>
+    ${week ? `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-3 md:p-5 shadow-[0_4px_20px_rgba(0,0,0,0.04)] mb-6">
       <img id="iaWeekImage" class="w-full rounded-lg" alt="Programa de la semana en curso">
       <button id="iaShare" class="mt-4 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 transition-all active:scale-95">
         <span class="material-symbols-outlined text-[18px]">share</span> Descargar / compartir imagen
       </button>
-    </div>` : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-on-surface-variant">No hay programa cargado para la semana en curso.</div>`}
+    </div>` : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-on-surface-variant mb-6">No hay programa cargado para la semana en curso.</div>`}
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 text-left">
+      <h3 class="font-headline-md text-headline-md text-primary mb-1">Consola del webhook</h3>
+      <p class="text-on-surface-variant text-sm mb-4">La IA usa este webhook para ingresar datos. Configura la URL y prueba las acciones <code>meta</code>, <code>upsert</code> y <code>remove</code>.</p>
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">URL del webhook</label>
+      <input id="iaWhUrl" value="${escapeAttr(whUrl)}" placeholder="https://&lt;proyecto&gt;.supabase.co/functions/v1/webhook-zapia" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-3">
+      <div class="flex flex-wrap gap-2 mb-3">
+        <button id="iaWhMeta" class="px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed">Ver formularios (meta)</button>
+        <button id="iaWhSend" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Enviar payload</button>
+      </div>
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Payload (JSON)</label>
+      <textarea id="iaWhPayload" rows="6" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-3">{
+  "action": "upsert",
+  "table": "participantes",
+  "id": "00000000-0000-0000-0000-000000000000",
+  "data": { "name": "Ejemplo", "genero": "masculino", "cargos": ["publicador"] }
+}</textarea>
+      <pre id="iaWhOut" class="text-xs bg-surface-container-high rounded-lg p-3 overflow-auto max-h-60 whitespace-pre-wrap"></pre>
+    </div>
   </div>`;
-  if (!week) return;
-  const cur = String(week.saturday || isoDate(new Date())).slice(0, 7);
-  const blob = await svgToPngBlob(generalWeekExportSvg(week, cur, { mobile: true }));
-  const image = $('#iaWeekImage');
-  image.src = URL.createObjectURL(blob);
-  $('#iaShare').onclick = async () => {
-    const button = $('#iaShare');
-    button.disabled = true;
-    try { await compartirPng(blob, `semana-${cur}.png`); }
-    catch (err) { console.error(err); toast('No se pudo compartir la imagen.', 'error'); }
-    finally { button.disabled = false; }
+
+  if (week) {
+    const cur = String(week.saturday || isoDate(new Date())).slice(0, 7);
+    const blob = await svgToPngBlob(generalWeekExportSvg(week, cur, { mobile: true }));
+    const image = $('#iaWeekImage');
+    if (image) image.src = URL.createObjectURL(blob);
+    const share = $('#iaShare');
+    if (share) share.onclick = async () => {
+      share.disabled = true;
+      try { await compartirPng(blob, `semana-${cur}.png`); }
+      catch (err) { console.error(err); toast('No se pudo compartir la imagen.', 'error'); }
+      finally { share.disabled = false; }
+    };
+  }
+
+  const iaWhUrl = $('#iaWhUrl');
+  if (iaWhUrl) iaWhUrl.onchange = () => db.setSetting('iaWebhookUrl', iaWhUrl.value.trim());
+  const iaOut = $('#iaWhOut');
+  const setOut = (o) => { if (iaOut) iaOut.textContent = typeof o === 'string' ? o : JSON.stringify(o, null, 2); };
+  if ($('#iaWhMeta')) $('#iaWhMeta').onclick = async () => {
+    const url = iaWhUrl?.value.trim();
+    if (!url) { toast('Configura la URL del webhook', 'error'); return; }
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'meta' }) });
+      setOut(await r.json());
+    } catch (e) { setOut('Error: ' + e.message); }
+  };
+  if ($('#iaWhSend')) $('#iaWhSend').onclick = async () => {
+    const url = iaWhUrl?.value.trim();
+    const raw = $('#iaWhPayload')?.value || '';
+    if (!url) { toast('Configura la URL del webhook', 'error'); return; }
+    let payload;
+    try { payload = JSON.parse(raw); } catch (e) { toast('JSON inválido', 'error'); return; }
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      setOut(await r.json());
+      toast('Enviado a la IA', 'success');
+    } catch (e) { setOut('Error: ' + e.message); }
   };
 }
 

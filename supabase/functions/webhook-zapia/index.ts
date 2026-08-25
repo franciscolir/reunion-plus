@@ -9,6 +9,57 @@ function jsonRes(body: unknown, status = 200) {
   });
 }
 
+// Tablas del modelo documento que la IA puede escribir vía webhook. `usuarios`
+// queda fuera a propósito (gestión de acceso). El id siempre es texto.
+const WRITABLE_TABLES: Record<string, string> = {
+  participantes: 'Participantes (personas). Campos: name, genero, calificacion, cargos[], grupoId, enlace, precursorRegular, nacimiento, bautismo, email, telefono, labores[], notas, restricciones[], excepciones[], speakerTalks[]',
+  grupos: 'Grupos/departamentos de la congregación. Campos: name, encargadoId',
+  reuniones: 'Reuniones de entre semana (id "YYYY-MM-DD"). Campos: header, reading, presidente, sections[], labores, estado',
+  programas: 'Programa mensual de fin de semana (id "YYYY-MM"). Campos: weeks[], salidas, atencion, aseos',
+  asignaciones: 'Historial de asignaciones (id compuesto). Campos: personId, date, role, program, labores[]',
+  discursos: 'Discursos/conferencias (id = número). Campos: num, title',
+  configuracion: 'Configuración general. Campos: schedule, midweek, emailsPermitidos[], algorithm, cargos, capacidades',
+  actividad: 'Informe de actividad/predicación (id "activity:YYYY-MM"). Campos: people{}',
+  asistencia: 'Asistencia por semana (id año "YYYY"). Campos: weeks[]',
+  arreglos: 'Arreglos con congregaciones externas (id "c<timestamp>"). Campos: nombre, years{}, fijo',
+  cargos: 'Catálogo de cargos (id auto). Campos: nombre, nivel',
+  capacidades: 'Capacidades que otorga cada cargo (id auto). Campos: cargoId, laborId',
+  excepciones: 'Excepciones por persona (id auto). Campos: personId, laborId, tipo',
+  restricciones: 'Restricciones por persona (id auto). Campos: personId, laborId, permanente',
+  speaker_talks: 'Orador ↔ discurso N:N (id auto). Campos: personId, talkNum',
+  audit_log: 'Historial de modificaciones (id auto). Campos: entity, entityId, field, before, after, by',
+};
+
+async function handleMeta() {
+  return jsonRes({ ok: true, tables: WRITABLE_TABLES, actions: ['attendance', 'person', 'assignment', 'upsert', 'remove', 'meta'] });
+}
+
+async function handleUpsert(sb: ReturnType<typeof createClient>, payload: Record<string, unknown>) {
+  const table = String(payload.table || '');
+  const id = payload.id != null ? String(payload.id) : '';
+  const data = payload.data;
+  if (!table || !(table in WRITABLE_TABLES)) return jsonRes({ error: `Tabla no permitida: ${table}` }, 400);
+  if (!id) return jsonRes({ error: 'Falta campo: id' }, 400);
+  if (typeof data !== 'object' || data === null) return jsonRes({ error: 'Falta campo: data (objeto)' }, 400);
+
+  const { error } = await sb
+    .from(table)
+    .upsert({ id, data, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+  if (error) return jsonRes({ error: error.message }, 500);
+  return jsonRes({ ok: true, action: 'upsert', table, id });
+}
+
+async function handleRemove(sb: ReturnType<typeof createClient>, payload: Record<string, unknown>) {
+  const table = String(payload.table || '');
+  const id = payload.id != null ? String(payload.id) : '';
+  if (!table || !(table in WRITABLE_TABLES)) return jsonRes({ error: `Tabla no permitida: ${table}` }, 400);
+  if (!id) return jsonRes({ error: 'Falta campo: id' }, 400);
+
+  const { error } = await sb.from(table).delete().eq('id', id);
+  if (error) return jsonRes({ error: error.message }, 500);
+  return jsonRes({ ok: true, action: 'remove', table, id, deleted: true });
+}
+
 async function authenticate(): Promise<{ sb: ReturnType<typeof createClient>; userId: string } | Response> {
   const email = Deno.env.get('ZAPIA_EMAIL');
   const password = Deno.env.get('ZAPIA_PASSWORD');
@@ -63,23 +114,22 @@ async function handleAttendance(sb: ReturnType<typeof createClient>, payload: Re
 }
 
 async function handlePerson(sb: ReturnType<typeof createClient>, payload: Record<string, unknown>) {
-  const { data } = payload as { data: Record<string, unknown> };
+  const idIn = payload.id != null ? String(payload.id) : '';
+  const data = (payload.data || {}) as Record<string, unknown>;
   const name = String(data?.name || '').trim();
   if (!name) return jsonRes({ error: 'Falta campo: data.name' }, 400);
 
-  const person: Record<string, unknown> = {
-    name,
-    genero: data.genero || '',
-    calificacion: data.calificacion || '',
-    labores: Array.isArray(data.labores) ? data.labores : [],
-    grupoId: data.grupoId || '',
-    nacimiento: data.nacimiento || '',
-    bautismo: data.bautismo || '',
-    email: data.email || '',
-    telefono: data.telefono || '',
-    notas: data.notas || '',
-    activo: true,
-  };
+  // Acepta TODOS los campos del formulario de persona (cargos, enlace,
+  // restricciones, excepciones, speakerTalks, etc.) y los guarda tal cual.
+  const person: Record<string, unknown> = { ...data, name, activo: data.activo !== false };
+
+  if (idIn) {
+    const { error } = await sb
+      .from('participantes')
+      .upsert({ id: idIn, data: person, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    if (error) return jsonRes({ error: error.message }, 500);
+    return jsonRes({ ok: true, id: idIn, updated: true });
+  }
 
   const { data: existing } = await sb
     .from('participantes')
@@ -166,6 +216,9 @@ serve(async (req) => {
       case 'attendance': return await handleAttendance(sb, payload);
       case 'person': return await handlePerson(sb, payload);
       case 'assignment': return await handleAssignment(sb, payload);
+      case 'upsert': return await handleUpsert(sb, payload);
+      case 'remove': return await handleRemove(sb, payload);
+      case 'meta': return await handleMeta();
       default: return jsonRes({ error: `Acción desconocida: ${payload.action}` }, 400);
     }
   } catch (err) {
