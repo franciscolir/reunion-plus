@@ -4281,6 +4281,16 @@ function previewTabla() {
             //<div class="mt-2">${"perro"+estadoBadge(w.estado)}</div>
            // </div></td></tr>`;
     }
+    if (w.type === 'supervisor' ) {
+      const label = w.type === 'supervisor' ? 'Superintendente' : 'Visita';
+      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="${label}">
+         <div class="py-4">
+           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}
+           </div>
+          <div class="mt-2">${+estadoBadge("visita superintendente")}</div>
+          </div></td></tr>`;
+    }
+
     const grupoAseo = aseoGroupFor(w.date);
     const grupoId = grupoAseo || (w.departamento || '');
     const grupoNum = aseoWeekGroupNum({ group: grupoId });
