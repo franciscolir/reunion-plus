@@ -15,7 +15,7 @@ import {
 } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports', 'activity', 'attendance', 'arrangements'];
+const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports', 'activity', 'attendance', 'arrangements', 'cargos', 'capacidades', 'excepciones', 'restricciones', 'speaker_talks', 'audit_log'];
 const LABORES = [
   { id: 'presidente', label: 'Presidente' },
   { id: 'audio', label: 'Audio' },
@@ -36,9 +36,9 @@ beforeEach(async () => {
 });
 
 // --- Esquema ---
-test('esquema v10 crea todos los stores', async () => {
+test('esquema v11 crea todos los stores', async () => {
   await db.listPeople(); // fuerza la apertura/creación del esquema
-  const d = await openRaw(DB_NAME, 10);
+  const d = await openRaw(DB_NAME, 11);
   const names = [...d.objectStoreNames];
   d.close();
   for (const s of STORES) assert.ok(names.includes(s), `falta el store "${s}"`);
@@ -262,4 +262,112 @@ test('integr: historial idempotente (mismo puesto no duplica)', async () => {
   await db.putAssignmentLog(entry);
   await db.putAssignmentLog({ ...entry });
   assert.equal((await db.listAssignmentLog()).length, 1);
+});
+
+// --- Nuevos stores del modelo v2 ---
+
+test('cargos CRUD y semilla por defecto', async () => {
+  let cargos = await db.listCargos();
+  assert.equal(cargos.length, 3, 'semilla: publicador, ministerial, anciano');
+  const ids = cargos.map(c => c.name);
+  assert.ok(ids.includes('Publicador'));
+  assert.ok(ids.includes('Siervo Ministerial'));
+  assert.ok(ids.includes('Anciano'));
+
+  const id = await db.addCargo({ name: 'Bautizado', nivel: 0 });
+  assert.ok(id);
+  cargos = await db.listCargos();
+  assert.equal(cargos.length, 4);
+
+  await db.updateCargo({ id, name: 'Bautizado Nuevo', nivel: 0 });
+  const updated = await db.getCargo(id);
+  assert.equal(updated.name, 'Bautizado Nuevo');
+
+  await db.deleteCargo(id);
+  assert.equal((await db.listCargos()).length, 3);
+});
+
+test('capacidades CRUD por cargo', async () => {
+  const cargos = await db.listCargos();
+  const anciano = cargos.find(c => c.name === 'Anciano');
+  await db.addCapacidad({ cargoId: anciano.id, laborId: 'conductor1', label: 'Cond. Atalaya' });
+  await db.addCapacidad({ cargoId: anciano.id, laborId: 'presidente', label: 'Presidente' });
+  let caps = await db.listCapacidadesByCargo(anciano.id);
+  assert.equal(caps.length, 2);
+
+  await db.clearCapacidadesByCargo(anciano.id);
+  caps = await db.listCapacidadesByCargo(anciano.id);
+  assert.equal(caps.length, 0);
+});
+
+test('excepciones CRUD por persona', async () => {
+  const pid = await db.addPerson({ name: 'María' });
+  await db.addExcepcion({ personId: String(pid), laborId: 'conductor1', tipo: 'autorizar', motivo: 'Capacitación especial' });
+  let excs = await db.listExcepcionesByPerson(String(pid));
+  assert.equal(excs.length, 1);
+  assert.equal(excs[0].tipo, 'autorizar');
+
+  await db.deleteExcepcion(excs[0].id);
+  assert.equal((await db.listExcepcionesByPerson(String(pid))).length, 0);
+});
+
+test('restricciones CRUD por persona', async () => {
+  const pid = await db.addPerson({ name: 'Pedro' });
+  await db.addRestriccion({ personId: String(pid), tipo: 'asignacion', laborId: 'salida', motivo: 'No disponible sábados', permanente: true });
+  let res = await db.listRestriccionesByPerson(String(pid));
+  assert.equal(res.length, 1);
+  assert.equal(res[0].permanente, true);
+
+  await db.deleteRestriccion(res[0].id);
+  assert.equal((await db.listRestriccionesByPerson(String(pid))).length, 0);
+});
+
+test('speaker_talks CRUD (orador ↔ discurso N:N)', async () => {
+  const pid = await db.addPerson({ name: 'Juan' });
+  await db.addSpeakerTalk({ personId: String(pid), talkNum: 1 });
+  await db.addSpeakerTalk({ personId: String(pid), talkNum: 5 });
+  let talks = await db.listSpeakerTalksByPerson(String(pid));
+  assert.equal(talks.length, 2);
+
+  let byTalk = await db.listSpeakerTalksByTalk(1);
+  assert.equal(byTalk.length, 1);
+
+  await db.clearSpeakerTalksByPerson(String(pid));
+  assert.equal((await db.listSpeakerTalksByPerson(String(pid))).length, 0);
+});
+
+test('audit_log CRUD', async () => {
+  await db.addAuditEntry({ entity: 'people', entityId: '1', action: 'update', field: 'name', oldValue: 'Ana', newValue: 'Ana María' });
+  await db.addAuditEntry({ entity: 'people', entityId: '1', action: 'update', field: 'phone', oldValue: '', newValue: '555-1234' });
+  let log = await db.listAuditLog();
+  assert.equal(log.length, 2);
+  const fields = log.map(e => e.field);
+  assert.ok(fields.includes('name'));
+  assert.ok(fields.includes('phone'));
+
+  let byEntity = await db.listAuditLogByEntity('people', '1');
+  assert.equal(byEntity.length, 2);
+});
+
+test('personas con phone/email/prioridad se guardan correctamente', async () => {
+  const id = await db.addPerson({ name: 'Test', phone: '555-0000', email: 'test@test.com', prioridad: 5 });
+  const list = await db.listPeople();
+  const p = list.find(x => x.id === id);
+  assert.equal(p.phone, '555-0000');
+  assert.equal(p.email, 'test@test.com');
+  assert.equal(p.prioridad, 5);
+});
+
+test('departments con encargadoId', async () => {
+  const pid = await db.addPerson({ name: 'Encargado' });
+  const did = await db.addDepartment('Grupo Alpha', { encargadoId: String(pid) });
+  const depts = await db.listDepartments();
+  const d = depts.find(x => x.id === did);
+  assert.equal(d.encargadoId, String(pid));
+});
+
+test('activity con estado', async () => {
+  await db.putActivity({ id: '2026-11', people: {}, estado: 'borrador' });
+  const act = await db.getActivity('2026-11');
+  assert.equal(act.estado, 'borrador');
 });

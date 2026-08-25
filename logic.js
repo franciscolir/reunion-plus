@@ -1310,6 +1310,8 @@ export function convertPdfMidweeks(text) {
   const newWeek = (h) => ({
     id: `${year}-${String(h.month).padStart(2, '0')}-${String(h.mIni).padStart(2, '0')}`,
     header: h.header,
+    type: 'normal', // normal | supervisor | assembly | commemoration (según evento)
+    estado: 'normal', // estado de la reunión: normal | modificada | cancelada | trasladada | reemplazada
     reading: '',
     songIn: 0, songOut: 0,
     introTitle: 'Palabras de introducción', introMins: 1,
@@ -1750,6 +1752,46 @@ export function laboreEligible(p, labore) {
     && laboreAllowedForPerson(p, labore);
 }
 
+// ---- Modelo v2: restricciones, excepciones, capacidades por cargo ----
+// Restricciones permanentes de una persona para una labor concreta.
+// `restricciones` es un array de objetos { personId, laborId, permanente }.
+export function hasRestriction(personId, labore, restricciones) {
+  return (restricciones || []).some(r =>
+    String(r.personId) === String(personId) && r.laborId === labore && r.permanente !== false && r.activo !== false
+  );
+}
+
+// Excepciones: persona autorizada o restringida para una labor que normalmente
+// no podría (o podría) hacer. `tipo: 'autorizar'` añade, 'restringir' quita.
+export function hasException(personId, labore, excepciones) {
+  const exc = (excepciones || []).find(e =>
+    String(e.personId) === String(personId) && e.laborId === labore && e.activo !== false
+  );
+  return exc || null;
+}
+
+// Capacidades que otorga un cargo. Devuelve las labores que el cargo habilita.
+export function cargoCapacities(cargoId, capacidades) {
+  return (capacidades || []).filter(c => String(c.cargoId) === String(cargoId) && c.activo !== false).map(c => c.laborId);
+}
+
+// Comprobación completa de elegibilidad v2: labor base + restricciones +
+// excepciones + capacidades por cargo. Devuelve { eligible, motivo }.
+export function isEligibleV2(p, labore, { restricciones = [], excepciones = [], capacidades = [] } = {}) {
+  const lista = ALIASES_LABORE[labore] || [labore];
+  const base = Array.isArray(p.labores) && p.labores.length > 0 && lista.some(l => p.labores.includes(l));
+  if (!base) {
+    // Verificar si el cargo otorga esta capacidad
+    const cargoCaps = (Array.isArray(p.cargos) ? p.cargos : []).flatMap(c => cargoCapacities(c, capacidades));
+    if (!cargoCaps.includes(labore)) return { eligible: false, motivo: 'No tiene la labor requerida ni capacidad por cargo.' };
+  }
+  if (!laboreAllowedForPerson(p, labore)) return { eligible: false, motivo: 'Restricción de género.' };
+  if (hasRestriction(p.id, labore, restricciones)) return { eligible: false, motivo: 'Restricción permanente registrada.' };
+  const exc = hasException(p.id, labore, excepciones);
+  if (exc && exc.tipo === 'restringir') return { eligible: false, motivo: 'Excepción individual: restringido para esta labor.' };
+  return { eligible: true, motivo: exc && exc.tipo === 'autorizar' ? 'Autorizado por excepción individual.' : '' };
+}
+
 // Agrupación de las tarjetas de asignaciones (Congregación → Asignaciones).
 // `estudiantes` es un subgrupo dentro de "Entre semana".
 export const ASIGNACION_GRUPOS = [
@@ -1870,10 +1912,12 @@ export function campoFinLabore(campo) {
 // `ocupadosSemana`: opcional, Map sábado -> Set de personas ocupadas esa semana
 // (p. ej. acomodación y salidas) que no deben recibir la parte (E1/E2).
 export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, opts = {}) {
-  // `opts`: { historial, nombres } — historial: [{ personId, date, roleKey }] de
-  // asignaciones pasadas para priorizar a quien participó hace más tiempo.
+  // `opts`: { historial, nombres, restricciones, excepciones, capacidades }
   const historial = opts.historial || [];
   const nombres = opts.nombres || {};
+  const restricciones = opts.restricciones || [];
+  const excepciones = opts.excepciones || [];
+  const capacidades = opts.capacidades || [];
   const reporte = { asignados: 0, vacios: [], motivos: [], flexiones: [] };
   const rolPorPersona = {}; // personaId -> Set de partes ya usadas en el mes (E3)
   const enSemana = {};      // weekId -> Set de personas ya asignadas esa semana
@@ -1931,6 +1975,15 @@ export function automatizarEntreSemana(people, midweeks, ocupadosSemana = null, 
       ? people.filter(p => isStudentPerson(p) && readerLevelEligible(readerLevel, p.calificacion))
       : isStudentLabore(labore) ? people.filter(isStudentPerson) : peopleForLabore(people, labore);
     cand = cand.filter(p => laboreAllowedForPerson(p, labore));
+    // Modelo v2: filtrar por restricciones y excepciones
+    if (restricciones.length || excepciones.length) {
+      cand = cand.filter(p => {
+        if (hasRestriction(p.id, labore, restricciones)) return false;
+        const exc = hasException(p.id, labore, excepciones);
+        if (exc && exc.tipo === 'restringir') return false;
+        return true;
+      });
+    }
     // Orden de preferencia: calificación (estudiantes) → menor carga mensual →
     // última participación más antigua → nombre (estable).
     cand = cand.slice().sort((a, b) => {
@@ -2428,6 +2481,9 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
   const permId = opts.permanentConductorId ? String(opts.permanentConductorId) : '';
   const backupId = (opts.permanentConductorBackupId && String(opts.permanentConductorBackupId) !== permId) ? String(opts.permanentConductorBackupId) : '';
   const backupId2 = (opts.permanentConductorBackupId2 && String(opts.permanentConductorBackupId2) !== permId && String(opts.permanentConductorBackupId2) !== backupId) ? String(opts.permanentConductorBackupId2) : '';
+  const restricciones = opts.restricciones || [];
+  const excepciones = opts.excepciones || [];
+  const capacidades = opts.capacidades || [];
 
   // Ocupados por SALIDAS (solo oradorSalida) — esto es lo que puede forzar al suplente.
   const ocupadosSalidas = {};
@@ -2510,7 +2566,17 @@ export function automatizarFinSemana(people, months, salidas, atencion, midweeks
     camposFinSemana(w).forEach(({ campo, labore }) => {
       if (w[campo]) return;
       if (campo === 'conductor' && (permId || backupId || backupId2)) return;
-      const p = peopleForLabore(people, labore)
+      let cands = peopleForLabore(people, labore);
+      // Modelo v2: filtrar por restricciones y excepciones
+      if (restricciones.length || excepciones.length) {
+        cands = cands.filter(p => {
+          if (hasRestriction(p.id, labore, restricciones)) return false;
+          const exc = hasException(p.id, labore, excepciones);
+          if (exc && exc.tipo === 'restringir') return false;
+          return true;
+        });
+      }
+      const p = cands
         .filter(x => !ocup.has(String(x.id)) && !((cargoMes[String(x.id)] || new Set()).has(campo)))
         .sort((a, b) => (cargoMes[String(a.id)] || new Set()).size - (cargoMes[String(b.id)] || new Set()).size)[0];
       if (!p) { reporte.vacios.push({ semana: sat, labore: campo }); return; }
