@@ -146,6 +146,15 @@ export function isAdmin() {
   return !!_currentUser && _currentUser.rol === 'admin';
 }
 
+// Vincula (o desvincula, con id vacío) la cuenta actual con una ficha de
+// participante (Persona). Solo actualiza el estado en cliente; la persistencia
+// en Supabase la hace quien llame (p. ej. guardarUsuario).
+export function setCurrentPersonaId(id) {
+  if (!_currentUser) return;
+  _currentUser = { ..._currentUser, personaId: id ? String(id) : '' };
+  notifyListeners();
+}
+
 // Registra un listener que se invoca cuando cambia la sesión. Devuelve una
 // función para desregistrarlo.
 export function onAuthChange(listener) {

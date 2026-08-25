@@ -262,9 +262,49 @@ function tx(db, store, mode = 'readonly') {
 }
 
 const DEFAULT_CARGOS = [
-  { name: 'Publicador', nivel: 1 },
-  { name: 'Siervo Ministerial', nivel: 2 },
-  { name: 'Anciano', nivel: 3 },
+  { id: 'publicador',  name: 'Publicador',        nivel: 1 },
+  { id: 'ministerial', name: 'Siervo Ministerial', nivel: 2 },
+  { id: 'anciano',     name: 'Anciano',           nivel: 3 },
+];
+
+// Capaciadades que otorga cada cargo por defecto (laborId). Los publicadores
+// dependen siempre de las labores marcadas explícitamente; los cargos de
+// responsabilidad habilitan las labores de dirección que suelen desempeñar.
+const DEFAULT_CAPACIDADES = [
+  { cargoId: 'anciano',     laborId: 'presidente' },
+  { cargoId: 'anciano',     laborId: 'presidenteFin' },
+  { cargoId: 'anciano',     laborId: 'conductor1' },
+  { cargoId: 'anciano',     laborId: 'conductor2' },
+  { cargoId: 'anciano',     laborId: 'orador' },
+  { cargoId: 'anciano',     laborId: 'salida' },
+  { cargoId: 'anciano',     laborId: 'lector1' },
+  { cargoId: 'anciano',     laborId: 'lector2' },
+  { cargoId: 'anciano',     laborId: 'acomodador' },
+  { cargoId: 'anciano',     laborId: 'microf' },
+  { cargoId: 'anciano',     laborId: 'plataforma' },
+  { cargoId: 'anciano',     laborId: 'asignacion1' },
+  { cargoId: 'anciano',     laborId: 'asignacion2' },
+  { cargoId: 'anciano',     laborId: 'asignacion3' },
+  { cargoId: 'anciano',     laborId: 'asignacion4' },
+  { cargoId: 'anciano',     laborId: 'discursoInicial' },
+  { cargoId: 'anciano',     laborId: 'perlas' },
+  { cargoId: 'ministerial', laborId: 'presidente' },
+  { cargoId: 'ministerial', laborId: 'presidenteFin' },
+  { cargoId: 'ministerial', laborId: 'conductor1' },
+  { cargoId: 'ministerial', laborId: 'conductor2' },
+  { cargoId: 'ministerial', laborId: 'orador' },
+  { cargoId: 'ministerial', laborId: 'salida' },
+  { cargoId: 'ministerial', laborId: 'lector1' },
+  { cargoId: 'ministerial', laborId: 'lector2' },
+  { cargoId: 'ministerial', laborId: 'acomodador' },
+  { cargoId: 'ministerial', laborId: 'microf' },
+  { cargoId: 'ministerial', laborId: 'plataforma' },
+  { cargoId: 'ministerial', laborId: 'asignacion1' },
+  { cargoId: 'ministerial', laborId: 'asignacion2' },
+  { cargoId: 'ministerial', laborId: 'asignacion3' },
+  { cargoId: 'ministerial', laborId: 'asignacion4' },
+  { cargoId: 'ministerial', laborId: 'discursoInicial' },
+  { cargoId: 'ministerial', laborId: 'perlas' },
 ];
 
 function seedCargosIfEmpty(db) {
@@ -279,6 +319,24 @@ function seedCargosIfEmpty(db) {
           store.add({ ...c, activo: true, createdAt: now });
         }
       }
+    };
+  } catch (_) { /* ignore */ }
+}
+
+function seedCapacidadesIfEmpty(db) {
+  try {
+    const t = db.transaction([STORE_CARGOS, STORE_CAPACIDADES], 'readwrite');
+    const cargoStore = t.objectStore(STORE_CARGOS);
+    const capStore = t.objectStore(STORE_CAPACIDADES);
+    cargoStore.count().onsuccess = (ce) => {
+      if (ce.target.result === 0) return; // los cargos aún no existen
+      capStore.count().onsuccess = (pe) => {
+        if (pe.target.result > 0) return;
+        const now = Date.now();
+        for (const c of DEFAULT_CAPACIDADES) {
+          capStore.add({ ...c, activo: true, createdAt: now });
+        }
+      };
     };
   } catch (_) { /* ignore */ }
 }
@@ -1223,14 +1281,27 @@ export async function getCargo(id) {
 // ===== CAPACIDADES (cargo → labores que otorga) =====
 export async function listCapacidades() {
   const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  let all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  if (all.length === 0) {
+    const now = Date.now();
+    await commitSilent(STORE_CAPACIDADES, (store) => new Promise((resolve) => {
+      let pending = DEFAULT_CAPACIDADES.length;
+      if (pending === 0) return resolve();
+      const done = () => { pending--; if (pending === 0) resolve(); };
+      for (const c of DEFAULT_CAPACIDADES) {
+        const r = store.add({ ...c, activo: true, createdAt: now });
+        r.onsuccess = done; r.onerror = done;
+      }
+    }));
+    all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  }
   return all;
 }
 
 export async function listCapacidadesByCargo(cargoId) {
   const db = await openDB();
-  const idx = tx(db, STORE_CAPACIDADES).index('cargoId');
-  return reqToPromise(idx.getAll(cargoId));
+  const all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  return all.filter(c => String(c.cargoId) === String(cargoId));
 }
 
 export async function addCapacidad(cap) {
@@ -1248,12 +1319,12 @@ export async function deleteCapacidad(id) {
 
 export async function clearCapacidadesByCargo(cargoId) {
   const db = await openDB();
-  const idx = tx(db, STORE_CAPACIDADES, 'readwrite').index('cargoId');
-  const all = await reqToPromise(idx.getAll(cargoId));
+  const all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
+  const toDelete = all.filter(c => String(c.cargoId) === String(cargoId));
   return commit(STORE_CAPACIDADES, (store) => new Promise((resolve, reject) => {
-    let pending = all.length;
+    let pending = toDelete.length;
     if (pending === 0) return resolve();
-    for (const c of all) {
+    for (const c of toDelete) {
       const r = store.delete(c.id);
       r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
       r.onerror = () => reject(r.error);
@@ -1269,8 +1340,8 @@ export async function listExcepciones() {
 
 export async function listExcepcionesByPerson(personId) {
   const db = await openDB();
-  const idx = tx(db, STORE_EXCEPCIONES).index('personId');
-  return reqToPromise(idx.getAll(personId));
+  const all = await reqToPromise(tx(db, STORE_EXCEPCIONES).getAll());
+  return all.filter(e => String(e.personId) === String(personId));
 }
 
 export async function addExcepcion(exc) {
@@ -1294,8 +1365,8 @@ export async function listRestricciones() {
 
 export async function listRestriccionesByPerson(personId) {
   const db = await openDB();
-  const idx = tx(db, STORE_RESTRICCIONES).index('personId');
-  return reqToPromise(idx.getAll(personId));
+  const all = await reqToPromise(tx(db, STORE_RESTRICCIONES).getAll());
+  return all.filter(r => String(r.personId) === String(personId));
 }
 
 export async function addRestriccion(res) {
@@ -1319,14 +1390,14 @@ export async function listSpeakerTalks() {
 
 export async function listSpeakerTalksByPerson(personId) {
   const db = await openDB();
-  const idx = tx(db, STORE_SPEAKER_TALKS).index('personId');
-  return reqToPromise(idx.getAll(personId));
+  const all = await reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
+  return all.filter(s => String(s.personId) === String(personId));
 }
 
 export async function listSpeakerTalksByTalk(talkNum) {
   const db = await openDB();
-  const idx = tx(db, STORE_SPEAKER_TALKS).index('talkNum');
-  return reqToPromise(idx.getAll(talkNum));
+  const all = await reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
+  return all.filter(s => String(s.talkNum) === String(talkNum));
 }
 
 export async function addSpeakerTalk(st) {
@@ -1340,12 +1411,12 @@ export async function deleteSpeakerTalk(id) {
 
 export async function clearSpeakerTalksByPerson(personId) {
   const db = await openDB();
-  const idx = tx(db, STORE_SPEAKER_TALKS, 'readwrite').index('personId');
-  const all = await reqToPromise(idx.getAll(personId));
+  const all = await reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
+  const toDelete = all.filter(c => String(c.personId) === String(personId));
   return commit(STORE_SPEAKER_TALKS, (store) => new Promise((resolve, reject) => {
-    let pending = all.length;
+    let pending = toDelete.length;
     if (pending === 0) return resolve();
-    for (const c of all) {
+    for (const c of toDelete) {
       const r = store.delete(c.id);
       r.onsuccess = () => { pending--; if (pending === 0) resolve(); };
       r.onerror = () => reject(r.error);
@@ -1362,9 +1433,9 @@ export async function listAuditLog() {
 
 export async function listAuditLogByEntity(entity, entityId) {
   const db = await openDB();
-  const idx = tx(db, STORE_AUDIT_LOG).index('entity');
-  const all = await reqToPromise(idx.getAll(entity));
-  return entityId ? all.filter(e => e.entityId === entityId) : all;
+  const all = await reqToPromise(tx(db, STORE_AUDIT_LOG).getAll());
+  const filtered = all.filter(e => e.entity === entity);
+  return entityId ? filtered.filter(e => e.entityId === entityId) : filtered;
 }
 
 export async function addAuditEntry(entry) {

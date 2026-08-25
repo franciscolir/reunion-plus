@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { isSupabaseConfigured } from './supabase-config.js?v=217';
 import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones, obtenerUsuarios, guardarUsuario } from './supabase.js?v=217';
 import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
-import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate } from './auth.js';
+import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate, setCurrentPersonaId } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf,
@@ -119,6 +119,10 @@ async function refreshCatalogs() {
   state.labores = (saved && Array.isArray(saved) && saved.length)
     ? saved
     : DEFAULT_LABORES.map(r => ({ ...r }));
+  state.cargos = await db.listCargos();
+  state.capacidades = await db.listCapacidades();
+  state.restricciones = await db.listRestricciones();
+  state.excepciones = await db.listExcepciones();
   // Incorpora labores nuevas de versiones recientes a instalaciones existentes
   // (solo añade las que faltan; no quita ni renombra las personalizadas).
   const idsGuardados = new Set(state.labores.map(r => r.id));
@@ -2750,11 +2754,17 @@ function rolLegible(labore) {
 }
 
 async function etapaEntreSemana(month) {
-  const [midweeks, log] = await Promise.all([db.listMidweeks(), db.listAssignmentLog()]);
+  const [midweeks, log, restricciones, excepciones, capacidades] = await Promise.all([
+    db.listMidweeks(), db.listAssignmentLog(), db.listRestricciones(), db.listExcepciones(), db.listCapacidades(),
+  ]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const historial = log.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') }));
   const nombres = Object.fromEntries(state.people.map(p => [String(p.id), invertName(p.name)]));
-  const out = runEngine(state.people, { midweeks: mwMes, months: [], salidas: [], atencion: [] }, { scope: 'entre', entreOpts: { historial, nombres } });
+  const out = runEngine(state.people, { midweeks: mwMes, months: [], salidas: [], atencion: [] }, {
+    scope: 'entre',
+    restricciones, excepciones, capacidades,
+    entreOpts: { historial, nombres },
+  });
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
   state.midweeks = await db.listMidweeks();
   const r = out.reportes.entre || { asignados: 0, vacios: [] };
@@ -2767,12 +2777,15 @@ async function etapaEntreSemana(month) {
 }
 
 async function etapaAtencion(month) {
-  const [midweeks, labores, months] = await Promise.all([db.listMidweeks(), db.listAtencion(), db.listMonths()]);
+  const [midweeks, labores, months, restricciones, excepciones, capacidades] = await Promise.all([
+    db.listMidweeks(), db.listAtencion(), db.listMonths(), db.listRestricciones(), db.listExcepciones(), db.listCapacidades(),
+  ]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const labMes = labores.filter(p => p.id === month);
   const mesMes = months.filter(m => m.id === month);
   const out = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: [], atencion: labMes }, {
     scope: 'labores',
+    restricciones, excepciones, capacidades,
     atencionOpts: { serviceRolesOnlyMale: (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false, months: mesMes },
   });
   // Las labores de entre semana se guardan en cada week.labores del midweek.
@@ -2787,11 +2800,14 @@ async function etapaAtencion(month) {
 }
 
 async function etapaFinSemana(month) {
-  const [midweeks, months, salidas, labores] = await Promise.all([
+  const [midweeks, months, salidas, labores, restricciones, excepciones, capacidades] = await Promise.all([
     db.listMidweeks(),
     db.listMonths(),
     db.listSalidas(),
     db.listAtencion(),
+    db.listRestricciones(),
+    db.listExcepciones(),
+    db.listCapacidades(),
   ]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const mesMes = months.filter(m => m.id === month);
@@ -2800,8 +2816,8 @@ async function etapaFinSemana(month) {
 
   // Primero se completan los vacíos de entre semana (con acomodación/salidas en
   // cuenta) y después fin de semana + salidas, que usan ese contexto (E1/E2).
-  const outEntre = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'entre' });
-  const out = runEngine(state.people, { midweeks: outEntre.midweeks, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'fin' });
+  const outEntre = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'entre', restricciones, excepciones, capacidades });
+  const out = runEngine(state.people, { midweeks: outEntre.midweeks, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'fin', restricciones, excepciones, capacidades });
 
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
   await Promise.all(out.months.map(m => db.putMonth(m)));
@@ -3159,8 +3175,9 @@ async function renderAlgoritmo() {
     btn.disabled = true;
     btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Generando…';
     try {
-      const [months, salidas, atencion, logMes] = await Promise.all([
+      const [months, salidas, atencion, logMes, restricciones, excepciones, capacidades] = await Promise.all([
         db.listMonths(), db.listSalidas(), db.listAtencion(), db.listAssignmentLog(),
+        db.listRestricciones(), db.listExcepciones(), db.listCapacidades(),
       ]);
       const faltSalidas = salidasFaltantes(salidas.filter(p => String(p.id) === month));
       if (faltSalidas.length) {
@@ -3190,6 +3207,7 @@ async function renderAlgoritmo() {
         atencion: atencion.filter(p => p.id === month),
         historial: logMes.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') })),
         nombres: Object.fromEntries(people.map(p => [String(p.id), invertName(p.name)])),
+        restricciones, excepciones, capacidades,
       };
       const props = generateProposals(input, a, s);
       const caja = $('#algoResults');
@@ -3687,6 +3705,14 @@ function renderWeeks() {
   const conflicts = computeConflicts(state.month);
   container.innerHTML = state.month.weeks.map((w, i) => weekCard(w, i, conflicts.perWeek[i] || {})).join('');
   container.querySelectorAll('[data-field]').forEach(bindFieldChange);
+  container.querySelectorAll('[data-estado]').forEach(sel => {
+    sel.onchange = () => {
+      const i = parseInt(sel.dataset.week, 10);
+      state.month.weeks[i].estado = sel.value;
+      const badge = container.querySelector(`[data-estado-badge="${i}"]`);
+      if (badge) badge.innerHTML = estadoBadge(sel.value);
+    };
+  });
   container.querySelectorAll('select[data-people]').forEach(fillPeople);
   container.querySelectorAll('[data-add-person]').forEach(b => {
     b.onclick = () => {
@@ -3757,6 +3783,10 @@ function weekCard(w, i, conflicts) {
           <span class="material-symbols-outlined text-[14px]">${WEEK_TYPES[w.type].icon}</span> ${WEEK_TYPES[w.type].label}
         </div>
         <div class="inline-block px-3 py-1 bg-primary text-on-primary font-label-md text-label-md rounded">${fullDate}</div>
+        <div class="mt-2 flex items-center gap-2">
+          <span data-estado-badge="${i}">${estadoBadge(w.estado)}</span>
+        </div>
+        <div class="mt-1">${estadoSelect(w.estado, `data-estado data-week="${i}"`)}</div>
       </div>
       <div class="flex-1 space-y-6" data-fields="${i}">${fieldsFor(w, i, conflicts)}</div>
     </div>
@@ -4164,6 +4194,7 @@ function weekCardList(w, i) {
         <div class="flex gap-2 items-center mb-3 flex-wrap">
           <span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana ${i + 1}</span>
           <span class="font-label-md text-label-md text-on-primary bg-primary px-3 py-1 rounded-full uppercase">${WEEK_TYPES[w.type].label}</span>
+          ${estadoBadge(w.estado)}
         </div>
         <h2 class="font-headline-lg text-headline-lg text-primary">${day} ${monthName}</h2>
       </div>
@@ -4187,9 +4218,10 @@ function previewTabla() {
     if (w.type === 'assembly' || w.type === 'commemoration') {
       const label = w.type === 'assembly' ? 'Asamblea' : 'Conmemoración';
       return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="${label}">
-        <div class="py-4">
-          <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
-        </div></td></tr>`;
+         <div class="py-4">
+           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
+           <div class="mt-2">${estadoBadge(w.estado)}</div>
+         </div></td></tr>`;
     }
     const grupoAseo = aseoGroupFor(w.date);
     const grupoId = grupoAseo || (w.departamento || '');
@@ -4225,7 +4257,7 @@ function previewTabla() {
     const big = w.type === 'assembly' || w.type === 'commemoration';
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
-      <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
+      <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div>${estadoBadge(w.estado)}</td>
       <td class="p-4 align-top ${highlight}" data-label="Presidente"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Discurso"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Orador"><div class="font-body-md text-body-md font-semibold ${big ? 'text-lg pt-3' : ''}">${cells.speaker}</div></td>
@@ -4505,18 +4537,48 @@ async function imageOutings() {
 }
 
 /* ---------- LISTAS: personas y grupos ---------- */
-// Cargos de congregación (nivel del participante). Todos son publicadores por defecto.
+// Cargos de congregación (nivel del participante). El catálogo vive en el store
+// `cargos` (db) y se carga en state.cargos; CARGOS es el respaldo por defecto.
 const CARGOS = [
-  { id: 'publicador',  label: 'Publicador',  nivel: 1 },
-  { id: 'ministerial', label: 'Siervo Ministerial', nivel: 2 },
-  { id: 'anciano',     label: 'Anciano',     nivel: 3 },
+  { id: 'publicador',  name: 'Publicador',  nivel: 1 },
+  { id: 'ministerial', name: 'Siervo Ministerial', nivel: 2 },
+  { id: 'anciano',     name: 'Anciano',     nivel: 3 },
 ];
+function catalogCargos() {
+  return (Array.isArray(state.cargos) && state.cargos.length) ? state.cargos : CARGOS;
+}
 function cargoOf(p) {
-  const c = Array.isArray(p.cargos) && p.cargos.length ? p.cargos[0] : 'publicador';
-  return CARGOS.find(x => x.id === c) || CARGOS[0];
+  const c = Array.isArray(p.cargos) && p.cargos.length ? p.cargos[0] : (p.cargo || 'publicador');
+  return catalogCargos().find(x => String(x.id) === String(c)) || CARGOS.find(x => x.id === 'publicador') || CARGOS[0];
 }
 function cargosOpts(cur) {
-  return CARGOS.map(c => `<option value="${c.id}" ${String(cur || 'publicador') === c.id ? 'selected' : ''}>${c.label}</option>`).join('');
+  return catalogCargos().map(c => `<option value="${c.id}" ${String(cur || 'publicador') === String(c.id) ? 'selected' : ''}>${escapeHtml(c.name || c.label || c.id)}</option>`).join('');
+}
+function cargosCheckboxes(selected) {
+  const sel = new Set((selected || []).map(String));
+  return catalogCargos().map(c => `
+    <label class="flex items-center gap-2 py-1.5 cursor-pointer">
+      <input type="checkbox" class="accent-primary" data-cargo="${escapeAttr(String(c.id))}" ${sel.has(String(c.id)) ? 'checked' : ''}>
+      <span class="font-body-md">${escapeHtml(c.name || c.label || c.id)}</span>
+    </label>`).join('');
+}
+
+function laborRestrChecks(set, disabled) {
+  const s = new Set(Array.from(set || []).map(String));
+  return state.labores.map(r => `
+    <label class="flex items-center gap-2 py-0.5 text-sm">
+      <input type="checkbox" data-rest="${escapeAttr(String(r.id))}" ${s.has(String(r.id)) ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+      <span>${escapeHtml(r.label || r.id)}</span>
+    </label>`).join('');
+}
+
+function laborExcepChecks(set, disabled) {
+  const s = new Set(Array.from(set || []).map(String));
+  return state.labores.map(r => `
+    <label class="flex items-center gap-2 py-0.5 text-sm">
+      <input type="checkbox" data-exc="${escapeAttr(String(r.id))}" ${s.has(String(r.id)) ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+      <span>${escapeHtml(r.label || r.id)}</span>
+    </label>`).join('');
 }
 
 const DEFAULT_LABORES = [
@@ -4539,6 +4601,27 @@ const DEFAULT_LABORES = [
   { id: 'discursoInicial', label: 'Discurso inicial Tesoros' },
   { id: 'perlas',       label: 'Perlas' },
 ];
+
+// Estados de una reunión (entre semana o fin de semana). Permiten marcar
+// semanas especiales sin borrar las asignaciones.
+const REUNION_ESTADOS = [
+  { id: 'normal',      label: 'Normal',      cls: 'bg-tertiary/15 text-tertiary',   icon: 'check_circle' },
+  { id: 'modificada',  label: 'Modificada',  cls: 'bg-warning/15 text-warning',     icon: 'edit' },
+  { id: 'cancelada',   label: 'Cancelada',   cls: 'bg-error/15 text-error',         icon: 'cancel' },
+  { id: 'trasladada',  label: 'Trasladada',  cls: 'bg-secondary/15 text-secondary', icon: 'swap_horiz' },
+  { id: 'reemplazada', label: 'Reemplazada', cls: 'bg-primary/15 text-primary',     icon: 'swap_vert' },
+];
+function estadoMeta(estado) {
+  return REUNION_ESTADOS.find(e => e.id === estado) || REUNION_ESTADOS[0];
+}
+function estadoBadge(estado) {
+  const m = estadoMeta(estado);
+  return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-label-md text-label-md ${m.cls}"><span class="material-symbols-outlined text-[16px]">${m.icon}</span>${m.label}</span>`;
+}
+function estadoSelect(estado, attrs = '') {
+  const opts = REUNION_ESTADOS.map(e => `<option value="${e.id}" ${e.id === estado ? 'selected' : ''}>${e.label}</option>`).join('');
+  return `<select ${attrs} class="bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">${opts}</select>`;
+}
 
 async function renderLists() {
   state.month = null;
@@ -4586,7 +4669,7 @@ async function renderLists() {
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">badge</span>
         <select id="pCargoFilter" class="w-full bg-surface-container-low border border-outline-variant rounded-full py-2 pl-10 pr-4 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-body-md font-body-md">
           <option value="">Todos los cargos</option>
-          ${CARGOS.map(c => `<option value="${c.id}">${c.label}</option>`).join('')}
+          ${catalogCargos().map(c => `<option value="${c.id}">${escapeHtml(c.name || c.label || c.id)}</option>`).join('')}
         </select>
       </div>
       <button data-admin class="whitespace-nowrap flex items-center justify-center gap-2 border ${state.listsShowInactive ? 'bg-secondary-container text-on-secondary-container border-secondary-container' : 'border-outline text-on-surface-variant'} px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-container-high transition-colors" id="toggleInactive">
@@ -4601,7 +4684,8 @@ async function renderLists() {
 
     <div class="mt-6 flex justify-between flex-wrap gap-3">
       <div class="flex flex-wrap gap-3">
-        ${(isDeptos || isAsig || isHist) ? `<button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores</button>` : ''}
+        ${(isDeptos || isAsig || isHist) ? `<button id="manageLaboresBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">manage_accounts</span> Gestionar Labores</button>
+        <button id="manageCargosBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">badge</span> Cargos y capacidades</button>` : ''}
         ${isGrupos ? `<button id="assignGroupBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">group</span> Asignar Grupos</button>
         <button id="manageGroupsBtn" data-admin class="bg-surface-container-low text-on-surface-variant px-4 py-2 rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-colors flex items-center gap-2"><span class="material-symbols-outlined text-[18px]">settings</span> Gestionar Grupos</button>` : ''}
       </div>
@@ -4616,6 +4700,8 @@ async function renderLists() {
   if (mgb) mgb.onclick = renderGruposConfigModal;
   const manageLaboresBtn = $('#manageLaboresBtn');
   if (manageLaboresBtn) manageLaboresBtn.onclick = renderLaboresModal;
+  const manageCargosBtn = $('#manageCargosBtn');
+  if (manageCargosBtn) manageCargosBtn.onclick = openCargosModal;
 
   if (isHist) { renderListsHistorial(); return; }
   if (isGrupos) { renderListsGrupos(); return; }
@@ -5370,11 +5456,11 @@ function personAttrsFields() {
           ${CALIFICACIONES.map(c => `<option value="${c}">${c}</option>`).join('')}
         </select>
       </div>
-      <div>
-        <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargo</label>
-        <select data-attr="cargo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-          ${cargosOpts('publicador')}
-        </select>
+      <div class="sm:col-span-2">
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargos</label>
+        <div id="mdCargos" class="rounded-lg border border-outline-variant bg-surface-bright p-3">
+          ${cargosCheckboxes([])}
+        </div>
       </div>
       <div>
         <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Fecha de nacimiento</label>
@@ -5403,11 +5489,12 @@ function readPersonAttrs() {
   const genero = (document.querySelector('[data-attr="genero"]') || {}).value || '';
   const calificacion = (document.querySelector('[data-attr="calificacion"]') || {}).value || '';
   const enlace = (document.querySelector('[data-attr="enlace"]') || {}).value || '';
-  const cargo = (document.querySelector('[data-attr="cargo"]') || {}).value || 'publicador';
+  const cargos = Array.from(document.querySelectorAll('#mdCargos [data-cargo]:checked')).map(c => c.dataset.cargo);
+  const cargo = cargos.length ? cargos[0] : 'publicador';
   const nacimiento = (document.querySelector('[data-attr="nacimiento"]') || {}).value || '';
   const bautismo = (document.querySelector('[data-attr="bautismo"]') || {}).value || '';
   const precursorRegular = !!(document.querySelector('[data-attr="precursorRegular"]') || {}).checked;
-  return { genero, calificacion, enlace, cargo, nacimiento, bautismo, precursorRegular };
+  return { genero, calificacion, enlace, cargo, cargos: cargos.length ? cargos : ['publicador'], nacimiento, bautismo, precursorRegular };
 }
 
 // Aplica el enlace de pareja con la regla de direccionalidad:
@@ -5460,6 +5547,16 @@ async function openPersonProfile(person) {
   const p = { ...person };
   const userMode = isUserRole();
   p.labores = Array.isArray(p.labores) ? p.labores : [];
+  let restLabores = new Set();
+  let excLabores = new Set();
+  try {
+    const [restricRaw, excepRaw] = await Promise.all([
+      db.listRestriccionesByPerson(p.id),
+      db.listExcepcionesByPerson(p.id),
+    ]);
+    restLabores = new Set(restricRaw.filter(r => r.activo !== false).map(r => String(r.laborId)));
+    excLabores = new Set(excepRaw.filter(e => e.activo !== false && e.tipo === 'autorizar').map(e => String(e.laborId)));
+  } catch (_) { /* stores de v2 aún no disponibles */ }
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
   const genOpts = GENEROS.map(([v, l]) => `<option value="${v}" ${p.genero === v ? 'selected' : ''}>${l}</option>`).join('');
   const calOpts = CALIFICACIONES.map(c => `<option value="${c}" ${cal === c ? 'selected' : ''}>${c}${c === 'D' ? ' (enlace)' : ''}</option>`).join('');
@@ -5485,9 +5582,12 @@ async function openPersonProfile(person) {
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Calificación</label>
            <select id="pfCalif" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${calOpts}</select>
           </div>
-          <div>
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargo</label>
-            <select id="pfCargo" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${cargosOpts(cargoOf(p).id)}</select>
+          <div class="sm:col-span-3">
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargos</label>
+            <div id="pfCargos" class="rounded-lg border border-outline-variant bg-surface-bright p-3 ${userMode ? 'opacity-60 pointer-events-none' : ''}">
+              ${cargosCheckboxes(p.cargos)}
+            </div>
+            <p class="text-on-surface-variant text-caption mt-1">Los cargos determinan las labores que la persona puede desempeñar (capacidades).</p>
           </div>
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Fecha de nacimiento</label>
@@ -5518,9 +5618,31 @@ async function openPersonProfile(person) {
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores asignadas</label>
           <div id="pfLabores">${laborCols}</div>
         </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="rounded-lg border border-outline-variant bg-surface-bright p-3">
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Restricciones (no puede)</label>
+            <p class="text-on-surface-variant text-caption mb-2">Marque las labores que esta persona no debe desempeñar.</p>
+            <div class="grid grid-cols-2 gap-x-3 max-h-44 overflow-y-auto">${laborRestrChecks(restLabores, userMode)}</div>
+          </div>
+          <div class="rounded-lg border border-outline-variant bg-surface-bright p-3">
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Excepciones (autorizar)</label>
+            <p class="text-on-surface-variant text-caption mb-2">Autorice labores que normalmente no podría hacer.</p>
+            <div class="grid grid-cols-2 gap-x-3 max-h-44 overflow-y-auto">${laborExcepChecks(excLabores, userMode)}</div>
+          </div>
+        </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Historial de asignaciones</label>
           <div id="pfHistory" class="max-h-52 overflow-y-auto rounded-lg border border-outline-variant bg-surface-bright px-3">Cargando…</div>
+        </div>
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Discursos que puede dar (conferencias)</label>
+          <div class="flex gap-2 mb-2">
+            <select id="pfTalkSelect" ${userMode ? 'disabled' : ''} class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+              ${(state.talks || []).slice().sort((a, b) => Number(a.num) - Number(b.num)).map(t => `<option value="${escapeAttr(String(t.num))}">${t.num} · ${escapeHtml(t.title)}</option>`).join('') || '<option value="">Sin discursos</option>'}
+            </select>
+            <button id="pfTalkAdd" ${userMode ? 'disabled' : ''} class="px-4 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Agregar</button>
+          </div>
+          <div id="pfTalks" class="space-y-2 max-h-44 overflow-y-auto"></div>
         </div>
       </div>
       <div class="flex gap-3 justify-end mt-5">
@@ -5530,6 +5652,33 @@ async function openPersonProfile(person) {
     </div>`);
 
   $('#pfHistory').innerHTML = await personHistoryMarkup(p.id);
+
+  let selTalkNums = new Set();
+  try {
+    const st = await db.listSpeakerTalksByPerson(p.id);
+    selTalkNums = new Set(st.map(x => String(x.talkNum)));
+  } catch (_) { /* store de v2 aún no disponible */ }
+  const renderPfTalks = () => {
+    const cont = $('#pfTalks');
+    if (!cont) return;
+    const sorted = Array.from(selTalkNums).sort((a, b) => Number(a) - Number(b));
+    cont.innerHTML = sorted.map(num => {
+      const t = (state.talks || []).find(x => String(x.num) === String(num));
+      return `<div class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-outline-variant bg-surface-bright">
+        <span class="flex items-center gap-2 min-w-0"><span class="w-7 h-7 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${escapeHtml(String(num))}</span><span class="truncate font-body-md text-body-md">${escapeHtml(t ? t.title : 'Discurso ' + num)}</span></span>
+        ${userMode ? '' : `<button data-rmtalk="${escapeAttr(String(num))}" class="p-1.5 rounded-lg text-error hover:bg-error-container shrink-0" title="Quitar"><span class="material-symbols-outlined text-[18px]">close</span></button>`}
+      </div>`;
+    }).join('') || '<p class="text-on-surface-variant text-caption py-2">Sin discursos asignados.</p>';
+    cont.querySelectorAll('[data-rmtalk]').forEach(b => b.onclick = () => { selTalkNums.delete(String(b.dataset.rmtalk)); renderPfTalks(); });
+  };
+  const pfTalkAdd = $('#pfTalkAdd');
+  if (pfTalkAdd) pfTalkAdd.onclick = () => {
+    const sel = $('#pfTalkSelect');
+    if (!sel || !sel.value) return;
+    selTalkNums.add(String(sel.value));
+    renderPfTalks();
+  };
+  renderPfTalks();
 
   $('#pfLabores').querySelectorAll('.labor-chip').forEach(cb => cb.onclick = () => {
     if (cb.disabled) return;
@@ -5543,17 +5692,35 @@ const saveProfile = $('#pfSave');
     p.name = ($('#pfName').value || '').trim() || p.name;
     p.genero = $('#pfGenero').value;
     p.calificacion = $('#pfCalif').value;
-    p.cargo = $('#pfCargo').value;
-    p.cargos = [p.cargo];
+    const selCargos = Array.from(document.querySelectorAll('#pfCargos [data-cargo]:checked')).map(c => c.dataset.cargo);
+    p.cargos = selCargos.length ? selCargos : ['publicador'];
+    p.cargo = p.cargos[0];
     p.nacimiento = $('#pfNacimiento').value || '';
     p.bautismo = $('#pfBautismo').value || '';
     p.precursorRegular = $('#pfPrecursorRegular').checked === true;
     p.grupoId = $('#pfGrupo').value || '';
     p.labores = [...$('#pfLabores').querySelectorAll('.labor-chip.is-on')].map(c => c.dataset.plabore);
+    const checkedRest = new Set(Array.from(document.querySelectorAll('[data-rest]:checked')).map(c => String(c.dataset.rest)));
+    const checkedExc = new Set(Array.from(document.querySelectorAll('[data-exc]:checked')).map(c => String(c.dataset.exc)));
+    const restric = await db.listRestriccionesByPerson(p.id);
+    for (const r of restric) { if (!checkedRest.has(String(r.laborId))) await db.deleteRestriccion(r.id); }
+    for (const lab of checkedRest) { if (!restric.some(r => String(r.laborId) === lab)) await db.addRestriccion({ personId: p.id, laborId: lab, permanente: true }); }
+    const excep = (await db.listExcepcionesByPerson(p.id)).filter(e => e.tipo === 'autorizar');
+    for (const e of excep) { if (!checkedExc.has(String(e.laborId))) await db.deleteExcepcion(e.id); }
+    for (const lab of checkedExc) { if (!excep.some(e => String(e.laborId) === lab)) await db.addExcepcion({ personId: p.id, laborId: lab, tipo: 'autorizar' }); }
+    const antesTalks = new Set();
+    try {
+      const prev = await db.listSpeakerTalksByPerson(p.id);
+      prev.forEach(s => antesTalks.add(String(s.talkNum)));
+      await db.clearSpeakerTalksByPerson(p.id);
+      for (const num of selTalkNums) await db.addSpeakerTalk({ personId: p.id, talkNum: num });
+    } catch (_) { /* store de v2 aún no disponible */ }
     audit('people', p.id, 'name', before.name, p.name);
     audit('people', p.id, 'genero', before.genero, p.genero);
     audit('people', p.id, 'calificacion', before.calificacion, p.calificacion);
-    audit('people', p.id, 'cargo', before.cargo, p.cargo);
+    audit('people', p.id, 'cargos', JSON.stringify(before.cargos || []), JSON.stringify(p.cargos || []));
+    audit('people', p.id, 'restricciones', JSON.stringify([...restLabores]), JSON.stringify([...checkedRest]));
+    audit('people', p.id, 'excepciones', JSON.stringify([...excLabores]), JSON.stringify([...checkedExc]));
     audit('people', p.id, 'nacimiento', before.nacimiento, p.nacimiento);
     audit('people', p.id, 'bautismo', before.bautismo, p.bautismo);
     audit('people', p.id, 'precursorRegular', before.precursorRegular, p.precursorRegular);
@@ -5750,6 +5917,117 @@ function editLaboreModal(id) {
   $('#editRCancel').onclick = () => { closeModal(); renderLaboresModal(); };
   $('#editROk').onclick = save;
   $('#editRName').addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+}
+
+// Modal de gestión del catálogo de cargos y sus capacidades (cargo → labores).
+async function openCargosModal() {
+  const cargos = catalogCargos();
+  const caps = state.capacidades || [];
+  const capSet = new Set(caps.filter(c => c.activo !== false).map(c => `${c.cargoId}|${c.laborId}`));
+  const render = () => {
+    const cards = cargos.map(c => {
+      const checks = state.labores.map(r => `
+        <label class="flex items-center gap-2 py-0.5 text-sm">
+          <input type="checkbox" class="accent-primary" data-cap="${escapeAttr(String(c.id))}" data-lab="${escapeAttr(String(r.id))}" ${capSet.has(`${c.id}|${r.id}`) ? 'checked' : ''}>
+          <span>${escapeHtml(r.label || r.id)}</span>
+        </label>`).join('');
+      return `
+        <div class="rounded-lg border border-outline-variant bg-surface-bright p-4 mb-3" data-cargo-card="${escapeAttr(String(c.id))}">
+          <div class="flex items-center gap-2 mb-3">
+            <input data-cargo-name="${escapeAttr(String(c.id))}" value="${escapeAttr(c.name || c.id)}" class="flex-1 bg-surface-container-low border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+            <select data-cargo-nivel="${escapeAttr(String(c.id))}" class="bg-surface-container-low border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+              ${[1, 2, 3].map(n => `<option value="${n}" ${Number(c.nivel) === n ? 'selected' : ''}>Nivel ${n}</option>`).join('')}
+            </select>
+            <button data-cargo-del="${escapeAttr(String(c.id))}" class="px-3 py-2 rounded-lg border border-error/50 text-error font-label-md text-label-md hover:bg-error-container/30">Eliminar</button>
+          </div>
+          <p class="text-on-surface-variant text-caption mb-1">Labores que este cargo habilita:</p>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4">${checks}</div>
+        </div>`;
+    }).join('');
+    openModal(`
+      <div>
+        <div class="flex items-start gap-3 mb-4">
+          <span class="material-symbols-outlined text-4xl text-primary">badge</span>
+          <div>
+            <h3 class="font-headline-md text-headline-md text-primary">Cargos y capacidades</h3>
+            <p class="text-on-surface-variant font-body-md text-body-md">Defina los cargos de la congregación y las labores que cada uno habilita. Quien tenga un cargo podrá ser asignado a esas labores aunque no las tenga marcadas explícitamente.</p>
+          </div>
+        </div>
+        <div id="cargosList" class="max-h-[55vh] overflow-y-auto pr-1">${cards || '<p class="text-on-surface-variant text-sm">Sin cargos.</p>'}</div>
+        <div class="mt-4 rounded-lg border border-dashed border-outline-variant p-3">
+          <p class="font-label-md text-label-md text-on-surface-variant mb-2">Agregar cargo</p>
+          <div class="flex gap-2">
+            <input id="newCargoName" type="text" placeholder="Nombre (p. ej. Anciano auxiliar)" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+            <select id="newCargoNivel" class="bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+              <option value="1">Nivel 1</option>
+              <option value="2">Nivel 2</option>
+              <option value="3">Nivel 3</option>
+            </select>
+            <button id="newCargoAdd" class="px-5 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
+          </div>
+        </div>
+        <div class="flex justify-end mt-4">
+          <button id="cargosClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+        </div>
+      </div>`);
+
+    const refresh = async () => {
+      state.cargos = await db.listCargos();
+      state.capacidades = await db.listCapacidades();
+    };
+
+    $('#cargosList').querySelectorAll('[data-cap]').forEach(cb => {
+      cb.onchange = async () => {
+        const cargoId = cb.dataset.cap, laborId = cb.dataset.lab;
+        if (cb.checked) {
+          await db.addCapacidad({ cargoId, laborId, label: (state.labores.find(r => String(r.id) === String(laborId)) || {}).label || '' });
+        } else {
+          const found = (state.capacidades || []).find(c => String(c.cargoId) === String(cargoId) && String(c.laborId) === String(laborId));
+          if (found) await db.deleteCapacidad(found.id);
+        }
+        await refresh();
+      };
+    });
+
+    $('#cargosList').querySelectorAll('[data-cargo-name]').forEach(inp => {
+      inp.addEventListener('change', async () => {
+        const id = inp.dataset.cargoName;
+        const cargo = state.cargos.find(c => String(c.id) === String(id));
+        if (!cargo) return;
+        await db.updateCargo({ ...cargo, name: inp.value.trim() || cargo.name });
+        await refresh();
+      });
+    });
+    $('#cargosList').querySelectorAll('[data-cargo-nivel]').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const id = sel.dataset.cargoNivel;
+        const cargo = state.cargos.find(c => String(c.id) === String(id));
+        if (!cargo) return;
+        await db.updateCargo({ ...cargo, nivel: Number(sel.value) || 1 });
+        await refresh();
+      });
+    });
+    $('#cargosList').querySelectorAll('[data-cargo-del]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.dataset.cargoDel;
+        if (!confirm('¿Eliminar este cargo? Las capacidades asociadas también se quitarán.')) return;
+        await db.clearCapacidadesByCargo(id);
+        await db.deleteCargo(id);
+        await refresh();
+        openCargosModal();
+      };
+    });
+
+    $('#newCargoAdd').onclick = async () => {
+      const name = ($('#newCargoName').value || '').trim();
+      if (!name) { toast('Escriba un nombre', 'error'); return; }
+      await db.addCargo({ name, nivel: Number($('#newCargoNivel').value) || 1 });
+      await refresh();
+      openCargosModal();
+    };
+    $('#cargosClose').onclick = () => { closeModal(); refreshCatalogs().then(renderLists).catch(() => {}); };
+  };
+  render();
 }
 
 /* ---------- UPLOADS: carga de archivos para completar la base de datos ---------- */
@@ -6152,11 +6430,20 @@ async function openDepartmentsListModal() {
 // Lista de discursos con añadir/editar/eliminar.
 async function openTalksListModal() {
   const talks = [...state.talks].sort((a, b) => Number(a.num) - Number(b.num));
+  let speakerByTalk = {};
+  try {
+    const st = await db.listSpeakerTalks();
+    speakerByTalk = st.reduce((acc, s) => { (acc[String(s.talkNum)] ||= []).push(s.personId); return acc; }, {});
+  } catch (_) { /* store de v2 aún no disponible */ }
+  const oradoresDe = (num) => (speakerByTalk[String(num)] || []).map(id => personNameOf(id)).filter(Boolean);
   const body = talks.map(t => `
     <li class="flex items-center justify-between gap-3 py-2.5 border-b border-outline-variant/40 group">
       <div class="flex items-center gap-3 min-w-0">
         <span class="w-8 h-8 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-label-md text-label-md font-bold shrink-0">${t.num}</span>
-        <p class="font-body-md text-body-md truncate">${escapeHtml(t.title)}</p>
+        <div class="min-w-0">
+          <p class="font-body-md text-body-md truncate">${escapeHtml(t.title)}</p>
+          <p class="text-caption text-on-surface-variant truncate">Oradores: ${oradoresDe(t.num).join(', ') || '—'}</p>
+        </div>
       </div>
       <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
         <button data-tedit="${t.num}" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-variant" title="Editar"><span class="material-symbols-outlined text-[18px]">edit</span></button>
@@ -6597,6 +6884,25 @@ async function renderSettings() {
         </div>
       </div>
 
+      <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6">
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary mb-1">Mi perfil de persona</h3>
+          <p class="text-on-surface-variant text-sm">Vincula tu cuenta de usuario con una ficha de participante para identificar tus asignaciones y datos personales.</p>
+        </div>
+        ${isAuthenticated() ? `
+        <div>
+          <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Persona asociada</label>
+          <select id="cfgPersonaId" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            ${personasOptions(null, currentUser().personaId)}
+          </select>
+          <p class="text-on-surface-variant text-caption mt-1">Elige qué ficha de participante corresponde a tu usuario. Deja en «—» para desvincular.</p>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button id="cfgPersonaSave" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Guardar vinculación</button>
+        </div>
+        ` : `<p class="text-on-surface-variant text-sm">Inicia sesión para vincular tu cuenta con una ficha de participante.</p>`}
+      </div>
+
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 space-y-6" data-admin>
         <div>
           <h3 class="font-headline-md text-headline-md text-primary mb-1">Acceso de usuarios</h3>
@@ -6745,6 +7051,17 @@ async function renderSettings() {
     await db.setConfig(cfg);
     state.config = cfg;
     toast('Configuración guardada', 'success');
+  };
+
+  // ---- Mi perfil de persona: vincular cuenta con ficha de participante ----
+  const cfgPersonaSave = $('#cfgPersonaSave');
+  if (cfgPersonaSave) cfgPersonaSave.onclick = async () => {
+    const id = ($('#cfgPersonaId').value || '').trim();
+    try {
+      await guardarUsuario(currentUser().uid, { personaId: id });
+      setCurrentPersonaId(id);
+      toast('Vinculación guardada', 'success');
+    } catch (e) { toast(e.message || 'No se pudo guardar la vinculación', 'error'); }
   };
 
   // ---- Acceso de usuarios: guardar whitelist de correos ----
@@ -7842,6 +8159,8 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
       <div class="flex items-center gap-2 flex-wrap">
         ${dashboard ? `<button data-home-week-prev class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed disabled:opacity-40 disabled:cursor-not-allowed" title="Semana anterior" ${homeWeekOffset === 0 ? 'disabled' : ''}><span class="material-symbols-outlined">chevron_left</span></button>` : ''}
         <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
+        ${mw ? estadoBadge(mw.estado) : ''}
+        ${fin ? estadoBadge(fin.estado) : ''}
         ${dashboard ? `<button data-home-week-next class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed" title="Semana siguiente"><span class="material-symbols-outlined">chevron_right</span></button>${isUserRole() ? `<button data-home-week-img class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Descargar imagen de esta semana"><span class="material-symbols-outlined text-[16px]">image</span> Imagen</button>` : ''}` : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
           <span class="material-symbols-outlined text-[16px]">image</span> Imagen
         </button>`}
@@ -8351,10 +8670,14 @@ async function renderMidweek(id) {
   app.innerHTML = `
     <div class="flex items-center gap-3 mb-2">
       <button data-back class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary rounded-full">arrow_back</button>
-      <div>
-        <h1 class="font-headline-lg text-headline-lg text-primary">${escapeHtml(week.header)}</h1>
-        <p class="text-on-surface-variant font-label-md">Lectura bíblica: ${escapeHtml(week.reading || '—')}</p>
-      </div>
+       <div>
+         <h1 class="font-headline-lg text-headline-lg text-primary">${escapeHtml(week.header)}</h1>
+         <p class="text-on-surface-variant font-label-md">Lectura bíblica: ${escapeHtml(week.reading || '—')}</p>
+         <div class="flex items-center gap-2 mt-2">
+           <span>${estadoBadge(week.estado)}</span>
+           ${estadoSelect(week.estado, 'id="mwEstado"')}
+         </div>
+       </div>
     </div>
     <div id="mwCross" class="mt-4"></div>
     <div id="mwEditor" class="mt-6 space-y-6" data-mwid="${escapeAttr(id)}"></div>
@@ -8365,6 +8688,8 @@ async function renderMidweek(id) {
   `;
   $('[data-back]').onclick = () => go('midweeks');
   $('#mwPreviewBtn').onclick = () => go('midweekPreview', { monthId: id });
+  const mwEstado = $('#mwEstado');
+  if (mwEstado) mwEstado.onchange = () => { week.estado = mwEstado.value; };
 
   const editor = $('#mwEditor');
   const presOpts = ['<option value="">— Sin asignar —</option>'];
@@ -8480,6 +8805,7 @@ async function renderMidweek(id) {
     week.labores = ensureAtencion(week).labores;
     const presSel = editor.querySelector('select[data-mw-presidente]');
     if (presSel) week.presidente = presSel.value;
+    if (!week.estado) week.estado = 'normal';
     // Envolver en formato {id, src, locked}: lo cambiado → MANUAL; lo no tocado
     // conserva su origen (las asignaciones AUTO no se pierden al editar a mano).
     const stored = await db.getMidweek(id);
@@ -8622,6 +8948,7 @@ async function renderMidweekPreview(id) {
       <div class="flex items-center gap-3">
         <button data-back class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary rounded-full">arrow_back</button>
         <h1 class="font-headline-lg text-headline-lg text-primary">Vista Final · ${escapeHtml(week.header)}</h1>
+        <div class="ml-1">${estadoBadge(week.estado)}</div>
       </div>
       <div class="flex gap-2">
         <button id="mwPrint" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95">
@@ -8815,6 +9142,7 @@ function compactWeekCard(w) {
       <div class="font-bold text-sm text-gray-800">${escapeHtml(w.header)}</div>
       <div class="text-[10px] text-gray-600">${escapeHtml(w.reading || '')}</div>
       <div class="text-[10px] text-gray-600">Presidente: <b>${escapeHtml(personNameOf(w.presidente))}</b></div>
+      <div class="mt-0.5"><span class="inline-block px-2 py-[1px] rounded-full text-[9px] font-semibold" style="background:${estadoMeta(w.estado).cls.includes('error') ? '#fee' : estadoMeta(w.estado).cls.includes('warning') ? '#fff4e0' : estadoMeta(w.estado).cls.includes('secondary') ? '#eef6ff' : estadoMeta(w.estado).cls.includes('primary') ? '#eaf2ff' : '#eef7ee'};color:${estadoMeta(w.estado).cls.includes('error') ? '#b00' : estadoMeta(w.estado).cls.includes('warning') ? '#9a6700' : estadoMeta(w.estado).cls.includes('secondary') ? '#1d4ed8' : estadoMeta(w.estado).cls.includes('primary') ? '#1e40af' : '#2e7d32'}">${estadoMeta(w.estado).label}</span></div>
       <div class="text-[9px] text-gray-500 mt-0.5">♪ Canción ${escapeHtml(introSong || '')} y oración · ${escapeHtml(w.introTitle || 'Palabras de introducción')} (${w.introMins || 1} min.)</div>
     </div>
     ${section((w.sections || []).find(s => s.id === 'tesoros'), '#0f7685')}
