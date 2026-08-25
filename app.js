@@ -4314,7 +4314,7 @@ function previewTabla() {
     const big = w.type === 'assembly' || w.type === 'commemoration';
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
-      <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div>${"hola"+estadoBadge(w.estado)}</td>
+      <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Presidente"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Discurso"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Orador"><div class="font-body-md text-body-md font-semibold ${big ? 'text-lg pt-3' : ''}">${cells.speaker}</div></td>
