@@ -53,7 +53,7 @@ GUIA-DESPLIEGUE.md  Documentación de despliegue (Supabase + GitHub Pages)
 | `assignment_log` | `id` (compuesto) | Historial de asignaciones |
 | `activity` | `id` ("YYYY-MM") | Informes de actividad (campo: estado pendiente/borrador/enviado) |
 | `attendance` | `id` ("YYYY") | Asistencia por semana |
-| `arrangements` | `id` ("YYYY-MM") | Intercambios con congregaciones externas |
+| `arrangements` | `id` (congregación, p.ej. `c<timestamp>`) | Intercambios con congregaciones externas; `years` = { "YYYY": { month, contact, phone, notes, localSpeakers[] } }, `fijo` repite el mes |
 | `cargos` | `id` (auto) | Catálogo de cargos (anciano, ministerial, publicador, etc.) |
 | `capacidades` | `id` (auto) | Cargo → labores que otorga (index: cargoId) |
 | `excepciones` | `id` (auto) | Persona → capacidad extra/restringida (index: personId) |

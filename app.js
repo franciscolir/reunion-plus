@@ -524,7 +524,7 @@ function router() {
     case 'algoritmo': renderAlgoritmo(); break;
     case 'settings': renderSettings(); break;
     case 'informes': renderInformes(); break;
-    case 'exchangeannual': renderExchangeAnnual(); break;
+
     case 'grupo': renderGroupSummary(); break;
     case 'about':    renderAbout(); break;
     default:         renderHome();
@@ -795,7 +795,7 @@ async function renderInformes() {
   else if (tab === 'asistencia') body = await renderAttendanceTab();
   else if (tab === 'arreglos') body = await renderArrangementsTab();
   else body = await renderFormsTab();
-  const showMonth = tab === 'actividad' || tab === 'arreglos';
+  const showMonth = tab === 'actividad';
   const app = $('#app');
   app.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Informes</h1><p class="text-on-surface-variant font-body-lg">Actividad, asistencia y arreglos de la congregación.</p></div>
     <div class="mb-5 flex flex-wrap items-center gap-3">
@@ -1121,27 +1121,64 @@ async function bindAttendanceTab() {
   if (sv) sv.onclick = () => toast('Asistencia guardada', 'success');
 }
 
+async function migrateArrangementsToCongregations() {
+  const all = await db.listArrangements();
+  const old = all.filter(r => typeof r.id === 'string' && /^\d{4}-\d{2}$/.test(r.id));
+  if (!old.length) return;
+  const byName = new Map();
+  for (const r of old) {
+    const name = (r.congregation || '').trim();
+    if (!name) continue;
+    const year = r.id.slice(0, 4);
+    const month = parseInt(r.id.slice(5, 7), 10) - 1;
+    let c = byName.get(name);
+    if (!c) { c = { id: 'c' + Date.now() + Math.random().toString(36).slice(2, 7), congregation: name, fijo: !!r.fijo, years: {} }; byName.set(name, c); }
+    c.years[year] = { month, contact: r.contact || '', phone: r.phone || '', notes: r.notes || '', localSpeakers: Array.isArray(r.localSpeakers) ? r.localSpeakers : [] };
+  }
+  for (const r of old) await db.deleteArrangements(r.id);
+  for (const c of byName.values()) await db.putArrangements(c);
+}
+
 async function renderArrangementsTab() {
-  const months = serviceYearMonths(currentServiceYear());
-  const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : months[0];
-  const nextM = addMonths(month, 1);
-  const arr = await db.getArrangements(month) || { id: month, congregation: '', contact: '', phone: '', notes: '', localSpeakers: [] };
-  const arrNext = await db.getArrangements(nextM) || { id: nextM, congregation: '', contact: '', phone: '', notes: '', localSpeakers: [] };
+  await migrateArrangementsToCongregations();
+  const cur = new Date().getFullYear();
+  const years = [cur, cur + 1];
+  const congs = (await db.listArrangements()).slice().sort((a, b) => (a.congregation || '').localeCompare(b.congregation || ''));
+  const yearHeaders = years.map(y => `<th class="py-3 px-3 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center w-24">${y}</th>`).join('');
+  const rows = congs.length ? congs.map(c => {
+    const yearCells = years.map(y => {
+      const yr = (c.years && c.years[String(y)]) || {};
+      const mIdx = typeof yr.month === 'number' ? yr.month : null;
+      const badge = mIdx != null ? `<span class="inline-block bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[12px] font-semibold">${MONTHS_ES[mIdx].slice(0, 3)}</span>` : '<span class="text-on-surface-variant">—</span>';
+      const fijo = c.fijo ? ' <span class="ml-0.5 inline-flex items-center px-1 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">FIJO</span>' : '';
+      return `<td class="py-3 px-3 text-center cursor-pointer hover:bg-surface-container-low transition-colors" data-arr-year="${c.id}|${y}">${badge}${fijo}</td>`;
+    }).join('');
+    return `<tr class="border-b border-outline-variant/30 hover:bg-surface-container-lowest transition-colors">
+      <td class="py-3 px-4"><button class="text-left font-medium text-primary hover:underline font-label-md" data-arr-cong="${c.id}">${escapeHtml(c.congregation || 'Sin nombre')}</button>
+        <div class="flex gap-3 mt-1 ml-0.5"><button class="text-caption text-on-surface-variant hover:text-primary" data-arr-edit="${c.id}">Editar</button><button class="text-caption text-error hover:underline" data-arr-del="${c.id}">Eliminar</button></div></td>
+      ${yearCells}
+    </tr>`;
+  }).join('') : `<tr><td colspan="${years.length + 1}" class="py-10 text-center text-on-surface-variant">No hay congregaciones registradas. Usa «Agregar congregación».</td></tr>`;
+  return `
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <h2 class="font-headline-md text-headline-md text-primary">Arreglos</h2>
+      <button id="addCong" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-on-primary hover:opacity-90 transition-opacity font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">add</span> Agregar congregación</button>
+    </div>
+    <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-gutter">
+      <div class="p-5 border-b border-outline-variant/30 bg-surface-bright"><h3 class="font-headline-md text-[20px] text-primary font-bold">Congregaciones de intercambio</h3><p class="font-body-md text-on-surface-variant text-[14px]">Cada fila es una congregación; las columnas son los años. Pulsa el nombre o un año para ver el detalle.</p></div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse min-w-[520px]">
+          <thead class="bg-surface-container-lowest sticky top-0 z-10 shadow-sm"><tr class="border-b border-outline-variant"><th class="py-3 px-4 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Congregación</th>${yearHeaders}</tr></thead>
+          <tbody class="font-body-md text-[14px] text-on-surface divide-y divide-outline-variant/30">${rows}</tbody>
+        </table>
+      </div>
+    </section>
+    ${await renderTalkCatalogSection()}`;
+}
+
+async function renderTalkCatalogSection() {
   const allArr = await db.listArrangements();
   const ranking = computeTalkRanking(allArr);
-  const oradoresSalida = state.people.filter(p => p.activo !== false && laboreEligible(p, 'salida'));
-  const localRows = (arr.localSpeakers || []).map((ls, i) => `
-    <li class="group flex items-start justify-between p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-transparent hover:border-outline-variant/50">
-      <div><p class="font-label-md text-label-md text-on-surface mb-2 group-hover:text-primary transition-colors">${escapeHtml(ls.speaker || 'Orador')}</p>
-      <div class="flex flex-wrap gap-2">${String(ls.num).split(',').map(n => `<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold">${escapeHtml(n.trim())}</span>`).join('')}</div></div>
-      <button data-local-remove="${i}" class="opacity-0 group-hover:opacity-100 transition-opacity text-outline hover:text-primary p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
-    </li>`).join('');
-  const salidaRows = oradoresSalida.map(p => `
-    <li class="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-speaker-card="${p.id}">
-      <div class="w-8 h-8 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-sm">${escapeHtml(((p.name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('')).toUpperCase())}</div>
-      <div class="flex-1 min-w-0"><p class="font-body-md text-body-md font-medium text-on-surface truncate hover:text-primary transition-colors">${escapeHtml(p.name)}</p></div>
-      <span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap">Orador de salida</span>
-    </li>`).join('');
   const rankMap = {};
   ranking.forEach(r => rankMap[String(r.num)] = r);
   const talkRows = (state.talks || []).map(t => {
@@ -1160,69 +1197,30 @@ async function renderArrangementsTab() {
       <td class="py-4 px-6"><div class="flex justify-center items-center">${badge}</div></td>
     </tr>`;
   }).join('');
-  const exchangeCard = (m, a, isNext) => {
-    const mLabel = `${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}`;
-    const cong = a.congregation || 'Sin asignar';
-    const hasData = a.congregation || a.contact || a.phone;
-    return `<div class="bg-surface-container-lowest rounded-xl border ${hasData ? 'border-primary/30' : 'border-outline-variant'} shadow-sm overflow-hidden relative cursor-pointer hover:shadow-md hover:border-primary/50 transition-all group" data-exchange-card="${m}">
-      <div class="absolute left-0 top-0 bottom-0 w-1 ${hasData ? 'bg-primary' : 'bg-outline-variant'}"></div>
-      <div class="p-5 pl-6">
-        <div class="flex justify-between items-start mb-3">
-          <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined text-primary text-[20px]">swap_horiz</span>
-            <h4 class="font-headline-md text-[16px] text-primary font-bold">${isNext ? 'Proximo mes' : 'Mes actual'}</h4>
-          </div>
-          <span class="bg-secondary-container text-on-secondary-container px-2.5 py-0.5 rounded-full font-label-md text-[11px] uppercase tracking-wider">${mLabel}</span>
-        </div>
-        <p class="font-body-md text-body-md text-on-surface mb-1">${escapeHtml(cong)}</p>
-        ${hasData ? `<p class="text-caption text-outline">${a.contact ? escapeHtml(a.contact) : ''}${a.phone ? ' · ' + escapeHtml(a.phone) : ''}</p>` : '<p class="text-caption text-outline">Pulsa para configurar</p>'}
-        <div class="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <span class="material-symbols-outlined text-outline">chevron_right</span>
-        </div>
-      </div>
-    </div>`;
-  };
-  return `<div class="flex items-center justify-between gap-3 mb-4"><h2 class="font-headline-md text-headline-md text-primary">Arreglos</h2><select id="arrMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md">${months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}</select></div>
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
-      <div class="lg:col-span-4 flex flex-col gap-gutter">
-        <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden relative"><div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
-          <div class="p-6">
-            <div class="flex justify-between items-start mb-4"><h3 class="font-headline-md text-[20px] text-primary font-bold">Intercambio Mensual</h3><button id="annualExchangeBtn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors font-label-md text-[12px]"><span class="material-symbols-outlined text-[16px]">calendar_month</span> Gestionar</button></div>
-            <div class="flex flex-col gap-3">
-              ${exchangeCard(month, arr, false)}
-              ${exchangeCard(nextM, arrNext, true)}
-            </div>
-          </div>
-        </section>
-        <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm flex-1 flex flex-col min-h-[400px]">
-          <div class="p-6 border-b border-outline-variant/30 flex justify-between items-center bg-surface-bright rounded-t-xl"><h2 class="font-headline-md text-[20px] text-primary font-bold">Oradores Locales</h2><button id="addLocal" class="text-primary hover:text-tertiary transition-colors"><span class="material-symbols-outlined">add_circle</span></button></div>
-          <div class="p-4 flex-1 overflow-y-auto"><ul id="localSpeakers" class="space-y-4">${salidaRows}${localRows}</ul></div>
-        </section>
-      </div>
-      <div class="lg:col-span-8">
-        <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm h-full flex flex-col">
-          <div class="p-6 border-b border-outline-variant/50 bg-surface-bright rounded-t-xl">
-            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6"><div><h2 class="font-headline-lg text-[28px] text-primary font-bold mb-1">Catálogo de Discursos</h2><p class="font-body-md text-on-surface-variant text-[14px]">Control y rotación de los ${state.talks.length} bosquejos públicos.</p></div></div>
-            <div class="relative"><span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span><input id="talkSearch" class="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg py-3 pl-10 pr-4 focus:outline-none focus:border-primary font-body-md text-[14px]" placeholder="Consulta por número, título o palabra clave..."/></div>
-          </div>
-          <div class="flex-1 overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-surface-container-lowest sticky top-0 z-10 shadow-sm"><tr class="border-b border-outline-variant"><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-20">Núm.</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título del Discurso</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-32">Última Vez</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center w-32">Ranking</th></tr></thead><tbody id="talkBody" class="font-body-md text-[14px] text-on-surface divide-y divide-outline-variant/30">${talkRows}</tbody></table></div>
-        </section>
-      </div>
-    </div>`;
+  return `<section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm h-full flex flex-col">
+    <div class="p-6 border-b border-outline-variant/50 bg-surface-bright rounded-t-xl">
+      <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6"><div><h2 class="font-headline-lg text-[28px] text-primary font-bold mb-1">Catálogo de Discursos</h2><p class="font-body-md text-on-surface-variant text-[14px]">Control y rotación de los ${state.talks.length} bosquejos públicos.</p></div></div>
+      <div class="relative"><span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span><input id="talkSearch" class="w-full bg-surface-container-low border border-outline-variant text-on-surface rounded-lg py-3 pl-10 pr-4 focus:outline-none focus:border-primary font-body-md text-[14px]" placeholder="Consulta por número, título o palabra clave..."/></div>
+    </div>
+    <div class="flex-1 overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-surface-container-lowest sticky top-0 z-10 shadow-sm"><tr class="border-b border-outline-variant"><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-20">Núm.</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título del Discurso</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-32">Última Vez</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center w-32">Ranking</th></tr></thead><tbody id="talkBody" class="font-body-md text-[14px] text-on-surface divide-y divide-outline-variant/30">${talkRows}</tbody></table></div>
+  </section>`;
 }
 
 function bindArrangementsTab() {
-  const monthSel = $('#arrMonth');
-  if (monthSel) monthSel.onchange = () => { state.reportMonth = monthSel.value; renderInformes(); };
-  const annualBtn = $('#annualExchangeBtn');
-  if (annualBtn) annualBtn.onclick = () => { location.hash = '#/exchangeannual'; };
-  document.querySelectorAll('[data-exchange-card]').forEach(el => el.onclick = () => {
-    openExchangeModal(el.dataset.exchangeCard);
+  const addBtn = $('#addCong');
+  if (addBtn) addBtn.onclick = () => openArrangementModal(null);
+  document.querySelectorAll('[data-arr-cong]').forEach(el => el.onclick = () => openArrangementModal(el.dataset.arrCong, null));
+  document.querySelectorAll('[data-arr-edit]').forEach(el => el.onclick = (e) => { e.stopPropagation(); openArrangementModal(el.dataset.arrEdit, null); });
+  document.querySelectorAll('[data-arr-del]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm('¿Eliminar esta congregación y todos sus arreglos?')) return;
+    await db.deleteArrangements(el.dataset.arrDel);
+    toast('Congregación eliminada', 'success');
+    renderInformes();
   });
-  document.querySelectorAll('[data-speaker-card]').forEach(el => el.onclick = () => {
-    const pid = el.dataset.speakerCard;
-    const person = state.people.find(p => String(p.id) === String(pid));
-    if (person) openSpeakerCard(person);
+  document.querySelectorAll('[data-arr-year]').forEach(el => el.onclick = () => {
+    const [id, year] = el.dataset.arrYear.split('|');
+    openArrangementModal(id, year);
   });
   const search = $('#talkSearch');
   if (search) search.oninput = () => {
@@ -1234,136 +1232,131 @@ function bindArrangementsTab() {
   };
 }
 
-async function openExchangeModal(monthId) {
-  const mLabel = `${MONTHS_ES[Number(monthId.slice(5)) - 1]} ${monthId.slice(0, 4)}`;
-  const arr = await db.getArrangements(monthId) || { id: monthId, congregation: '', contact: '', phone: '', notes: '', fijo: false, localSpeakers: [] };
+async function openArrangementModal(id, focusYear) {
+  const cur = new Date().getFullYear();
+  const years = [cur, cur + 1];
+  let rec;
+  if (id) {
+    rec = await db.getArrangements(id);
+    if (!rec) rec = { id, congregation: '', fijo: false, years: {} };
+  } else {
+    rec = { id: 'c' + Date.now() + Math.random().toString(36).slice(2, 7), congregation: '', fijo: false, years: {} };
+  }
+  if (!rec.years) rec.years = {};
+  years.forEach(y => { if (!rec.years[String(y)]) rec.years[String(y)] = { month: null, contact: '', phone: '', notes: '', localSpeakers: [] }; });
+  let activeYear = focusYear || String(cur);
+
+  const monthOptions = (sel) => `<option value="" ${sel == null ? 'selected' : ''}>Sin asignar</option>` + MONTHS_ES.map((m, i) => `<option value="${i}" ${sel === i ? 'selected' : ''}>${m}</option>`).join('');
+
+  const localSpeakersHtml = (yr) => (yr.localSpeakers || []).map((ls, i) => `
+    <li class="group flex items-start justify-between p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30">
+      <div><p class="font-label-md text-on-surface mb-1">${escapeHtml(ls.speaker || 'Orador')}</p>
+      <div class="flex flex-wrap gap-2">${String(ls.num).split(',').map(n => `<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 rounded text-[11px] font-semibold">${escapeHtml(n.trim())}</span>`).join('')}</div></div>
+      <button data-ls-remove="${i}" class="opacity-0 group-hover:opacity-100 text-outline hover:text-error p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+    </li>`).join('');
+
+  const yearPanel = (y) => {
+    const yr = rec.years[String(y)];
+    return `<div data-year-panel="${y}" class="${String(y) === activeYear ? '' : 'hidden'}">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Mes de intercambio</p>
+          <select data-yr-month="${y}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary font-body-md">${monthOptions(yr.month)}</select></div>
+        <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Coordinador</p>
+          <input data-yr-contact="${y}" value="${escapeAttr(yr.contact || '')}" placeholder="Nombre del coordinador" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/></div>
+        <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Telefono</p>
+          <input data-yr-phone="${y}" value="${escapeAttr(yr.phone || '')}" placeholder="Telefono" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/></div>
+      </div>
+      <div class="mt-4"><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Notas</p>
+        <textarea data-yr-notes="${y}" rows="2" placeholder="Notas del arreglo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary resize-none">${escapeHtml(yr.notes || '')}</textarea></div>
+      <div class="mt-4"><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Oradores locales</p>
+        <ul data-yr-ls="${y}" class="space-y-3 mb-3">${localSpeakersHtml(yr)}</ul>
+        <div class="flex flex-wrap items-end gap-2">
+          <input data-ls-speaker="${y}" placeholder="Nombre del orador" class="flex-1 min-w-[150px] bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
+          <input data-ls-num="${y}" placeholder="Núm. (ej. 10, 25)" class="w-40 bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
+          <button data-ls-add="${y}" class="inline-flex items-center gap-1 px-3 py-2.5 rounded-lg bg-secondary-container text-on-secondary-container hover:opacity-90 font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">add</span> Añadir</button>
+        </div>
+      </div>
+    </div>`;
+  };
+
   const html = `
     <div class="flex flex-col gap-5">
       <div class="flex items-center justify-between">
-        <div>
-          <h2 class="font-headline-md text-headline-md text-primary font-bold">Arreglo de Intercambio</h2>
-          <p class="text-on-surface-variant font-body-md text-body-md flex items-center gap-2 mt-1"><span class="material-symbols-outlined text-[16px]">calendar_today</span>${mLabel}</p>
-        </div>
-        <button id="exchClose" class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">close</span></button>
+        <h2 class="font-headline-md text-headline-md text-primary font-bold">Arreglo de intercambio</h2>
+        <button id="arrClose" class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">close</span></button>
       </div>
-      <div>
-        <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Congregacion</p>
-        <input id="exchCong" value="${escapeAttr(arr.congregation || '')}" placeholder="Nombre de la congregacion" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Coordinador</p>
-          <input id="exchContact" value="${escapeAttr(arr.contact || '')}" placeholder="Nombre del coordinador" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
-        </div>
-        <div>
-          <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Telefono</p>
-          <input id="exchPhone" value="${escapeAttr(arr.phone || '')}" placeholder="Telefono" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/>
-        </div>
-      </div>
+      <div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-2">Congregacion</p>
+        <input id="arrCong" value="${escapeAttr(rec.congregation || '')}" placeholder="Nombre de la congregacion" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 focus:border-primary"/></div>
       <label class="flex items-center gap-3 p-3 rounded-lg bg-surface-container-low/50 border border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors">
-        <input id="exchFijo" type="checkbox" ${arr.fijo ? 'checked' : ''} class="w-5 h-5 accent-primary"/>
-        <div>
-          <p class="font-label-md text-label-md text-on-surface">Fijo</p>
-          <p class="font-body-sm text-body-sm text-on-surface-variant">Se repite automaticamente en los mismos meses de los anos siguientes</p>
-        </div>
+        <input id="arrFijo" type="checkbox" ${rec.fijo ? 'checked' : ''} class="w-5 h-5 accent-primary"/>
+        <div><p class="font-label-md text-label-md text-on-surface">Fijo</p><p class="font-body-sm text-body-sm text-on-surface-variant">El mismo mes se repite automaticamente cada año</p></div>
       </label>
+      <div class="flex gap-2 border-b border-outline-variant/40 pb-2">
+        ${years.map(y => `<button data-year-tab="${y}" class="px-4 py-2 rounded-lg font-label-md text-label-md ${String(y) === activeYear ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}">${y}</button>`).join('')}
+      </div>
+      <div id="arrYearPanels">${years.map(y => yearPanel(y)).join('')}</div>
       <div class="flex justify-end gap-3 pt-3 border-t border-outline-variant/30">
-        <button id="exchCancel" class="border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors rounded px-5 py-2.5 font-label-md text-label-md">Cancelar</button>
-        <button id="exchSave" class="bg-primary text-on-primary hover:opacity-90 transition-opacity rounded px-6 py-2.5 font-label-md text-label-md shadow-sm">Guardar</button>
+        <button id="arrCancel" class="border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors rounded px-5 py-2.5 font-label-md text-label-md">Cancelar</button>
+        <button id="arrSave" class="bg-primary text-on-primary hover:opacity-90 transition-opacity rounded px-6 py-2.5 font-label-md text-label-md shadow-sm">Guardar</button>
       </div>
     </div>`;
   openModal(html, true);
-  $('#exchClose').onclick = closeModal;
-  $('#exchCancel').onclick = closeModal;
-  $('#exchSave').onclick = async () => {
-    const rec = {
-      id: monthId,
-      congregation: $('#exchCong').value.trim(),
-      contact: $('#exchContact').value.trim(),
-      phone: $('#exchPhone').value.trim(),
-      fijo: $('#exchFijo').checked
+  $('#arrClose').onclick = closeModal;
+  $('#arrCancel').onclick = closeModal;
+
+  document.querySelectorAll('[data-year-tab]').forEach(t => t.onclick = () => {
+    activeYear = t.dataset.yearTab;
+    document.querySelectorAll('[data-year-tab]').forEach(x => { const on = x.dataset.yearTab === activeYear; x.className = `px-4 py-2 rounded-lg font-label-md text-label-md ${on ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}`; });
+    document.querySelectorAll('[data-year-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.yearPanel !== activeYear));
+  });
+
+  function bindLsRemove(y) {
+    document.querySelectorAll(`[data-yr-ls="${y}"] [data-ls-remove]`).forEach(b => b.onclick = () => {
+      const i = Number(b.dataset.lsRemove);
+      rec.years[y].localSpeakers.splice(i, 1);
+      $(`[data-yr-ls="${y}"]`).innerHTML = localSpeakersHtml(rec.years[y]);
+      bindLsRemove(y);
+    });
+  }
+  years.forEach(y => {
+    bindLsRemove(y);
+    $(`[data-ls-add="${y}"]`).onclick = () => {
+      const sp = $(`[data-ls-speaker="${y}"]`).value.trim();
+      const num = $(`[data-ls-num="${y}"]`).value.trim();
+      if (!sp) { toast('Escribe el nombre del orador', 'error'); return; }
+      rec.years[y].localSpeakers = rec.years[y].localSpeakers || [];
+      rec.years[y].localSpeakers.push({ speaker: sp, num });
+      $(`[data-ls-speaker="${y}"]`).value = '';
+      $(`[data-ls-num="${y}"]`).value = '';
+      $(`[data-yr-ls="${y}"]`).innerHTML = localSpeakersHtml(rec.years[y]);
+      bindLsRemove(y);
     };
-    await db.putArrangements(rec);
-    if (rec.fijo && rec.congregation) {
-      for (let y = 1; y <= 3; y++) {
-        const futureId = addMonths(monthId, 12 * y);
-        const existing = await db.getArrangements(futureId);
-        if (!existing || existing.fijo) {
-          await db.putArrangements({ id: futureId, congregation: rec.congregation, contact: rec.contact, phone: rec.phone, fijo: true });
-        }
-      }
+  });
+
+  $('#arrSave').onclick = async () => {
+    rec.congregation = $('#arrCong').value.trim();
+    if (!rec.congregation) { toast('Escribe el nombre de la congregación', 'error'); return; }
+    rec.fijo = $('#arrFijo').checked;
+    years.forEach(y => {
+      const m = $(`[data-yr-month="${y}"]`).value;
+      const yr = rec.years[y];
+      yr.month = m === '' ? null : Number(m);
+      yr.contact = $(`[data-yr-contact="${y}"]`).value.trim();
+      yr.phone = $(`[data-yr-phone="${y}"]`).value.trim();
+      yr.notes = $(`[data-yr-notes="${y}"]`).value.trim();
+    });
+    if (rec.fijo) {
+      const baseMonth = rec.years[String(cur)].month;
+      if (baseMonth != null) years.forEach(y => { rec.years[y].month = baseMonth; });
     }
-    toast('Intercambio guardado', 'success');
+    await db.putArrangements(rec);
+    toast('Arreglo guardado', 'success');
     closeModal();
-    if (location.hash === '#/exchangeannual') renderExchangeAnnual();
+    renderInformes();
   };
 }
 
-async function renderExchangeAnnual() {
-  const now = new Date();
-  const year1 = now.getFullYear();
-  const year2 = year1 + 1;
-  const calMonths = Array.from({ length: 12 }, (_, i) => `${year1}-${String(i + 1).padStart(2, '0')}`);
-  const allArr = await db.listArrangements();
-  const arrMap = {};
-  allArr.forEach(a => { arrMap[a.id] = a; });
-  const cellText = (a) => {
-    if (!a.congregation) return `<span class="text-on-surface-variant italic">Por confirmar</span>`;
-    let html = `<span class="font-medium">${escapeHtml(a.congregation)}</span>`;
-    if (a.contact) html += `<span class="text-caption text-on-surface-variant block">${escapeHtml(a.contact)}${a.phone ? ' · ' + escapeHtml(a.phone) : ''}</span>`;
-    return html;
-  };
-  const rows = calMonths.map((m, i) => {
-    const a1 = arrMap[m] || {};
-    const mNext = addMonths(m, 12);
-    const a2 = arrMap[mNext] || {};
-    const mNum = Number(m.slice(5));
-    const mLabel = MONTHS_ES[mNum - 1];
-    const bg = i % 2 === 1 ? 'bg-surface-container-low/30' : '';
-    const fijoBadge = a1.fijo ? '<span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">FIJO</span>' : '';
-    const fijoBadge2 = a2.fijo ? '<span class="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary">FIJO</span>' : '';
-    return `<tr class="${bg} border-b border-outline-variant/20 hover:bg-surface-container-lowest transition-colors group">
-      <td class="p-4 font-label-md text-label-md text-primary border-r border-outline-variant/30 bg-surface-container-low/50 font-bold">${mLabel}${fijoBadge}</td>
-      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${m}">${cellText(a1)}</td>
-      <td class="p-4 border-r border-outline-variant/30 cursor-pointer hover:bg-surface-container-low transition-colors" data-exch-cell="${mNext}">${cellText(a2)}${fijoBadge2}</td>
-    </tr>`;
-  }).join('');
-  const app = $('#app');
-  app.innerHTML = `
-    <div class="flex flex-col gap-6">
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <div class="flex items-center gap-3 mb-2"><button id="exchangeAnnualBack" class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low hover:text-primary transition-colors font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">arrow_back</span> Arreglos</button></div>
-          <h1 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary mb-2">Planificacion Anual de Intercambios</h1>
-          <p class="font-body-md text-body-md text-on-surface-variant">Gestion de acuerdos con congregaciones vecinas · Pulsa en cualquier celda para editar</p>
-        </div>
-      </div>
-      <div class="bg-surface rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-outline-variant/50 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse min-w-[700px]">
-            <thead>
-              <tr class="bg-surface-container-low border-b border-outline-variant/50">
-                <th class="p-4 font-label-md text-label-md text-on-surface align-bottom w-32 border-r border-outline-variant/30" rowspan="2">Mes</th>
-                <th class="p-4 text-center font-headline-md text-[18px] font-bold text-primary border-r border-outline-variant/30 bg-primary/5" colspan="2">${year1}</th>
-                <th class="p-4 text-center font-headline-md text-[18px] font-bold text-primary bg-secondary-container/20" colspan="2">${year2}</th>
-              </tr>
-              <tr class="bg-surface-container border-b border-outline-variant/50">
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion / Contacto</th>
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Notas</th>
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant border-r border-outline-variant/30">Congregacion / Contacto</th>
-                <th class="p-3 font-label-md text-label-md text-on-surface-variant">Notas</th>
-              </tr>
-            </thead>
-            <tbody class="font-body-md text-body-md text-on-surface">${rows}</tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-  $('#exchangeAnnualBack').onclick = () => { location.hash = '#/informes'; };
-  document.querySelectorAll('[data-exch-cell]').forEach(td => {
-    td.onclick = () => openExchangeModal(td.dataset.exchCell);
-  });
-}
+// (eliminado: la vista anual de intercambios fue sustituida por la tabla congregación×año en renderArrangementsTab)
 
 function openSpeakerCard(person) {
   const name = person.name || 'Orador';
@@ -1525,8 +1518,13 @@ function computeTalkRanking(allArr) {
       if (date && (!map[k].last || date > map[k].last)) map[k].last = date;
       if (!map[k].title && title) map[k].title = title;
     };
-    add(a.externalTalk?.num, a.externalTalk?.title, a.externalTalk?.date);
+    if (a.externalTalk?.num) add(a.externalTalk.num, a.externalTalk.title, a.externalTalk.date);
     (a.localSpeakers || []).forEach(ls => add(ls.num, ls.title, ls.date));
+    const years = a.years || {};
+    Object.values(years).forEach(yr => {
+      (yr.localSpeakers || []).forEach(ls => add(ls.num, ls.title, ls.date));
+      if (yr.externalTalk?.num) add(yr.externalTalk.num, yr.externalTalk.title, yr.externalTalk.date);
+    });
   });
   return Object.values(map).sort((x, y) => y.count - x.count || (x.last < y.last ? -1 : x.last > y.last ? 1 : 0));
 }

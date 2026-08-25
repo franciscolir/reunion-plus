@@ -1178,6 +1178,10 @@ export async function listArrangements() {
   return reqToPromise(tx(db, STORE_ARRANGEMENTS).getAll());
 }
 
+export async function deleteArrangements(id) {
+  return commit(STORE_ARRANGEMENTS, (store) => reqToPromise(store.delete(String(id))));
+}
+
 // ===== CARGOS (catálogo de cargos) =====
 export async function listCargos() {
   const db = await openDB();
