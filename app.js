@@ -489,7 +489,7 @@ function router() {
     location.hash = '#/home';
     return;
   }
-  if (view === 'informes' && currentUser()?.rol !== 'admin') {
+  if (view === 'informes' && isSupabaseConfigured() && currentUser()?.rol !== 'admin') {
     location.hash = '#/home';
     return;
   }
@@ -649,7 +649,7 @@ function renderSide() {
     { id: 'uploads', icon: 'upload_file', label: 'Carga de Archivos', view: 'uploads' },
     { id: 'eventos', icon: 'event', label: 'Eventos', view: 'eventos' },
     { id: 'settings', icon: 'settings', label: 'Ajustes', view: 'settings' },
-    ...(currentUser()?.rol === 'admin' ? [{ id: 'informes', icon: 'analytics', label: 'Informes', view: 'informes' }] : []),
+    ...(currentUser()?.rol === 'admin' || !isSupabaseConfigured() ? [{ id: 'informes', icon: 'analytics', label: 'Informes', view: 'informes' }] : []),
   ];
   nav.innerHTML = items.map(i =>
     `<button data-go="${i.id}" class="flex items-center gap-3 px-4 py-3 ${state.view === i.view ? 'bg-secondary-container text-on-secondary-container rounded-lg font-bold' : 'text-on-surface-variant hover:bg-surface-variant rounded-lg'} transition-all w-full text-left">
@@ -4314,7 +4314,7 @@ function previewTabla() {
     const big = w.type === 'assembly' || w.type === 'commemoration';
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
-      <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div>${estadoBadge(w.estado)}</td>
+      <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div>${"hola"+estadoBadge(w.estado)}</td>
       <td class="p-4 align-top ${highlight}" data-label="Presidente"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Discurso"><div class="font-body-md text-body-md text-primary leading-snug font-medium ${big ? 'text-lg pt-3' : ''}">${cells.title}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Orador"><div class="font-body-md text-body-md font-semibold ${big ? 'text-lg pt-3' : ''}">${cells.speaker}</div></td>

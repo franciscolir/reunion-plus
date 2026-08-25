@@ -9,8 +9,9 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
   test('carga el tablero con navegación lateral', async ({ page }) => {
     await openApp(page);
-    await expect(page.locator('#sideNavItems button')).toHaveCount(6);
+    await expect(page.locator('#sideNavItems button')).toHaveCount(7);
     await expect(page.locator('#sideNavItems')).toContainText('Congregación');
+    await expect(page.locator('#sideNavItems')).toContainText('Informes');
     await expect(page.locator('#app')).not.toBeEmpty();
   });
 
