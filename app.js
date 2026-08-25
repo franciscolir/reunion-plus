@@ -556,6 +556,15 @@ function toast(msg, type = 'info') {
   setTimeout(() => { node.style.opacity = '0'; node.style.transition = 'opacity .3s'; setTimeout(() => node.remove(), 300); }, 3500);
 }
 
+// Historial de modificaciones (audit_log). Registra el cambio de un campo de una
+// entidad (people, departments, arrangements, activity, midweeks, months...).
+function audit(entity, entityId, field, oldValue, newValue, action = 'update') {
+  if (String(oldValue) === String(newValue)) return;
+  try {
+    db.addAuditEntry({ entity, entityId: String(entityId), action, field, oldValue, newValue }).catch(() => {});
+  } catch (e) { /* noop */ }
+}
+
 function openModal(html, wide = false) {
   const root = $('#modalRoot');
   const card = $('#modalCard');
@@ -712,7 +721,7 @@ async function renderIa() {
 function serviceYearMonths(year) {
   const months = [];
   for (let i = 0; i < 12; i++) {
-    const date = new Date(year, 8 + i, 1);
+    const date = new Date(year - 1, 8 + i, 1);
     months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   }
   return months;
@@ -5530,8 +5539,9 @@ async function openPersonProfile(person) {
   });
 
   $('#pfCancel').onclick = closeModal;
-  const saveProfile = $('#pfSave');
+const saveProfile = $('#pfSave');
   if (saveProfile) saveProfile.onclick = async () => {
+    const before = { ...p };
     p.name = ($('#pfName').value || '').trim() || p.name;
     p.genero = $('#pfGenero').value;
     p.calificacion = $('#pfCalif').value;
@@ -5542,6 +5552,14 @@ async function openPersonProfile(person) {
     p.precursorRegular = $('#pfPrecursorRegular').checked === true;
     p.grupoId = $('#pfGrupo').value || '';
     p.labores = [...$('#pfLabores').querySelectorAll('.labor-chip.is-on')].map(c => c.dataset.plabore);
+    audit('people', p.id, 'name', before.name, p.name);
+    audit('people', p.id, 'genero', before.genero, p.genero);
+    audit('people', p.id, 'calificacion', before.calificacion, p.calificacion);
+    audit('people', p.id, 'cargo', before.cargo, p.cargo);
+    audit('people', p.id, 'nacimiento', before.nacimiento, p.nacimiento);
+    audit('people', p.id, 'bautismo', before.bautismo, p.bautismo);
+    audit('people', p.id, 'precursorRegular', before.precursorRegular, p.precursorRegular);
+    audit('people', p.id, 'grupoId', before.grupoId, p.grupoId);
     await applyEnlace(p, $('#pfEnlace').value);
     const orig = state.people.find(x => String(x.id) === String(p.id));
     if (orig) Object.assign(orig, p);
@@ -9562,6 +9580,7 @@ function newWeek(date) {
     id: cryptoId(),
     date: iso,
     type: 'normal',
+    estado: 'normal', // estado de la reunión: normal | modificada | cancelada | trasladada | reemplazada
     tituloDiscurso: '',
     presidente: '',
     orador: '',
