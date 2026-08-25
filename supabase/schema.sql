@@ -265,6 +265,14 @@ grant select, insert, update, delete on public.participantes, public.grupos, pub
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
 
+-- service_role (usado por Edge Functions) necesita grants explícitos para
+-- bypass RLS y acceder a las tablas.
+grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
+  public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
+  public.asistencia, public.arreglos, public.cargos, public.capacidades, public.excepciones,
+  public.restricciones, public.speaker_talks, public.audit_log, public.usuarios
+  to service_role;
+
 -- Elimina las versiones públicas obsoletas de is_admin / email_autorizado (de
 -- cuando vivían en public). Las políticas ahora usan internal.*, así que estas
 -- ya no se referencian y solo quedaban expuestas en /rest/v1/rpc/.
