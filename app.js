@@ -699,6 +699,7 @@ async function renderIa() {
   const week = currentGeneralWeek(0);
   const app = $('#app');
   const whUrl = await db.getSetting('iaWebhookUrl', '');
+  const whKey = await db.getSetting('iaWebhookAnonKey', '');
   app.innerHTML = `<div class="max-w-3xl mx-auto">
     <h1 class="font-headline-lg text-headline-lg text-primary mb-2">Asistente IA</h1>
     <p class="text-on-surface-variant font-body-md mb-6">Imagen de la semana y consola para que la IA ingrese información en cualquier formulario vía webhook.</p>
@@ -710,9 +711,11 @@ async function renderIa() {
     </div>` : `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-on-surface-variant mb-6">No hay programa cargado para la semana en curso.</div>`}
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 text-left">
       <h3 class="font-headline-md text-headline-md text-primary mb-1">Consola del webhook</h3>
-      <p class="text-on-surface-variant text-sm mb-4">La IA usa este webhook para ingresar datos. Configura la URL y prueba las acciones <code>meta</code>, <code>upsert</code> y <code>remove</code>.</p>
+      <p class="text-on-surface-variant text-sm mb-4">La IA usa este webhook para ingresar datos. Configura la URL (y la anon key) y prueba las acciones <code>meta</code>, <code>upsert</code> y <code>remove</code>.</p>
       <label class="block font-label-md text-label-md text-on-surface-variant mb-1">URL del webhook</label>
       <input id="iaWhUrl" value="${escapeAttr(whUrl)}" placeholder="https://&lt;proyecto&gt;.supabase.co/functions/v1/webhook-zapia" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-3">
+      <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Anon key (apikey) del proyecto</label>
+      <input id="iaWhKey" value="${escapeAttr(whKey)}" placeholder="eyJhbGciOiJIUzI1Ni... (anon key pública)" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary mb-3">
       <div class="flex flex-wrap gap-2 mb-3">
         <button id="iaWhMeta" class="px-4 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed">Ver formularios (meta)</button>
         <button id="iaWhSend" class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Enviar payload</button>
@@ -744,13 +747,21 @@ async function renderIa() {
 
   const iaWhUrl = $('#iaWhUrl');
   if (iaWhUrl) iaWhUrl.onchange = () => db.setSetting('iaWebhookUrl', iaWhUrl.value.trim());
+  const iaWhKey = $('#iaWhKey');
+  if (iaWhKey) iaWhKey.onchange = () => db.setSetting('iaWebhookAnonKey', iaWhKey.value.trim());
+  const whHeaders = () => {
+    const h = { 'content-type': 'application/json' };
+    const k = (iaWhKey?.value || '').trim();
+    if (k) { h['apikey'] = k; h['Authorization'] = 'Bearer ' + k; }
+    return h;
+  };
   const iaOut = $('#iaWhOut');
   const setOut = (o) => { if (iaOut) iaOut.textContent = typeof o === 'string' ? o : JSON.stringify(o, null, 2); };
   if ($('#iaWhMeta')) $('#iaWhMeta').onclick = async () => {
     const url = iaWhUrl?.value.trim();
     if (!url) { toast('Configura la URL del webhook', 'error'); return; }
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'meta' }) });
+      const r = await fetch(url, { method: 'POST', headers: whHeaders(), body: JSON.stringify({ action: 'meta' }) });
       setOut(await r.json());
     } catch (e) { setOut('Error: ' + e.message); }
   };
@@ -761,7 +772,7 @@ async function renderIa() {
     let payload;
     try { payload = JSON.parse(raw); } catch (e) { toast('JSON inválido', 'error'); return; }
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      const r = await fetch(url, { method: 'POST', headers: whHeaders(), body: JSON.stringify(payload) });
       setOut(await r.json());
       toast('Enviado a la IA', 'success');
     } catch (e) { setOut('Error: ' + e.message); }
