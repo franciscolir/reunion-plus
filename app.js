@@ -4277,7 +4277,7 @@ function previewTabla() {
       return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="${label}">
          <div class="py-4">
            <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
-           <div class="mt-2">${estadoBadge(w.estado)}</div>
+           <div class="mt-2">${"perro"+estadoBadge(w.estado)}</div>
          </div></td></tr>`;
     }
     const grupoAseo = aseoGroupFor(w.date);
