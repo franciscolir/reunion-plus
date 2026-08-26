@@ -28,6 +28,7 @@ import {
   balanceReport, cargoNivel,
   asId, asStr, slotOf, runEngine, changedManualKeys, wrapManualPrograms,
   clearAutoSlots, manualSlotKeys, estadoProgramas, invertName,
+  countTalkUsage,
 } from './logic.js';
 import { extractEpubText } from './epub.js';
 import { generatePeopleTemplate, parsePeopleXlsx } from './xlsx.js';
