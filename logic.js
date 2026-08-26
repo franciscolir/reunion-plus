@@ -99,6 +99,37 @@ export function searchTalks(query, talks, limit = 30) {
   return results.slice(0, limit);
 }
 
+// Extrae el número de discurso de un título tipo "10. El Reino de Dios" (o "10").
+export function talkNumFromTitle(str) {
+  if (str == null) return null;
+  const m = String(str).match(/^\s*(\d+)\s*\./);
+  if (m) return Number(m[1]);
+  const n = String(str).match(/^\s*(\d+)\s*$/);
+  if (n) return Number(n[1]);
+  return null;
+}
+
+// Cuenta cuántas veces un discurso (por número) se programó en reuniones de
+// fin de semana locales (programas mensuales: campo tituloDiscurso de cada semana).
+// Devuelve { count, last } donde last es la fecha "YYYY-MM-DD" más reciente.
+export function countTalkUsage(months, num) {
+  let count = 0;
+  let last = null;
+  const target = Number(num);
+  if (!target) return { count, last };
+  for (const m of (months || [])) {
+    const weeks = Array.isArray(m?.weeks) ? m.weeks : [];
+    for (const w of weeks) {
+      const n = talkNumFromTitle(w?.tituloDiscurso);
+      if (n === target) {
+        count++;
+        if (w.date && (last === null || w.date > last)) last = w.date;
+      }
+    }
+  }
+  return { count, last };
+}
+
 // Sábados de un mes. month: 1-12.
 export function saturdaysOf(year, month) {
   const out = [];

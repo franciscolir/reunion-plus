@@ -1260,14 +1260,16 @@ async function renderTalkCatalogSection() {
     const r = rankMap[String(t.num)];
     const count = r ? r.count : 0;
     const last = r && r.last ? formatShortDate(r.last) : '—';
+    const blocked = !!t.blocked;
     const badge = count === 0
       ? `<div class="bg-tertiary-fixed text-on-tertiary-fixed border border-tertiary/30 px-3 py-1 rounded-full text-[12px] font-semibold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">schedule</span> 0 veces</div>`
       : count >= 5
         ? `<div class="bg-error-container text-on-error-container border border-error/30 px-3 py-1 rounded-full text-[12px] font-semibold flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">trending_up</span> ${count} veces</div>`
         : `<div class="bg-surface-variant text-on-surface-variant border border-outline-variant px-3 py-1 rounded-full text-[12px] font-semibold">${count} veces</div>`;
-    return `<tr class="hover:bg-surface-container-low transition-colors group" data-talk-row data-talk-num="${t.num}" data-talk-title="${escapeAttr((t.title || '').toLowerCase())}">
+    const blockedChip = blocked ? `<span class="inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded-full bg-outline-variant text-on-surface-variant text-[11px] font-semibold align-middle"><span class="material-symbols-outlined text-[13px]">lock</span> Bloqueado</span>` : '';
+    return `<tr class="hover:bg-surface-container-low transition-colors group cursor-pointer" data-talk-row data-talk-num="${t.num}" data-talk-title="${escapeAttr((t.title || '').toLowerCase())}">
       <td class="py-4 px-6 font-semibold text-primary">${t.num}</td>
-      <td class="py-4 px-6"><div class="font-medium text-on-surface mb-1">${escapeHtml(t.title || '')}</div></td>
+      <td class="py-4 px-6"><div class="font-medium text-on-surface mb-1 flex items-center flex-wrap">${escapeHtml(t.title || '')}${blockedChip}</div></td>
       <td class="py-4 px-6 text-on-surface-variant">${last}</td>
       <td class="py-4 px-6"><div class="flex justify-center items-center">${badge}</div></td>
     </tr>`;
@@ -1279,6 +1281,60 @@ async function renderTalkCatalogSection() {
     </div>
     <div class="flex-1 overflow-x-auto"><table class="w-full text-left border-collapse"><thead class="bg-surface-container-lowest sticky top-0 z-10 shadow-sm"><tr class="border-b border-outline-variant"><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-20">Núm.</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Título del Discurso</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider w-32">Última Vez</th><th class="py-4 px-6 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center w-32">Ranking</th></tr></thead><tbody id="talkBody" class="font-body-md text-[14px] text-on-surface divide-y divide-outline-variant/30">${talkRows}</tbody></table></div>
   </section>`;
+}
+
+async function computeTalkUsageHistory(num) {
+  const months = await db.listMonths().catch(() => []);
+  return countTalkUsage(months, num);
+}
+
+async function openTalkModal(talk) {
+  const num = talk.num;
+  const usage = await computeTalkUsageHistory(num);
+  const blocked = !!talk.blocked;
+  const lastStr = usage.last ? formatShortDate(usage.last) : '—';
+  const html = `
+    <div class="flex flex-col gap-5">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary-container text-on-primary-container font-bold text-[16px]">${num}</span>
+          <h2 class="font-headline-md text-headline-md text-primary font-bold">Discurso público</h2>
+        </div>
+        <button id="talkModalClose" class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Título del discurso</label>
+        <input id="talkTitle" value="${escapeAttr(talk.title || '')}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-3 font-body-md focus:border-primary focus:outline-none" placeholder="Título del discurso"/>
+      </div>
+      <div class="rounded-lg border border-outline-variant bg-surface-container-lowest p-4">
+        <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest mb-3">Historial en reuniones de fin de semana locales</p>
+        <div class="flex items-center gap-6">
+          <div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary">event_repeat</span><div><p class="font-headline-md text-[22px] text-on-surface font-bold">${usage.count}</p><p class="text-on-surface-variant text-caption">vez/veces programado</p></div></div>
+          <div class="flex items-center gap-2"><span class="material-symbols-outlined text-primary">history</span><div><p class="font-body-md text-on-surface">${lastStr}</p><p class="text-on-surface-variant text-caption">última vez</p></div></div>
+        </div>
+      </div>
+      <label class="flex items-start gap-3 p-3 rounded-lg border border-outline-variant bg-surface-container-lowest cursor-pointer hover:bg-surface-container-low transition-colors">
+        <input id="talkBlocked" type="checkbox" ${blocked ? 'checked' : ''} class="w-5 h-5 mt-0.5 accent-error"/>
+        <div><p class="font-label-md text-label-md text-on-surface">Bloquear discurso</p><p class="font-body-sm text-body-sm text-on-surface-variant">Se mantiene visible en el catálogo, pero no podrá ser asignado en reuniones locales ni en salidas.</p></div>
+      </label>
+      <div class="flex justify-end gap-3 pt-2 border-t border-outline-variant/30">
+        <button id="talkCancel" class="border border-outline-variant text-on-surface-variant hover:bg-surface-container-low transition-colors rounded px-5 py-2.5 font-label-md text-label-md">Cancelar</button>
+        <button id="talkSave" class="bg-primary text-on-primary hover:opacity-90 transition-opacity rounded px-6 py-2.5 font-label-md text-label-md shadow-sm">Guardar</button>
+      </div>
+    </div>`;
+  openModal(html, true);
+  $('#talkModalClose').onclick = closeModal;
+  $('#talkCancel').onclick = closeModal;
+  $('#talkSave').onclick = async () => {
+    const title = $('#talkTitle').value.trim();
+    if (!title) { toast('El título no puede estar vacío', 'error'); return; }
+    const isBlocked = $('#talkBlocked').checked;
+    await db.updateTalk({ ...talk, title, blocked: isBlocked });
+    await refreshCatalogs();
+    closeModal();
+    renderInformes();
+    toast('Discurso actualizado', 'success');
+  };
 }
 
 function bindArrangementsTab() {
@@ -1305,6 +1361,11 @@ function bindArrangementsTab() {
       r.style.display = ok ? '' : 'none';
     });
   };
+  document.querySelectorAll('[data-talk-row]').forEach(el => el.onclick = () => {
+    const num = el.dataset.talkNum;
+    const t = (state.talks || []).find(x => String(x.num) === String(num));
+    if (t) openTalkModal(t);
+  });
 }
 
 async function openArrangementModal(id, focusYear) {
@@ -1433,12 +1494,20 @@ async function openArrangementModal(id, focusYear) {
 
 // (eliminado: la vista anual de intercambios fue sustituida por la tabla congregación×año en renderArrangementsTab)
 
-function openSpeakerCard(person) {
+async function openSpeakerCard(person) {
   const name = person.name || 'Orador';
   const phone = person.telefono || '';
   const bio = person.notas || '';
   const initials = ((name || '').split(/\s+/).map(w => w[0]).slice(0, 2).join('')).toUpperCase();
-  const talks = (state.talks || []).slice(0, 8);
+  let talks = [];
+  try {
+    const st = await db.listSpeakerTalksByPerson(person.id);
+    const blockedNums = new Set((state.talks || []).filter(t => t.blocked).map(t => String(t.num)));
+    talks = st.map(s => (state.talks || []).find(t => String(t.num) === String(s.talkNum)))
+      .filter(Boolean)
+      .filter(t => !blockedNums.has(String(t.num)))
+      .slice(0, 8);
+  } catch (_) { /* store de v2 aún no disponible */ }
   const talkList = talks.map((t, i) => `
     <li class="flex items-start gap-4 py-3 border-b border-outline-variant/10 last:border-0 group">
       <div class="bg-surface-variant text-on-surface-variant font-label-md text-label-md w-[40px] text-center rounded py-1 shrink-0 group-hover:bg-primary-fixed group-hover:text-on-primary-fixed transition-colors">#${t.num}</div>
@@ -1483,7 +1552,7 @@ function openSpeakerCard(person) {
   openModal(modalHtml, true);
   $('#speakerCloseBtn').onclick = closeModal;
   $('#speakerDlBtn').onclick = () => {
-    const svgStr = speakerCardSvg(person);
+    const svgStr = speakerCardSvg(person, talks);
     svgToPngBlob(svgStr).then(blob => {
       downloadBlob(blob, `orador-${(person.name || 'orador').replace(/\s+/g, '-').toLowerCase()}.png`);
       toast('Imagen descargada', 'success');
@@ -1491,11 +1560,11 @@ function openSpeakerCard(person) {
   };
 }
 
-function speakerCardSvg(person) {
+function speakerCardSvg(person, talks = []) {
   const name = person.name || 'Orador';
   const phone = person.telefono || '';
   const bio = person.notas || '';
-  const talks = (state.talks || []).slice(0, 8);
+  talks = (talks || []).slice(0, 8);
   const W = 800, PAD = 40;
   const C = { bg: '#ffffff', primary: '#032121', text: '#1a1c1c', muted: '#414848', accent: '#cae8e8', border: '#c1c8c7', badge: '#f6dcb5', badgeText: '#736041', surface: '#f3f3f3' };
   let y = PAD;
@@ -3804,7 +3873,7 @@ function bindTalkPicker(root) {
   let highlighted = -1;
 
   const render = (q) => {
-    const results = searchTalks(q, state.talks);
+    const results = searchTalks(q, state.talks).filter(t => !t.blocked);
     if (!results.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     box.innerHTML = results.map((t, i) => `<button type="button" data-talk-num="${t.num}" data-i="${i}"
         class="w-full text-left px-3 py-2 hover:bg-primary-fixed/40 flex gap-3 items-start border-b border-outline-variant/30 last:border-0">
@@ -3904,7 +3973,7 @@ function bindTalkPickerOut(root) {
   if (!input || !box) return;
   let highlighted = -1;
   const render = (q) => {
-    const results = searchTalks(q, state.talks);
+    const results = searchTalks(q, state.talks).filter(t => !t.blocked);
     if (!results.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     box.innerHTML = results.map((t, i) => `<button type="button" data-talk-num="${t.num}" data-i="${i}"
         class="w-full text-left px-3 py-2 hover:bg-secondary-fixed/50 flex gap-3 items-start border-b border-outline-variant/30 last:border-0">
@@ -5718,6 +5787,7 @@ async function openPersonProfile(person) {
             <button id="pfTalkAdd" ${userMode ? 'disabled' : ''} class="px-4 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90 whitespace-nowrap">Agregar</button>
           </div>
           <div id="pfTalks" class="space-y-2 max-h-44 overflow-y-auto"></div>
+          ${userMode ? '' : `<button id="pfSpeakerCard" class="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary-container text-on-secondary-container hover:opacity-90 font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">badge</span> Ver tarjeta de orador</button>`}
         </div>
       </div>
       <div class="flex gap-3 justify-end mt-5">
@@ -5751,7 +5821,11 @@ async function openPersonProfile(person) {
     const sel = $('#pfTalkSelect');
     if (!sel || !sel.value) return;
     selTalkNums.add(String(sel.value));
-    renderPfTalks();
+  renderPfTalks();
+
+  const pfSpeakerCard = $('#pfSpeakerCard');
+  if (pfSpeakerCard) pfSpeakerCard.onclick = () => openSpeakerCard(p);
+
   };
   renderPfTalks();
 
