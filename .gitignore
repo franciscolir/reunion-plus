@@ -34,3 +34,6 @@ playwright-report/
 supabase-config.js
 supabase/.temp/
 
+
+supabase/**/.temp/
+

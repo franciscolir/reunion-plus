@@ -788,6 +788,20 @@ function serviceYearMonths(year) {
   return months;
 }
 
+// Meses seleccionables en Informes: desde septiembre de 2025 hasta el mes
+// actual (inclusive). Permite revisar asistencia/actividad de meses anteriores.
+function availableReportMonths() {
+  const out = [];
+  let d = new Date(2025, 8, 1);
+  const end = new Date();
+  end.setDate(1);
+  while (d <= end) {
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    d.setMonth(d.getMonth() + 1);
+  }
+  return out;
+}
+
 function currentServiceYear() {
   const now = new Date();
   return now.getMonth() >= 8 ? now.getFullYear() + 1 : now.getFullYear();
@@ -841,9 +855,8 @@ function serviceYearLabel(year) {
 async function renderInformes() {
   state.month = null;
   renderTop();
-  const year = currentServiceYear();
-  const months = serviceYearMonths(year);
-  if (!state.reportMonth || !months.includes(state.reportMonth)) state.reportMonth = months.find(m => m === isoDate(new Date()).slice(0, 7)) || months[0];
+  const months = availableReportMonths();
+  if (!state.reportMonth || !months.includes(state.reportMonth)) state.reportMonth = months[months.length - 1];
   const tab = state.reportTab || 'actividad';
   const tabs = [
     ['actividad', 'Actividad', 'assignment'],
@@ -856,7 +869,7 @@ async function renderInformes() {
   else if (tab === 'asistencia') body = await renderAttendanceTab();
   else if (tab === 'arreglos') body = await renderArrangementsTab();
   else body = await renderFormsTab();
-  const showMonth = tab === 'actividad';
+  const showMonth = tab === 'actividad' || tab === 'asistencia';
   const app = $('#app');
   app.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Informes</h1><p class="text-on-surface-variant font-body-lg">Actividad, asistencia y arreglos de la congregación.</p></div>
     <div class="mb-5 flex flex-wrap items-center gap-3">
@@ -1094,10 +1107,10 @@ async function renderMetricsSection(year) {
 }
 
 async function renderAttendanceTab() {
-  const month = isoDate(new Date()).slice(0, 7);
+  const month = state.reportMonth || isoDate(new Date()).slice(0, 7);
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   const cfg = state.config || {}, events = state.config?.events || {};
-  const sy = currentServiceYear();
+  const sy = serviceYearOfMonth(month);
   const dates = meetingDatesForYear(sy, cfg, events);
   const mk = dates.midweek.filter(d => d.date.startsWith(month));
   const we = dates.weekend.filter(d => d.date.startsWith(month));
@@ -1156,7 +1169,8 @@ async function renderAttendanceTab() {
 }
 
 async function bindAttendanceTab() {
-  const sy = currentServiceYear();
+  const month = state.reportMonth || isoDate(new Date()).slice(0, 7);
+  const sy = serviceYearOfMonth(month);
   const att = await db.getAttendance(sy) || { id: sy, midweek: {}, weekend: {} };
   const compute = () => {
     let mwT = 0, mwC = 0, weT = 0, weC = 0;
@@ -1177,7 +1191,7 @@ async function bindAttendanceTab() {
     });
   });
   const dl = $('#attDownload');
-  if (dl) dl.onclick = () => downloadAsistenciaMes(isoDate(new Date()).slice(0, 7), 'pdf');
+  if (dl) dl.onclick = () => downloadAsistenciaMes(month, 'pdf');
   const sv = $('#attSave');
   if (sv) sv.onclick = () => toast('Asistencia guardada', 'success');
 }
