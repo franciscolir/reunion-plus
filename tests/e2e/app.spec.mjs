@@ -3,7 +3,7 @@
 // de modo que IndexedDB es la única fuente de datos. Cada test usa un
 // contexto de navegador nuevo (base de datos vacía).
 import { test, expect } from '@playwright/test';
-import { openApp, gotoLabores, seedProposalData, seedAtencionSelects } from './helpers.mjs';
+import { openApp, gotoLabores, seedProposalData, seedAtencionSelects, MOCK_SUPABASE } from './helpers.mjs';
 
 test.describe('Reunión+ PWA (modo offline)', () => {
 
@@ -900,6 +900,86 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.click('#algoSave');
     await expect(page.locator('#toastRoot')).toContainText('Motor de asignación guardado');
+  });
+
+  test('fin de semana tabla: asamblea/conmemoración son banner; supervisor muestra dos discursos y sin lectura', async ({ page }) => {
+    await page.addInitScript(() => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['people', 'midweeks', 'months', 'salidas', 'atencion', 'settings', 'departments', 'aseos'], 'readwrite');
+        const people = [
+          { name: 'Álvaro P.', genero: 'masculino', calificacion: 'A', labores: ['presidente','asignacion1','asignacion2','asignacion3','asignacion4','conductor1','conductor2','lector1','lector2','orador','estudioSinLectura'] },
+          { name: 'Benjamín R.', genero: 'masculino', calificacion: 'B', labores: ['presidente','asignacion1','asignacion2','asignacion3','asignacion4','conductor1','conductor2','lector1','lector2','orador','estudioSinLectura'] },
+          { name: 'Carlos M.', genero: 'masculino', calificacion: 'B', labores: ['presidente','asignacion1','asignacion2','asignacion3','asignacion4','conductor1','conductor2','lector1','lector2','orador','estudioSinLectura'] },
+          { name: 'Daniel S.', genero: 'masculino', calificacion: 'C', labores: ['presidente','asignacion1','asignacion2','asignacion3','asignacion4','conductor1','conductor2','lector1','lector2','orador','estudioSinLectura'] },
+        ];
+        people.forEach(p => tx.objectStore('people').add(p));
+        const section = (id, title, parts) => ({ id, title, parts: parts.map(n => ({ num: n, title: `Parte ${n}`, mins: 5, assignments: {} })) });
+        const midweeks = ['2026-08-03','2026-08-10','2026-08-17','2026-08-24'].map((id, i) => ({
+          id, presidente: '', header: '3-10 de AGOSTO DE 2026', reading: `Lectura ${i+1}`,
+          introSong: '1', introTitle: 'Canción de entrada', introMins: 2,
+          closingTitle: 'Palabras de conclusión', closingMins: 3, songOut: '2',
+          sections: [ section('tesoros','Tesoros de la Biblia',[1,2]), section('maestros','Seamos Mejores Maestros',[3,4]), section('vida','Nuestra Vida Cristiana',[5,6,7]) ],
+        }));
+        midweeks.forEach(w => tx.objectStore('midweeks').put(w));
+        const fsDates = ['2026-08-01','2026-08-08','2026-08-15','2026-08-22'];
+        const month = { id: '2026-08', year: 2026, month: 8, published: false,
+          weeks: fsDates.map(date => ({ date, type: 'normal', presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' })),
+        };
+        tx.objectStore('months').put(month);
+        tx.objectStore('salidas').put({ id: '2026-08', congregations: [{ nombre: 'Test' }], weeks: fsDates.map(s => ({ saturday: s, outings: [{ oradorSalida: '', tituloDiscurso: '' }] })) });
+        tx.objectStore('atencion').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, labores: {} })) });
+        tx.objectStore('departments').add({ id: 1, name: 'Grupo 1', activo: true });
+        tx.objectStore('aseos').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, group: 1 })) });
+        tx.objectStore('settings').put({ congregation: 'Congregación Test', lastMonthId: '2026-08', schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: ['2026-08-15'], visits: [{ from: '2026-08-08', to: '2026-08-08' }], assemblies: [{ date: '2026-08-22', days: 1 }] }, emailsPermitidos: [], excepciones: [] }, 'config');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    });
+
+    await page.route('**/supabase-config.js*', route =>
+      route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE }));
+    await page.goto('/');
+    await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
+
+    await page.evaluate(() => { location.hash = '#/preview/2026-08?mode=tabla'; });
+    await expect(page.locator('#previewContent table tbody')).toBeVisible();
+
+    const rows = page.locator('#previewContent table tbody tr');
+    const count = await rows.count();
+    expect(count).toBeGreaterThanOrEqual(4);
+
+    let foundAssembly = false, foundCommemoration = false, foundSupervisor = false;
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      const text = await row.textContent();
+      const colspan = await row.locator('td').first().getAttribute('colspan');
+      if (colspan === '7' && text.includes('Asamblea')) { foundAssembly = true; await expect(row).toContainText('22 de agosto'); }
+      if (colspan === '7' && text.includes('Conmemoración')) { foundCommemoration = true; await expect(row).toContainText('15 de agosto'); }
+      if (colspan === '7' && text.includes('Visita del Superintendente')) {
+        foundSupervisor = true;
+        await expect(row).toContainText('08 de agosto');
+        await expect(row).toContainText('Discurso público');
+        await expect(row).toContainText('Discurso de servicio');
+        await expect(row).toContainText('Sin lectura');
+      }
+    }
+    expect(foundAssembly).toBeTruthy();
+    expect(foundCommemoration).toBeTruthy();
+    expect(foundSupervisor).toBeTruthy();
   });
 
 });
