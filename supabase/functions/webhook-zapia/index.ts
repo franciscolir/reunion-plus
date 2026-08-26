@@ -45,9 +45,9 @@ async function handleMeta() {
         purpose: 'Personas de la congregación (publicadores, siervos ministeriales, ancianos). Cada persona tiene un id autoincremental.',
         requiredFields: ['name'],
         optionalFields: {
-          genero: 'M o F',
+          genero: 'M o F (requerido para determinar cargos disponibles)',
           calificacion: 'anciano | ministerial | publicador | inserto',
-          cargos: 'Array de ids de cargo (ej. ["anciano","publicador"])',
+          cargos: 'Array de ids de cargo. Default: ["publicador"]. Si genero=F, solo se permite "publicador".',
           grupoId: 'id del grupo/departamento al que pertenece',
           enlace: 'id del enlace (persona asignada como enlace)',
           precursorRegular: 'boolean — true si es precursor regular',
@@ -62,6 +62,11 @@ async function handleMeta() {
           excepciones: 'Array de objetos {laborId, tipo} — labores extra que puede desempeñar aunque su cargo no se lo otorgue',
           speakerTalks: 'Array de números (nums de discurso que la persona puede dar como orador externo)',
         },
+        rules: [
+          'Cargos default: si no se envía cargos, se asigna ["publicador"].',
+          'Restricción de género: si genero=F, solo se permite el cargo "publicador". Anciano y Siervo Ministerial son solo para hombres.',
+          'Si se envían cargos no permitidos para el género, se filtran automáticamente.',
+        ],
         example: '{ "action": "person", "data": { "name": "Juan Pérez", "genero": "M", "calificacion": "anciano", "cargos": ["anciano"], "grupoId": "1", "labores": ["presidente","conductor1","orador"] } }',
       },
       grupos: {
@@ -255,14 +260,18 @@ async function handleMeta() {
       person: {
         description: 'Crear o actualizar una persona. Si se envía id, actualiza directamente. Si no, busca por nombre (ilike) y crea o actualiza.',
         requiredFields: ['data.name'],
+        rules: [
+          'Cargos default: si no se envía cargos, se asigna ["publicador"].',
+          'Restricción de género: si genero=F, solo se permite "publicador". Anciano y Siervo Ministerial son solo para hombres.',
+        ],
         payload: {
           action: 'person',
           id: '(opcional) id numérico existente para actualizar',
           data: {
             name: '(requerido) nombre completo',
-            genero: 'M o F',
+            genero: 'M o F (requerido para determinar cargos)',
             calificacion: 'anciano | ministerial | publicador | inserto',
-            cargos: 'Array de ids de cargo',
+            cargos: 'Array de ids de cargo (default: ["publicador"]; si genero=F, solo "publicador")',
             grupoId: 'id del grupo',
             precursorRegular: 'boolean',
             activo: 'boolean (default true)',
@@ -453,9 +462,15 @@ async function handlePerson(sb: ReturnType<typeof createClient>, payload: Record
   const name = String(data?.name || '').trim();
   if (!name) return jsonRes({ error: 'Falta campo: data.name' }, 400);
 
-  // Acepta TODOS los campos del formulario de persona (cargos, enlace,
-  // restricciones, excepciones, speakerTalks, etc.) y los guarda tal cual.
-  const person: Record<string, unknown> = { ...data, name, activo: data.activo !== false };
+  const genero = String(data?.genero || '').toUpperCase();
+  let cargos = Array.isArray(data?.cargos) ? [...data.cargos] : [];
+  if (cargos.length === 0) cargos = ['publicador'];
+  if (genero === 'F') {
+    cargos = cargos.filter((c: string) => c === 'publicador');
+    if (cargos.length === 0) cargos = ['publicador'];
+  }
+
+  const person: Record<string, unknown> = { ...data, name, genero, cargos, activo: data.activo !== false };
 
   if (idIn) {
     const { error } = await sb
