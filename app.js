@@ -28,7 +28,7 @@ import {
   balanceReport, cargoNivel,
   asId, asStr, slotOf, runEngine, changedManualKeys, wrapManualPrograms,
   clearAutoSlots, manualSlotKeys, estadoProgramas, invertName,
-  countTalkUsage,
+  countTalkUsage, isEligibleV2,
 } from './logic.js';
 import { extractEpubText } from './epub.js';
 import { generatePeopleTemplate, parsePeopleXlsx } from './xlsx.js';
@@ -1215,11 +1215,20 @@ async function migrateArrangementsToCongregations() {
   for (const c of byName.values()) await db.putArrangements(c);
 }
 
+let lastOradores = [];
+let lastSpByPerson = {};
+
 async function renderArrangementsTab() {
   await migrateArrangementsToCongregations();
   const cur = new Date().getFullYear();
   const years = [cur, cur + 1];
   const congs = (await db.listArrangements()).slice().sort((a, b) => (a.congregation || '').localeCompare(b.congregation || ''));
+  const spTalksAll = await db.listSpeakerTalks().catch(() => []);
+  const spByPerson = {};
+  spTalksAll.forEach(s => { (spByPerson[String(s.personId)] ||= []).push(s); });
+  const oradores = (state.people || []).filter(p => isEligibleV2(p, 'salida', state).eligible);
+  lastOradores = oradores;
+  lastSpByPerson = spByPerson;
   const yearHeaders = years.map(y => `<th class="py-3 px-3 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center w-24">${y}</th>`).join('');
   const rows = congs.length ? congs.map(c => {
     const yearCells = years.map(y => {
@@ -1240,15 +1249,18 @@ async function renderArrangementsTab() {
       <h2 class="font-headline-md text-headline-md text-primary">Arreglos</h2>
       <button id="addCong" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-on-primary hover:opacity-90 transition-opacity font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">add</span> Agregar congregación</button>
     </div>
-    <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-gutter">
-      <div class="p-5 border-b border-outline-variant/30 bg-surface-bright"><h3 class="font-headline-md text-[20px] text-primary font-bold">Congregaciones de intercambio</h3><p class="font-body-md text-on-surface-variant text-[14px]">Cada fila es una congregación; las columnas son los años. Pulsa el nombre o un año para ver el detalle.</p></div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse min-w-[520px]">
-          <thead class="bg-surface-container-lowest sticky top-0 z-10 shadow-sm"><tr class="border-b border-outline-variant"><th class="py-3 px-4 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Congregación</th>${yearHeaders}</tr></thead>
-          <tbody class="font-body-md text-[14px] text-on-surface divide-y divide-outline-variant/30">${rows}</tbody>
-        </table>
-      </div>
-    </section>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-gutter mb-gutter items-start">
+      <section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden lg:col-span-2">
+        <div class="p-5 border-b border-outline-variant/30 bg-surface-bright"><h3 class="font-headline-md text-[20px] text-primary font-bold">Congregaciones de intercambio</h3><p class="font-body-md text-on-surface-variant text-[14px]">Cada fila es una congregación; las columnas son los años. Pulsa el nombre o un año para ver el detalle.</p></div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse min-w-[520px]">
+            <thead class="bg-surface-container-lowest sticky top-0 z-10 shadow-sm"><tr class="border-b border-outline-variant"><th class="py-3 px-4 font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Congregación</th>${yearHeaders}</tr></thead>
+            <tbody class="font-body-md text-[14px] text-on-surface divide-y divide-outline-variant/30">${rows}</tbody>
+          </table>
+        </div>
+      </section>
+      ${renderSpeakersPanel(oradores, spByPerson)}
+    </div>
     ${await renderTalkCatalogSection()}`;
 }
 
@@ -1367,6 +1379,179 @@ function bindArrangementsTab() {
     const t = (state.talks || []).find(x => String(x.num) === String(num));
     if (t) openTalkModal(t);
   });
+  const genBtn = $('#genSpeakerCards');
+  if (genBtn) genBtn.onclick = () => openGenerateCardsModal(lastOradores, lastSpByPerson);
+  document.querySelectorAll('[data-speaker-id]').forEach(el => el.onclick = () => {
+    const p = (state.people || []).find(x => String(x.id) === String(el.dataset.speakerId));
+    if (p) openSpeakerSummary(p);
+  });
+}
+
+function renderSpeakersPanel(oradores, spByPerson) {
+  const items = oradores.length ? oradores.map(p => {
+    const n = (spByPerson[String(p.id)] || []).length;
+    return `<button data-speaker-id="${p.id}" class="w-full text-left flex items-center gap-3 p-3 rounded-lg hover:bg-surface-container-low transition-colors border border-outline-variant/40 bg-surface-bright">
+      ${avatarHtml(p, 'w-9 h-9')}
+      <div class="min-w-0 flex-1">
+        <p class="font-medium text-on-surface truncate">${escapeHtml(p.name)}</p>
+        <p class="text-caption text-on-surface-variant">${n} discurso(s) preparado(s)</p>
+      </div>
+      <span class="material-symbols-outlined text-outline">chevron_right</span>
+    </button>`;
+  }).join('') : `<p class="text-on-surface-variant text-caption p-3">No hay oradores con la asignación «Orador de salida» habilitada.</p>`;
+  return `<section class="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden lg:col-span-1 h-full flex flex-col">
+    <div class="p-5 border-b border-outline-variant/30 bg-surface-bright flex items-center justify-between gap-2">
+      <div><h3 class="font-headline-md text-[20px] text-primary font-bold">Oradores disponibles</h3><p class="font-body-md text-on-surface-variant text-[14px]">Pulsa un orador para ver su ficha.</p></div>
+      <button id="genSpeakerCards" class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary-container text-on-secondary-container hover:opacity-90 font-label-md text-label-md" title="Generar/descargar cards de oradores"><span class="material-symbols-outlined text-[18px]">download</span> Cards</button>
+    </div>
+    <div class="p-4 overflow-y-auto max-h-[460px] space-y-2">${items}</div>
+  </section>`;
+}
+
+async function openSpeakerSummary(person) {
+  const p = { ...person };
+  let spTalks = [];
+  try { spTalks = await db.listSpeakerTalksByPerson(p.id); } catch (_) { /* v2 */ }
+  const blockedNums = new Set((state.talks || []).filter(t => t.blocked).map(t => String(t.num)));
+  const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
+  const gen = p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : 'Colaborador';
+  const grupo = (state.departments || []).find(d => String(d.id) === String(p.grupoId));
+
+  const renderDisc = () => {
+    const cont = $('#spSumTalks');
+    if (!cont) return;
+    const sorted = spTalks.map(s => String(s.talkNum)).sort((a, b) => Number(a) - Number(b));
+    cont.innerHTML = sorted.length ? sorted.map(num => {
+      const t = (state.talks || []).find(x => String(x.num) === num);
+      const isBlocked = blockedNums.has(num);
+      return `<div class="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-outline-variant bg-surface-bright">
+        <span class="flex items-center gap-2 min-w-0"><span class="w-7 h-7 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center font-bold text-[12px] shrink-0">${escapeHtml(num)}</span><span class="truncate">${escapeHtml(t ? t.title : 'Discurso ' + num)}</span>${isBlocked ? '<span class="material-symbols-outlined text-[14px] text-on-surface-variant" title="Bloqueado">lock</span>' : ''}</span>
+        <button data-sp-rm="${escapeAttr(num)}" class="p-1.5 rounded-lg text-error hover:bg-error-container shrink-0" title="Quitar"><span class="material-symbols-outlined text-[18px]">close</span></button>
+      </div>`;
+    }).join('') : '<p class="text-on-surface-variant text-caption py-2">Sin discursos preparados.</p>';
+    cont.querySelectorAll('[data-sp-rm]').forEach(b => b.onclick = async () => {
+      const num = b.dataset.spRm;
+      const rec = spTalks.find(s => String(s.talkNum) === num);
+      if (rec && rec.id != null) await db.deleteSpeakerTalk(rec.id);
+      spTalks = await db.listSpeakerTalksByPerson(p.id).catch(() => []);
+      renderDisc();
+    });
+  };
+
+  const html = `
+    <div class="flex flex-col gap-4">
+      <div class="flex items-start gap-3">
+        ${avatarHtml(p, 'w-12 h-12')}
+        <div class="flex-1 min-w-0">
+          <h2 class="font-headline-md text-headline-md text-primary">${escapeHtml(p.name)}</h2>
+          <p class="text-on-surface-variant text-sm">${gen} · ${cargoOf(p).label} · Calificación ${cal}${p.enlace ? ' · Enlazado' : ''}</p>
+        </div>
+        <button id="spSumClose" class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <div class="rounded-lg border border-outline-variant bg-surface-bright p-3"><p class="text-on-surface-variant text-caption">Grupo</p><p class="font-medium">${escapeHtml(grupo ? grupo.name : '—')}</p></div>
+        <div class="rounded-lg border border-outline-variant bg-surface-bright p-3"><p class="text-on-surface-variant text-caption">Teléfono</p><p class="font-medium">${escapeHtml(p.telefono || '—')}</p></div>
+      </div>
+      <div>
+        <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Discursos preparados</label>
+        <div id="spSumTalks" class="space-y-2 max-h-44 overflow-y-auto">Cargando…</div>
+        <div class="flex gap-2 mt-2">
+          <select id="spSumSelect" class="flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
+            ${(state.talks || []).slice().sort((a, b) => Number(a.num) - Number(b.num)).map(t => `<option value="${escapeAttr(String(t.num))}">${t.num} · ${escapeHtml(t.title)}</option>`).join('') || '<option value="">Sin discursos</option>'}
+          </select>
+          <button id="spSumAdd" class="px-4 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Agregar</button>
+        </div>
+      </div>
+      <div class="flex justify-end gap-3 pt-2 border-t border-outline-variant/30">
+        <button id="spSumCard" class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-secondary-container text-on-secondary-container hover:opacity-90 font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">badge</span> Ver tarjeta</button>
+        <button id="spSumClose2" class="px-5 py-2.5 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-low font-label-md text-label-md">Cerrar</button>
+      </div>
+    </div>`;
+  openModal(html, true);
+  $('#spSumClose').onclick = closeModal;
+  $('#spSumClose2').onclick = closeModal;
+  $('#spSumCard').onclick = () => { closeModal(); openSpeakerCard(p); };
+  renderDisc();
+  $('#spSumAdd').onclick = async () => {
+    const sel = $('#spSumSelect');
+    if (!sel || !sel.value) return;
+    const num = sel.value;
+    if (spTalks.some(s => String(s.talkNum) === num)) { toast('Ese discurso ya está en la lista', 'info'); return; }
+    await db.addSpeakerTalk({ personId: p.id, talkNum: num });
+    spTalks = await db.listSpeakerTalksByPerson(p.id).catch(() => []);
+    renderDisc();
+  };
+}
+
+function speakerCardTalksFor(personId) {
+  return db.listSpeakerTalksByPerson(personId).then(st => {
+    const blockedNums = new Set((state.talks || []).filter(t => t.blocked).map(t => String(t.num)));
+    return st.map(s => (state.talks || []).find(t => String(t.num) === String(s.talkNum)))
+      .filter(Boolean).filter(t => !blockedNums.has(String(t.num))).slice(0, 8);
+  }).catch(() => []);
+}
+
+async function openGenerateCardsModal(oradores, spByPerson) {
+  const list = oradores.slice();
+  const rowHtml = (p) => {
+    const n = (spByPerson[String(p.id)] || []).length;
+    return `<label class="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface-bright cursor-pointer hover:bg-surface-container-low">
+      <input type="checkbox" class="sp-card-chk w-5 h-5 accent-primary" data-pid="${p.id}" checked/>
+      ${avatarHtml(p, 'w-9 h-9')}
+      <div class="min-w-0 flex-1"><p class="font-medium text-on-surface truncate">${escapeHtml(p.name)}</p><p class="text-caption text-on-surface-variant">${n} discurso(s)</p></div>
+    </label>`;
+  };
+  const html = `
+    <div class="flex flex-col gap-4">
+      <div class="flex items-center justify-between">
+        <h2 class="font-headline-md text-headline-md text-primary">Generar cards de oradores</h2>
+        <button id="gcClose" class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <p class="text-on-surface-variant text-sm">Selecciona los oradores cuyas tarjetas quieres generar. Luego descarga o envía.</p>
+      <div class="flex gap-2">
+        <button id="gcAll" class="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-caption hover:bg-surface-container-low">Seleccionar todos</button>
+        <button id="gcNone" class="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant text-caption hover:bg-surface-container-low">Ninguno</button>
+      </div>
+      <div class="space-y-2 max-h-72 overflow-y-auto">${list.length ? list.map(rowHtml).join('') : '<p class="text-on-surface-variant text-caption">No hay oradores.</p>'}</div>
+      <div class="flex justify-end gap-3 pt-2 border-t border-outline-variant/30">
+        <button id="gcSend" class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-secondary-container text-on-secondary-container hover:opacity-90 font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">share</span> Enviar</button>
+        <button id="gcDl" class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-primary text-on-primary hover:opacity-90 font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">download</span> Descargar</button>
+      </div>
+    </div>`;
+  openModal(html, true);
+  $('#gcClose').onclick = closeModal;
+  $('#gcAll').onclick = () => document.querySelectorAll('.sp-card-chk').forEach(c => c.checked = true);
+  $('#gcNone').onclick = () => document.querySelectorAll('.sp-card-chk').forEach(c => c.checked = false);
+  const selected = () => list.filter(p => { const c = document.querySelector(`.sp-card-chk[data-pid="${p.id}"]`); return c && c.checked; });
+  const downloadOne = async (p) => {
+    const talks = await speakerCardTalksFor(p.id);
+    const blob = await svgToPngBlob(speakerCardSvg(p, talks));
+    downloadBlob(blob, `orador-${p.name.replace(/\s+/g, '-').toLowerCase()}.png`);
+    await new Promise(r => setTimeout(r, 300));
+  };
+  $('#gcDl').onclick = async () => {
+    const sel = selected();
+    if (!sel.length) { toast('Selecciona al menos un orador', 'error'); return; }
+    for (const p of sel) { try { await downloadOne(p); } catch (_) {} }
+    toast('Cards descargadas', 'success');
+    closeModal();
+  };
+  $('#gcSend').onclick = async () => {
+    const sel = selected();
+    if (!sel.length) { toast('Selecciona al menos un orador', 'error'); return; }
+    if (navigator.canShare && typeof navigator.share === 'function') {
+      try {
+        const p = sel[0];
+        const talks = await speakerCardTalksFor(p.id);
+        const blob = await svgToPngBlob(speakerCardSvg(p, talks));
+        const file = new File([blob], `orador-${p.name.replace(/\s+/g, '-').toLowerCase()}.png`, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Tarjeta de orador' }); closeModal(); return; }
+      } catch (_) { /* continúa a descarga */ }
+    }
+    for (const p of sel) { try { await downloadOne(p); } catch (_) {} }
+    toast('Compartir no disponible; cards descargadas', 'info');
+    closeModal();
+  };
 }
 
 async function openArrangementModal(id, focusYear) {
