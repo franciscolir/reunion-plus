@@ -986,4 +986,142 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     expect(foundSupervisor).toBeTruthy();
   });
 
+  test('eventos: guardar asamblea desde Eventos actualiza el tipo de semana en vista previa', async ({ page }) => {
+    await page.addInitScript(() => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['people', 'months', 'salidas', 'atencion', 'settings', 'departments', 'aseos'], 'readwrite');
+        const people = [
+          { name: 'Álvaro P.', genero: 'masculino', calificacion: 'A', labores: ['presidente','asignacion1','conductor1','lector1','orador'] },
+        ];
+        people.forEach(p => tx.objectStore('people').add(p));
+        const fsDates = ['2026-08-01','2026-08-08','2026-08-15','2026-08-22'];
+        const baseWeek = { presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' };
+        const weeks = fsDates.map(date => ({ ...baseWeek, date, type: 'normal' }));
+        tx.objectStore('months').put({ id: '2026-08', year: 2026, month: 8, published: false, weeks });
+        tx.objectStore('salidas').put({ id: '2026-08', congregations: [{ nombre: 'Test' }], weeks: fsDates.map(s => ({ saturday: s, outings: [{ oradorSalida: '', tituloDiscurso: '' }] })) });
+        tx.objectStore('atencion').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, labores: {} })) });
+        tx.objectStore('departments').add({ id: 1, name: 'Grupo 1', activo: true });
+        tx.objectStore('aseos').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, group: 1 })) });
+        tx.objectStore('settings').put({ schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: [], visits: [], assemblies: [] }, emailsPermitidos: [], excepciones: [] }, 'config');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    });
+
+    await page.route('**/supabase-config.js*', route =>
+      route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE }));
+    await page.goto('/');
+    await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
+
+    await page.evaluate(() => { location.hash = '#/eventos'; });
+    await page.waitForSelector('#evSave', { state: 'visible' });
+
+    await page.click('#cfgAddAssembly');
+    const assemblyRow = page.locator('#cfgAssemblyWrap .cfg-event-row').first();
+    await assemblyRow.locator('[data-cfg-from]').fill('2026-08-15');
+
+    await page.click('#evSave');
+
+    await expect(page.locator('#toastRoot')).toContainText('1 programa(s) actualizado(s)');
+
+    await page.evaluate(() => { location.hash = '#/preview/2026-08?mode=tabla'; });
+    await expect(page.locator('#previewContent table tbody')).toBeVisible();
+
+    const rows = page.locator('#previewContent table tbody tr');
+    const count = await rows.count();
+    expect(count).toBeGreaterThanOrEqual(4);
+
+    let foundAssembly = false;
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      const text = await row.textContent();
+      const colspan = await row.locator('td').first().getAttribute('colspan');
+      if (colspan === '7' && text.includes('Asamblea')) { foundAssembly = true; await expect(row).toContainText('15 de agosto'); }
+    }
+    expect(foundAssembly).toBeTruthy();
+  });
+
+  test('eventos: guardar conmemoración desde Eventos actualiza el tipo de semana en vista previa', async ({ page }) => {
+    await page.addInitScript(() => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['people', 'months', 'salidas', 'atencion', 'settings', 'departments', 'aseos'], 'readwrite');
+        const people = [
+          { name: 'Álvaro P.', genero: 'masculino', calificacion: 'A', labores: ['presidente','asignacion1','conductor1','lector1','orador'] },
+        ];
+        people.forEach(p => tx.objectStore('people').add(p));
+        const fsDates = ['2026-08-01','2026-08-08','2026-08-15','2026-08-22'];
+        const baseWeek = { presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' };
+        const weeks = fsDates.map(date => ({ ...baseWeek, date, type: 'normal' }));
+        tx.objectStore('months').put({ id: '2026-08', year: 2026, month: 8, published: false, weeks });
+        tx.objectStore('salidas').put({ id: '2026-08', congregations: [{ nombre: 'Test' }], weeks: fsDates.map(s => ({ saturday: s, outings: [{ oradorSalida: '', tituloDiscurso: '' }] })) });
+        tx.objectStore('atencion').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, labores: {} })) });
+        tx.objectStore('departments').add({ id: 1, name: 'Grupo 1', activo: true });
+        tx.objectStore('aseos').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, group: 1 })) });
+        tx.objectStore('settings').put({ schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: [], visits: [], assemblies: [] }, emailsPermitidos: [], excepciones: [] }, 'config');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    });
+
+    await page.route('**/supabase-config.js*', route =>
+      route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE }));
+    await page.goto('/');
+    await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
+
+    await page.evaluate(() => { location.hash = '#/eventos'; });
+    await page.waitForSelector('#evSave', { state: 'visible' });
+
+    await page.click('#cfgAddComm');
+    const commRow = page.locator('#cfgCommWrap .cfg-event-row').first();
+    await commRow.locator('.cfg-date').fill('2026-08-15');
+
+    await page.click('#evSave');
+
+    await expect(page.locator('#toastRoot')).toContainText('1 programa(s) actualizado(s)');
+
+    await page.evaluate(() => { location.hash = '#/preview/2026-08?mode=tabla'; });
+    await expect(page.locator('#previewContent table tbody')).toBeVisible();
+
+    const rows = page.locator('#previewContent table tbody tr');
+    const count = await rows.count();
+    expect(count).toBeGreaterThanOrEqual(4);
+
+    let foundCommem = false;
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      const text = await row.textContent();
+      const colspan = await row.locator('td').first().getAttribute('colspan');
+      if (colspan === '7' && text.includes('Conmemoración')) { foundCommem = true; await expect(row).toContainText('15 de agosto'); }
+    }
+    expect(foundCommem).toBeTruthy();
+  });
+
 });
