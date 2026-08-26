@@ -87,6 +87,42 @@ Checklist de humo en el sitio desplegado:
 - [ ] Crear/guardar algo → aparece en la tabla correspondiente de Supabase (Table Editor).
 - [ ] Un `reader` puede ver pero no escribir.
 
+## 8. Webhook de ingreso por IA (Edge Function)
+
+La vista `#/ia` permite ingresar información (personas, discursos, reuniones, etc.) vía una **Edge Function** de Supabase (`supabase/functions/webhook-zapia`). Funciona como puente seguro: la app envía el cambio firmado con la `anon key` y la función lo aplica en la base (con RLS/allowlist) usando un usuario de servicio rol `ia`.
+
+### 8.1. Desplegar la función
+
+Requiere la [Supabase CLI](https://supabase.com/docs/guides/cli) y haber enlazado el proyecto:
+
+```bash
+supabase link --project-ref <PROJECT_REF>
+supabase functions deploy webhook-zapia --no-verify-jwt
+```
+
+> `--no-verify-jwt` es necesario porque la app autentica la petición con la `anon key` (no con un JWT de usuario). La seguridad real la da la allowlist de tablas dentro de la función y el rol `ia`.
+
+### 8.2. Crear el usuario de servicio `ia`
+
+Ejecuta `supabase/seed-ia-user.sql` en el **SQL Editor** (sustituye el correo/contraseña o usa los secretos de abajo). Esto crea un usuario auth con rol `ia` y lo registra en la tabla `usuarios`.
+
+### 8.3. Secretos de la función
+
+En **Edge Functions → webhook-zapia → Secrets** (o `supabase secrets set`):
+
+- `ZAPIA_EMAIL` = correo del usuario `ia`.
+- `ZAPIA_PASSWORD` = contraseña del usuario `ia`.
+
+La función usa estas credenciales para obtener un JWT de servicio y aplicar los cambios.
+
+### 8.4. Allowlist de tablas
+
+La función solo acepta `upsert`/`remove` sobre las tablas permitidas (p. ej. `participantes`, `discursos`, `reuniones`, `programas`, `grupos`, `asignaciones`, `configuracion`, `salidas`, `aseos`, `atencion`, `activity`, `attendance`, `arreglos`, `cargos`, `capacidades`, `excepciones`, `restricciones`, `speaker_talks`). Cualquier otra tabla devuelve 403.
+
+### 8.5. Probar
+
+En la app, con Sesión admin → `#/ia` → "Obtener meta" (lee las tablas permitidas) y prueba un `upsert`/`remove`. En el sitio desplegado debe responder sin "Failed to fetch" (la app envía la `anon key` en la cabecera `apikey`).
+
 ## Solución de problemas
 
 | Problema | Causa | Solución |
