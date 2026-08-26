@@ -4230,24 +4230,13 @@ function weekCardList(w, i) {
     rows.push(['Lector', personNameOf(w.lector), 'library_books']);
     rows.push(['Grupo semanal', grupoSemana ? deptNameOf(grupoSemana) : deptNameOf(w.departamento), 'handshake']);
   } else if (w.type === 'supervisor') {
-    const sup = w.nombreSupervisor || 'Superintendente';
-    return `<div class="week-card bg-surface-container-low border-l-4 border-primary bg-primary-fixed/30 p-8 rounded-lg">
-      <div class="flex justify-between items-start mb-6">
-        <div><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana ${i + 1}</span>
-        <h2 class="font-headline-lg text-headline-lg text-primary mt-3">${day} ${monthName}</h2></div>
-        <span class="material-symbols-outlined text-primary text-4xl">supervisor_account</span>
-      </div>
-      <div class="flex flex-col items-center justify-center py-6 text-center">
-        <span class="material-symbols-outlined text-primary text-5xl mb-2">verified</span>
-        <h3 class="font-headline-md text-headline-md text-primary uppercase tracking-widest">Visita del Superintendente</h3>
-      </div>
-      <div class="flex flex-col gap-1.5 text-sm mt-2">
-        <div class="flex justify-between py-1 border-b border-outline-variant/20"><span class="text-on-surface-variant">Discurso público</span><span class="font-semibold text-on-surface">${escapeHtml(w.discursoSupervisor1 || '—')}</span></div>
-        <div class="flex justify-between py-1 border-b border-outline-variant/20"><span class="text-on-surface-variant">Discurso de servicio</span><span class="font-semibold text-on-surface">${escapeHtml(w.discursoSupervisor2 || '—')}</span></div>
-        <div class="flex justify-between py-1 border-b border-outline-variant/20"><span class="text-on-surface-variant">Superintendente</span><span class="font-semibold text-on-surface">${escapeHtml(sup)}</span></div>
-        <div class="flex justify-between py-1"><span class="text-on-surface-variant">Lectura</span><span class="font-semibold text-on-surface">Sin lectura</span></div>
-      </div>
-    </div>`;
+    rows.push(['Presidente', presName, 'person']);
+    rows.push(['Discurso público', w.discursoSupervisor1 || '—', 'campaign']);
+    rows.push(['Discurso de servicio', w.discursoSupervisor2 || '—', 'campaign']);
+    rows.push(['Superintendente', w.nombreSupervisor || '—', 'supervisor_account']);
+    rows.push(['Conductor Atalaya', personNameOf(w.estudioSinLectura), 'menu_book']);
+    rows.push(['Lectura', 'Sin lectura', 'library_books']);
+    rows.push(['Grupo semanal', grupoSemana ? deptNameOf(grupoSemana) : deptNameOf(w.departamento), 'handshake']);
   } else if (w.type === 'commemoration') {
     rows.push(['Discurso', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Presidente', presName, 'person']);
@@ -4292,21 +4281,6 @@ function previewTabla() {
            <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
          </div></td></tr>`;
     }
-    if (w.type === 'supervisor') {
-      const sup = escapeHtml(w.nombreSupervisor || 'Superintendente');
-      const d1 = escapeHtml(w.discursoSupervisor1 || '—');
-      const d2 = escapeHtml(w.discursoSupervisor2 || '—');
-      return `<tr class="transition-colors"><td class="p-4 bg-primary-fixed/20 text-center" colspan="7" data-label="Visita Superintendente">
-         <div class="py-4">
-           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Visita del Superintendente — ${dateAsam}</div>
-           <div class="mt-3 flex flex-col gap-1.5 text-sm max-w-md mx-auto text-left">
-             <div class="flex justify-between"><span class="text-on-surface-variant">Discurso público:</span><span class="font-semibold text-on-surface">${d1}</span></div>
-             <div class="flex justify-between"><span class="text-on-surface-variant">Discurso de servicio:</span><span class="font-semibold text-on-surface">${d2}</span></div>
-             <div class="flex justify-between"><span class="text-on-surface-variant">Superintendente:</span><span class="font-semibold text-on-surface">${sup}</span></div>
-             <div class="flex justify-between"><span class="text-on-surface-variant">Lectura:</span><span class="font-semibold text-on-surface">Sin lectura</span></div>
-           </div>
-         </div></td></tr>`;
-    }
 
     const grupoAseo = aseoGroupFor(w.date);
     const grupoId = grupoAseo || (w.departamento || '');
@@ -4323,6 +4297,15 @@ function previewTabla() {
       cells.speaker = escapeHtml(w.orador || '—');
       cells.conductor = escapeHtml(personNameOf(w.conductor));
       cells.reader = escapeHtml(personNameOf(w.lector));
+      cells.attendance = escapeHtml(grupoTxt);
+    } else if (w.type === 'supervisor') {
+      const d1 = escapeHtml(w.discursoSupervisor1 || '—');
+      const d2 = escapeHtml(w.discursoSupervisor2 || '—');
+      cells.title = `${d1}<div class="text-xs text-on-surface-variant mt-1 font-normal">${d2 !== '—' ? d2 : ''}</div>`;
+      cells.chairman = escapeHtml(personNameOf(w.presidente));
+      cells.speaker = escapeHtml(w.nombreSupervisor || 'Superintendente');
+      cells.conductor = escapeHtml(personNameOf(w.estudioSinLectura));
+      cells.reader = 'Sin lectura';
       cells.attendance = escapeHtml(grupoTxt);
     } else if (w.type === 'commemoration') {
       cells.title = escapeHtml(w.tituloDiscurso || '—');

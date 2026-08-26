@@ -132,8 +132,9 @@ export function eventTypeForDate(events, iso) {
   if ((events.visits || []).some(v => inRange(visitFrom(v), visitTo(v)))) return 'supervisor';
   if ((events.assemblies || []).some(a => {
     if (a.from && a.to) return inRange(a.from, a.to);
+    const start = a.from || a.date;
     const days = Number(a.days) || 1;
-    return inRange(a.date, addDays(a.date, days - 1));
+    return inRange(start, addDays(start, days - 1));
   })) return 'assembly';
   return 'normal';
 }

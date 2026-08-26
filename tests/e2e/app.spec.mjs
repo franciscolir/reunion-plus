@@ -936,15 +936,20 @@ test.describe('Reunión+ PWA (modo offline)', () => {
         }));
         midweeks.forEach(w => tx.objectStore('midweeks').put(w));
         const fsDates = ['2026-08-01','2026-08-08','2026-08-15','2026-08-22'];
-        const month = { id: '2026-08', year: 2026, month: 8, published: false,
-          weeks: fsDates.map(date => ({ date, type: 'normal', presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' })),
-        };
+        const baseWeek = { presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' };
+        const weeks = fsDates.map(date => {
+          if (date === '2026-08-08') {
+            return { ...baseWeek, date, type: 'normal', nombreSupervisor: 'Hermano López', discursoSupervisor1: 'Discurso Público 1', discursoSupervisor2: 'Discurso de Servicio 1' };
+          }
+          return { ...baseWeek, date, type: 'normal' };
+        });
+        const month = { id: '2026-08', year: 2026, month: 8, published: false, weeks };
         tx.objectStore('months').put(month);
         tx.objectStore('salidas').put({ id: '2026-08', congregations: [{ nombre: 'Test' }], weeks: fsDates.map(s => ({ saturday: s, outings: [{ oradorSalida: '', tituloDiscurso: '' }] })) });
         tx.objectStore('atencion').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, labores: {} })) });
         tx.objectStore('departments').add({ id: 1, name: 'Grupo 1', activo: true });
         tx.objectStore('aseos').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, group: 1 })) });
-        tx.objectStore('settings').put({ congregation: 'Congregación Test', lastMonthId: '2026-08', schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: ['2026-08-15'], visits: [{ from: '2026-08-08', to: '2026-08-08' }], assemblies: [{ date: '2026-08-22', days: 1 }] }, emailsPermitidos: [], excepciones: [] }, 'config');
+        tx.objectStore('settings').put({ congregation: 'Congregación Test', lastMonthId: '2026-08', schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: ['2026-08-15'], visits: [{ from: '2026-08-08', to: '2026-08-08' }], assemblies: [{ from: '2026-08-22', days: 1 }] }, emailsPermitidos: [], excepciones: [] }, 'config');
         await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
         db.close();
       })();
@@ -969,12 +974,11 @@ test.describe('Reunión+ PWA (modo offline)', () => {
       const colspan = await row.locator('td').first().getAttribute('colspan');
       if (colspan === '7' && text.includes('Asamblea')) { foundAssembly = true; await expect(row).toContainText('22 de agosto'); }
       if (colspan === '7' && text.includes('Conmemoración')) { foundCommemoration = true; await expect(row).toContainText('15 de agosto'); }
-      if (colspan === '7' && text.includes('Visita del Superintendente')) {
+      if (text.includes('Sin lectura') && colspan !== '7') {
         foundSupervisor = true;
-        await expect(row).toContainText('08 de agosto');
-        await expect(row).toContainText('Discurso público');
-        await expect(row).toContainText('Discurso de servicio');
-        await expect(row).toContainText('Sin lectura');
+        await expect(row).toContainText('Hermano López');
+        await expect(row).toContainText('Discurso Público 1');
+        await expect(row).toContainText('Discurso de Servicio 1');
       }
     }
     expect(foundAssembly).toBeTruthy();
