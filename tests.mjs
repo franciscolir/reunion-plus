@@ -27,6 +27,7 @@ import {
   asId, asStr, slotOf, applyManual, applyAuto,
   manualSlotKeys, clearAutoSlots, unwrapPrograms, wrapGeneratedPrograms,
   wrapManualPrograms, changedManualKeys, runEngine, estadoProgramas,
+  talkNumFromTitle, countTalkUsage,
 } from './logic.js';
 import { extractEpubText, xhtmlToLines, decodeEntities, resolvePath } from './epub.js';
 import { generatePeopleTemplate, parsePeopleXlsx, xlsxRowsFromXml } from './xlsx.js';
@@ -2072,6 +2073,34 @@ console.log('[computeRegularity]');
   // Sin participantes → 0% sin división por cero
   eq('sin participantes = 0%', computeRegularity([], [], months), { total: 0, regular: 0, irregular: 0, percentage: 0 });
 }
+
+// ---- Catálogo de discursos: bloqueo e historial ----
+function testTalkCatalog() {
+  eq('talkNumFromTitle "10. Reino"', talkNumFromTitle('10. El Reino de Dios'), 10);
+  eq('talkNumFromTitle "7"', talkNumFromTitle('7'), 7);
+  eq('talkNumFromTitle sin número', talkNumFromTitle('Sin asignar'), null);
+  eq('talkNumFromTitle null', talkNumFromTitle(null), null);
+
+  const months = [
+    { id: '2025-09', weeks: [
+      { date: '2025-09-06', tituloDiscurso: '10. El Reino' },
+      { date: '2025-09-13', tituloDiscurso: '10. El Reino' },
+      { date: '2025-09-20', tituloDiscurso: '25. Otro' },
+    ] },
+    { id: '2025-10', weeks: [
+      { date: '2025-10-04', tituloDiscurso: '10. El Reino' },
+      { date: '2025-10-11', tituloDiscurso: '30. Más' },
+    ] },
+  ];
+  const u10 = countTalkUsage(months, 10);
+  eq('countTalkUsage cuenta 3 veces el 10', u10.count, 3);
+  eq('countTalkUsage última fecha 10', u10.last, '2025-10-04');
+  const u25 = countTalkUsage(months, 25);
+  eq('countTalkUsage cuenta 1 vez el 25', u25.count, 1);
+  eq('countTalkUsage 99 no aparece', countTalkUsage(months, 99).count, 0);
+}
+
+testTalkCatalog();
 
 console.log(`\n=== Resultado: ${pass} PASS, ${fail} FAIL ===`);
 process.exit(fail > 0 ? 1 : 0);

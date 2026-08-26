@@ -746,7 +746,12 @@ export async function replaceTalksFromFile(data) {
   const list = Array.isArray(data) ? data
     : (Array.isArray(data?.discursos) ? data.discursos
       : (Array.isArray(data?.talks) ? data.talks : []));
-  const normalized = list.map(d => ({ num: Number(d.num), title: String(d.title ?? '') })).filter(d => d.num && d.title);
+  const prev = await listTalks().catch(() => []);
+  const prevBlocked = new Map(prev.map(t => [Number(t.num), !!t.blocked]));
+  const normalized = list.map(d => {
+    const num = Number(d.num);
+    return { num, title: String(d.title ?? ''), blocked: prevBlocked.has(num) ? prevBlocked.get(num) : false };
+  }).filter(d => d.num && d.title);
   await replaceAllTalks(normalized);
   return normalized.length;
 }
@@ -759,7 +764,7 @@ export async function addTalk(num, title) {
   if (!title) throw new Error('Título vacío');
   const exists = await listTalks().then(l => l.some(t => Number(t.num) === num));
   if (exists) throw new Error('Ese número de discurso ya existe');
-  return commit(STORE_TALKS, (store) => reqToPromise(store.put({ num, title, createdAt: Date.now() })));
+  return commit(STORE_TALKS, (store) => reqToPromise(store.put({ num, title, blocked: false, createdAt: Date.now() })));
 }
 
 export async function updateTalk(talk) {
@@ -769,6 +774,7 @@ export async function updateTalk(talk) {
   if (!title) throw new Error('Título vacío');
   const record = { num, title, updatedAt: Date.now() };
   if (talk.createdAt) record.createdAt = talk.createdAt;
+  if (talk.blocked !== undefined) record.blocked = !!talk.blocked;
   return commit(STORE_TALKS, (store) => reqToPromise(store.put(record)));
 }
 
