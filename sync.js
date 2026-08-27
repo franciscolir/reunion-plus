@@ -79,30 +79,21 @@ async function registrarGuardado() {
   try { await db.setSettingSilent('lastSavedAt', new Date(_lastSavedAt).toISOString()); } catch (e) { /* noop */ }
 }
 
-// Stores de PROGRAMAS: se suben SOLO al pulsar Guardar (borrador local + cola).
-// El resto de stores (catálogos: people/departments/settings/talks) se suben
-// automáticamente en cada commit, como hasta ahora.
-const PROGRAM_STORES = new Set(['months', 'salidas', 'atencion', 'midweeks', 'assignment_log', 'activity']);
-
-// Hook del punto único de escritura (db.js commit). Para programas solo marca
-// el borrador local pendiente; los catálogos se suben de inmediato.
+// Todos los stores se encolan para subir al pulsar "Sincronizar".
+// El indicador de "Cambios sin guardar" aparece automáticamente al encolar.
 function marcarLocal(store) {
-  if (PROGRAM_STORES.has(store)) {
-    encolarPendienteAsync(store).then(() => marcarDirty());
-    return;
-  }
-  pushStore(store).catch(() => {});
+  encolarPendienteAsync(store).then(() => marcarDirty());
 }
 
-// Sube explícitamente un conjunto de stores de programa (al pulsar Guardar en
-// un editor). Respeta la cola offline y el estado de sincronización.
+// Sube explícitamente un conjunto de stores (al pulsar Guardar en un editor).
+// Respeta la cola offline y el estado de sincronización.
 export async function subirStores(stores) {
   if (!_enabled) return { error: 'inactivo' };
   if (!navigator.onLine) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'offline' }; }
   if (!(await isSupabaseReady())) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'supabase-no-disponible' }; }
   setStatus('syncing', 'guardando cambios…');
   for (const s of (stores || [])) {
-    if (PROGRAM_STORES.has(s)) await pushStore(s);
+    await pushStore(s);
   }
   return { ok: true };
 }

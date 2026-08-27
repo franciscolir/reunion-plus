@@ -1268,15 +1268,15 @@ export async function listCargos() {
 export async function addCargo(cargo) {
   const record = { name: String(cargo.name || '').trim(), nivel: cargo.nivel || 1, activo: cargo.activo !== false, createdAt: Date.now() };
   if (!record.name) throw new Error('Nombre de cargo vacío');
-  return commit(STORE_CARGOS, (store) => reqToPromise(store.add(record)));
+  return commitSilent(STORE_CARGOS, (store) => reqToPromise(store.add(record)));
 }
 
 export async function updateCargo(cargo) {
-  return commit(STORE_CARGOS, (store) => reqToPromise(store.put({ ...cargo, updatedAt: Date.now() })));
+  return commitSilent(STORE_CARGOS, (store) => reqToPromise(store.put({ ...cargo, updatedAt: Date.now() })));
 }
 
 export async function deleteCargo(id) {
-  return commit(STORE_CARGOS, (store) => reqToPromise(store.delete(id)));
+  return commitSilent(STORE_CARGOS, (store) => reqToPromise(store.delete(id)));
 }
 
 export async function getCargo(id) {
@@ -1312,22 +1312,22 @@ export async function listCapacidadesByCargo(cargoId) {
 
 export async function addCapacidad(cap) {
   const record = { cargoId: cap.cargoId, laborId: cap.laborId, label: cap.label || '', activo: cap.activo !== false, createdAt: Date.now() };
-  return commit(STORE_CAPACIDADES, (store) => reqToPromise(store.add(record)));
+  return commitSilent(STORE_CAPACIDADES, (store) => reqToPromise(store.add(record)));
 }
 
 export async function updateCapacidad(cap) {
-  return commit(STORE_CAPACIDADES, (store) => reqToPromise(store.put({ ...cap, updatedAt: Date.now() })));
+  return commitSilent(STORE_CAPACIDADES, (store) => reqToPromise(store.put({ ...cap, updatedAt: Date.now() })));
 }
 
 export async function deleteCapacidad(id) {
-  return commit(STORE_CAPACIDADES, (store) => reqToPromise(store.delete(id)));
+  return commitSilent(STORE_CAPACIDADES, (store) => reqToPromise(store.delete(id)));
 }
 
 export async function clearCapacidadesByCargo(cargoId) {
   const db = await openDB();
   const all = await reqToPromise(tx(db, STORE_CAPACIDADES).getAll());
   const toDelete = all.filter(c => String(c.cargoId) === String(cargoId));
-  return commit(STORE_CAPACIDADES, (store) => new Promise((resolve, reject) => {
+  return commitSilent(STORE_CAPACIDADES, (store) => new Promise((resolve, reject) => {
     let pending = toDelete.length;
     if (pending === 0) return resolve();
     for (const c of toDelete) {
@@ -1352,15 +1352,15 @@ export async function listExcepcionesByPerson(personId) {
 
 export async function addExcepcion(exc) {
   const record = { personId: exc.personId, laborId: exc.laborId, tipo: exc.tipo || 'autorizar', motivo: exc.motivo || '', activo: exc.activo !== false, createdAt: Date.now() };
-  return commit(STORE_EXCEPCIONES, (store) => reqToPromise(store.add(record)));
+  return commitSilent(STORE_EXCEPCIONES, (store) => reqToPromise(store.add(record)));
 }
 
 export async function updateExcepcion(exc) {
-  return commit(STORE_EXCEPCIONES, (store) => reqToPromise(store.put({ ...exc, updatedAt: Date.now() })));
+  return commitSilent(STORE_EXCEPCIONES, (store) => reqToPromise(store.put({ ...exc, updatedAt: Date.now() })));
 }
 
 export async function deleteExcepcion(id) {
-  return commit(STORE_EXCEPCIONES, (store) => reqToPromise(store.delete(id)));
+  return commitSilent(STORE_EXCEPCIONES, (store) => reqToPromise(store.delete(id)));
 }
 
 // ===== RESTRICCIONES (persona → regla estructurada) =====
@@ -1377,15 +1377,15 @@ export async function listRestriccionesByPerson(personId) {
 
 export async function addRestriccion(res) {
   const record = { personId: res.personId, tipo: res.tipo || 'asignacion', laborId: res.laborId || '', motivo: res.motivo || '', permanente: res.permanente !== false, activo: res.activo !== false, createdAt: Date.now() };
-  return commit(STORE_RESTRICCIONES, (store) => reqToPromise(store.add(record)));
+  return commitSilent(STORE_RESTRICCIONES, (store) => reqToPromise(store.add(record)));
 }
 
 export async function updateRestriccion(res) {
-  return commit(STORE_RESTRICCIONES, (store) => reqToPromise(store.put({ ...res, updatedAt: Date.now() })));
+  return commitSilent(STORE_RESTRICCIONES, (store) => reqToPromise(store.put({ ...res, updatedAt: Date.now() })));
 }
 
 export async function deleteRestriccion(id) {
-  return commit(STORE_RESTRICCIONES, (store) => reqToPromise(store.delete(id)));
+  return commitSilent(STORE_RESTRICCIONES, (store) => reqToPromise(store.delete(id)));
 }
 
 // ===== SPEAKER_TALKS (orador ↔ discurso N:N) =====
@@ -1408,18 +1408,18 @@ export async function listSpeakerTalksByTalk(talkNum) {
 
 export async function addSpeakerTalk(st) {
   const record = { personId: st.personId, talkNum: st.talkNum, preparedAt: st.preparedAt || Date.now(), createdAt: Date.now() };
-  return commit(STORE_SPEAKER_TALKS, (store) => reqToPromise(store.add(record)));
+  return commitSilent(STORE_SPEAKER_TALKS, (store) => reqToPromise(store.add(record)));
 }
 
 export async function deleteSpeakerTalk(id) {
-  return commit(STORE_SPEAKER_TALKS, (store) => reqToPromise(store.delete(id)));
+  return commitSilent(STORE_SPEAKER_TALKS, (store) => reqToPromise(store.delete(id)));
 }
 
 export async function clearSpeakerTalksByPerson(personId) {
   const db = await openDB();
   const all = await reqToPromise(tx(db, STORE_SPEAKER_TALKS).getAll());
   const toDelete = all.filter(c => String(c.personId) === String(personId));
-  return commit(STORE_SPEAKER_TALKS, (store) => new Promise((resolve, reject) => {
+  return commitSilent(STORE_SPEAKER_TALKS, (store) => new Promise((resolve, reject) => {
     let pending = toDelete.length;
     if (pending === 0) return resolve();
     for (const c of toDelete) {
@@ -1455,7 +1455,7 @@ export async function addAuditEntry(entry) {
     timestamp: Date.now(),
     createdAt: Date.now(),
   };
-  return commit(STORE_AUDIT_LOG, (store) => reqToPromise(store.add(record)));
+  return commitSilent(STORE_AUDIT_LOG, (store) => reqToPromise(store.add(record)));
 }
 
 export async function addAuditEntrySilent(entry) {

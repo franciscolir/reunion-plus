@@ -747,9 +747,9 @@ async function renderIa() {
   }
 
   const iaWhUrl = $('#iaWhUrl');
-  if (iaWhUrl) iaWhUrl.onchange = () => db.setSetting('iaWebhookUrl', iaWhUrl.value.trim());
+  if (iaWhUrl) iaWhUrl.onchange = () => db.setSettingSilent('iaWebhookUrl', iaWhUrl.value.trim());
   const iaWhKey = $('#iaWhKey');
-  if (iaWhKey) iaWhKey.onchange = () => db.setSetting('iaWebhookAnonKey', iaWhKey.value.trim());
+  if (iaWhKey) iaWhKey.onchange = () => db.setSettingSilent('iaWebhookAnonKey', iaWhKey.value.trim());
   const whHeaders = () => {
     const h = { 'content-type': 'application/json' };
     const k = (iaWhKey?.value || '').trim();
@@ -1190,19 +1190,21 @@ async function bindAttendanceTab() {
     set('we-total', weT); set('we-avg', weC ? Math.round(weT / weC) : 0);
   };
   compute();
+  let attTimer = null;
   document.querySelectorAll('.att-input').forEach(inp => {
-    inp.addEventListener('input', async () => {
+    inp.addEventListener('input', () => {
       const v = parseInt(inp.value, 10);
       if (isNaN(v) || v < 0) return;
       att[inp.dataset.att][inp.dataset.date] = v;
-      await db.putAttendance({ ...att, id: sy });
       compute();
+      clearTimeout(attTimer);
+      attTimer = setTimeout(() => { db.putAttendance({ ...att, id: sy }); }, 500);
     });
   });
   const dl = $('#attDownload');
   if (dl) dl.onclick = () => downloadAsistenciaMes(month, 'pdf');
   const sv = $('#attSave');
-  if (sv) sv.onclick = () => toast('Asistencia guardada', 'success');
+  if (sv) sv.onclick = async () => { await db.putAttendance({ ...att, id: sy }); toast('Asistencia guardada · pendiente sincronizar', 'success'); };
 }
 
 async function migrateArrangementsToCongregations() {
@@ -8033,8 +8035,7 @@ async function renderAtencion(monthId, opts = {}) {
         else week.labores[key] = next;
         await db.putAtencion(program);
         await syncAssignmentLog();
-        await subirStores(['atencion']);
-        toast('Labor asignada', 'success');
+        toast('Labor asignada · pendiente sincronizar', 'success');
         render();
       });
     });
@@ -8054,8 +8055,7 @@ async function renderAtencion(monthId, opts = {}) {
         await db.putMidweek(week);
         state.midweeks = await db.listMidweeks();
         await syncAssignmentLog();
-        await subirStores(['midweeks']);
-        toast('Labor asignada', 'success');
+        toast('Labor asignada · pendiente sincronizar', 'success');
         render();
       });
     });
