@@ -816,7 +816,7 @@ function serviceYearOfMonth(month) {
 function weekKeyOf(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
-  dt.setDate(dt.getDate() - dt.getDay());
+  dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); // inicio lunes
   return isoDate(dt);
 }
 
