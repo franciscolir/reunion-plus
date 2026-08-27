@@ -1190,15 +1190,12 @@ async function bindAttendanceTab() {
     set('we-total', weT); set('we-avg', weC ? Math.round(weT / weC) : 0);
   };
   compute();
-  let attTimer = null;
   document.querySelectorAll('.att-input').forEach(inp => {
     inp.addEventListener('input', () => {
       const v = parseInt(inp.value, 10);
       if (isNaN(v) || v < 0) return;
       att[inp.dataset.att][inp.dataset.date] = v;
       compute();
-      clearTimeout(attTimer);
-      attTimer = setTimeout(() => { db.putAttendance({ ...att, id: sy }); }, 500);
     });
   });
   const dl = $('#attDownload');
@@ -5696,8 +5693,10 @@ async function renderGruposConfigModal() {
 
 // Re-aplica la rotación correlativa de grupos a todos los programas de aseo.
 async function aplicarRotacionAseos(n) {
+  const cfg = (state.config && state.config.events) ? state.config : await db.getConfig();
   const aseos = await db.listAseos();
   aseos.sort((a, b) => a.id.localeCompare(b.id)); // cronológico
+  const assemblies = cfg.events?.assemblies || [];
   let semanas = 0;
   for (const a of aseos) {
     if (!Array.isArray(a.weeks) || !a.weeks.length) continue;
@@ -5705,6 +5704,14 @@ async function aplicarRotacionAseos(n) {
     let prev = start;
     for (const w of a.weeks) {
       if (prev == null) { w.group = ''; continue; }
+      // La semana de asamblea no tiene grupo (no hay reunión) y se salta en la
+      // correlatividad: el contador no avanza para esa semana.
+      const mon = addDays(w.saturday, -5), sun = addDays(w.saturday, 1);
+      const isAssembly = assemblies.some(a2 => {
+        const to = a2.to || addDays(a2.from, (Number(a2.days) || 1) - 1);
+        return !(to < mon || a2.from > sun);
+      });
+      if (isAssembly) { w.group = ''; continue; }
       w.group = groupDeptForNum(prev);
       prev = (prev % n) + 1;
       semanas++;
@@ -7169,6 +7176,22 @@ async function renderEventos() {
       visits: readRows('cfgVisitWrap'),
       assemblies: readRows('cfgAssemblyWrap'),
     };
+    // No puede haber más de un evento la misma semana.
+    const occ = {};
+    const addWeek = (key, label) => { (occ[key] = occ[key] || []).push(label); };
+    const walk = (fromIso, toIso, label) => {
+      let d = new Date(fromIso + 'T00:00:00');
+      const end = new Date((toIso || fromIso) + 'T00:00:00');
+      while (d <= end) { addWeek(weekKeyOf(isoDate(d)), label); d.setDate(d.getDate() + 1); }
+    };
+    events.commemorations.forEach(d => walk(d, d, 'Conmemoración'));
+    events.visits.forEach(v => walk(v.from, v.to, 'Visita'));
+    events.assemblies.forEach(a => walk(a.from, a.to, 'Asamblea'));
+    const conflicts = Object.entries(occ).filter(([, arr]) => arr.length > 1);
+    if (conflicts.length) {
+      toast('No puede haber más de un evento la misma semana: ' + conflicts.map(([s, arr]) => arr.join(' + ') + ' (' + s + ')').join(' · '), 'error');
+      return;
+    }
     const cfg = await db.getConfig();
     cfg.events = events;
     await db.setConfig(cfg);
