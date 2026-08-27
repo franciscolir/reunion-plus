@@ -6,7 +6,7 @@ import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosP
 import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate, setCurrentPersonaId } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
-  normalizeStr, searchTalks, saturdaysOf,
+  normalizeStr, searchTalks, saturdaysOf, mondaysOf, weekMondayOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete, computeMidweekConflicts,
   dedupPersons, eligiblePeople, isAtencionPerson, ATENCION_DEF, collectMidweekPersons,
@@ -733,7 +733,7 @@ async function renderIa() {
   </div>`;
 
   if (week) {
-    const cur = String(week.saturday || isoDate(new Date())).slice(0, 7);
+    const cur = String(week.monday || week.saturday || isoDate(new Date())).slice(0, 7);
     const blob = await svgToPngBlob(generalWeekExportSvg(week, cur, { mobile: true }));
     const image = $('#iaWeekImage');
     if (image) image.src = URL.createObjectURL(blob);
@@ -820,6 +820,16 @@ function weekKeyOf(iso) {
   return isoDate(dt);
 }
 
+// Clave de semana (lunes) de un objeto semana, derivando de sábado/fecha si
+// `monday` no está presente (datos previos a la migración v12).
+function wmon(w) {
+  if (!w) return null;
+  if (w.monday) return w.monday;
+  if (w.date) return addDays(w.date, -5);
+  if (w.saturday) return addDays(w.saturday, -5);
+  return null;
+}
+
 function meetingDatesForYear(year, config, events) {
   const midDay = config?.midweek?.day ?? 2;
   const wkDay = config?.schedule?.day ?? 6;
@@ -837,18 +847,18 @@ function meetingDatesForYear(year, config, events) {
   });
   const out = { midweek: [], weekend: [] };
   const weekDays = { wkDay, midDay };
-  const commemWeekendFor = (sat) => (events?.commemorations || []).some(cc => {
+  const commemWeekendFor = (mon) => (events?.commemorations || []).some(cc => {
     const ccDow = new Date(cc + 'T00:00:00').getDay();
-    const ccSat = addDays(cc, (6 - ccDow) % 7);
-    return ccSat === sat && (ccDow === 0 || ccDow === 6);
+    const ccMon = addDays(cc, -((ccDow + 6) % 7));
+    return ccMon === mon && (ccDow === 0 || ccDow === 6);
   });
   let cur = start;
   while (cur <= end) {
     const ev = eventTypeForDate(events, cur, weekDays);
     const [y, m, d] = cur.split('-').map(Number);
     const dow = new Date(y, m - 1, d).getDay();
-    const satCur = addDays(cur, (6 - dow) % 7);
-    const commemWeekend = commemWeekendFor(satCur);
+    const monCur = addDays(cur, -((dow + 6) % 7));
+    const commemWeekend = commemWeekendFor(monCur);
     const blank = blankWeeks.has(weekKeyOf(cur)) || ev === 'assembly' || (ev === 'commemoration' && commemWeekend);
     if (dow === midDay) out.midweek.push({ date: cur, blank, supervisor: ev === 'supervisor', ev });
     if (dow === wkDay) out.weekend.push({ date: cur, blank, supervisor: ev === 'supervisor', ev });
@@ -2326,7 +2336,7 @@ async function renderHome() {
   if (homeWeekImgBtn && generalWeek) homeWeekImgBtn.onclick = async () => {
     homeWeekImgBtn.disabled = true;
     try {
-      const cur = String(generalWeek.saturday || isoDate(new Date())).slice(0, 7);
+      const cur = String(generalWeek.monday || generalWeek.saturday || isoDate(new Date())).slice(0, 7);
       const blob = await svgToPngBlob(generalWeekExportSvg(generalWeek, cur, { mobile: isUserRole() || isIaRole() }));
       const compartido = await compartirPng(blob, `semana-${cur}-${homeWeekOffset + 1}.png`);
       if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
@@ -2382,11 +2392,11 @@ function currentWeekRangeLabel(offset = homeWeekOffset) {
     : `${startDay} DE ${startMonth} - ${endDay} DE ${endMonth}`;
 }
 
-// Busca la semana del programa mensual cuya fecha (sábado) es la semana en curso.
+// Busca la semana del programa mensual cuya fecha (lunes) es la semana en curso.
 function findCurrentFinWeek(offset = 0) {
-  const { saturday } = currentWeekDates(offset);
+  const { monday } = currentWeekDates(offset);
   for (const m of _homeMonths) {
-    const w = (m.weeks || []).find(x => x.date === saturday);
+    const w = (m.weeks || []).find(x => wmon(x) === monday);
     if (w) return { month: m, week: w };
   }
   return null;
@@ -2396,25 +2406,25 @@ function currentGeneralWeek(offset = 0) {
   const finMatch = findCurrentFinWeek(offset);
   const fin = finMatch ? finMatch.week : null;
   const mw = state.midweeks.find(m => String(m.id) >= monday && String(m.id) <= saturday) || null;
-  const aseoWeek = _homeAseos.flatMap(a => a.weeks || []).find(w => w.saturday === saturday) || null;
-  const salidasWeek = _homeSalidas.flatMap(p => p.weeks || []).find(w => w.saturday === saturday) || null;
-  const laboresWeek = _homeAtencion.flatMap(p => p.weeks || []).find(w => w.saturday === saturday) || null;
+  const aseoWeek = _homeAseos.flatMap(a => a.weeks || []).find(w => wmon(w) === monday) || null;
+  const salidasWeek = _homeSalidas.flatMap(p => p.weeks || []).find(w => wmon(w) === monday) || null;
+  const laboresWeek = _homeAtencion.flatMap(p => p.weeks || []).find(w => wmon(w) === monday) || null;
   if (!fin && !mw && !aseoWeek && !salidasWeek && !laboresWeek) return null;
-  const allSaturdays = [...new Set([
-    ..._homeMonths.flatMap(m => (m.weeks || []).map(w => w.date)),
+  const allMondays = [...new Set([
+    ..._homeMonths.flatMap(m => (m.weeks || []).map(w => wmon(w))),
     ...state.midweeks.map(m => {
       const d = new Date(String(m.id) + 'T00:00:00');
-      d.setDate(d.getDate() + (5 - ((d.getDay() + 6) % 7)));
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
       return isoDate(d);
     }),
-    ..._homeAseos.flatMap(a => (a.weeks || []).map(w => w.saturday)),
-    ..._homeSalidas.flatMap(p => (p.weeks || []).map(w => w.saturday)),
-    ..._homeAtencion.flatMap(p => (p.weeks || []).map(w => w.saturday)),
-  ])].filter(Boolean).filter(d => d.slice(0, 7) === saturday.slice(0, 7)).sort();
+    ..._homeAseos.flatMap(a => (a.weeks || []).map(w => wmon(w))),
+    ..._homeSalidas.flatMap(p => (p.weeks || []).map(w => wmon(w))),
+    ..._homeAtencion.flatMap(p => (p.weeks || []).map(w => wmon(w))),
+  ])].filter(Boolean).filter(d => d.slice(0, 7) === monday.slice(0, 7)).sort();
   return {
     fin,
     mw,
-    i: Math.max(0, allSaturdays.indexOf(saturday)),
+    i: Math.max(0, allMondays.indexOf(monday)),
     aseoGroup: aseoWeek?.group || null,
     outings: salidasWeek?.outings || null,
     sinSalida: salidasWeek?.sinSalida === true,
@@ -2437,9 +2447,9 @@ function finSemanaSchedule() {
   return `${day}, ${cfg.schedule?.time || '10:00'}`;
 }
 function finWeekAssign() {
-  const { saturday } = currentWeekDates();
+  const { monday } = currentWeekDates();
   for (const a of _homeAseos) {
-    const w = (a.weeks || []).find(x => x.saturday === saturday);
+    const w = (a.weeks || []).find(x => wmon(x) === monday);
     if (w && w.group) {
       const num = aseoWeekGroupNum(w);
       return num != null ? String(num) : deptNameOf(w.group);
@@ -2448,9 +2458,9 @@ function finWeekAssign() {
   return 'Sin asignar';
 }
 function finWeekAssignDetail() {
-  const { saturday } = currentWeekDates();
+  const { monday } = currentWeekDates();
   for (const a of _homeAseos) {
-    const w = (a.weeks || []).find(x => x.saturday === saturday);
+    const w = (a.weeks || []).find(x => wmon(x) === monday);
     if (w && w.group) {
       const d = state.departments.find(x => String(x.id) === String(w.group));
       if (d && d.labores) return d.labores;
@@ -3020,18 +3030,18 @@ async function renderAutoAsignacion() {
     const monthNum = Number(m.slice(5, 7));
     const creados = [];
     if (!await db.getMonth(m)) {
-      const weeks = saturdaysOf(year, monthNum).map(d => newWeek(d));
+      const weeks = mondaysOf(year, monthNum).map(d => newWeek(d));
       applyConfigWeekTypes(weeks);
       await db.putMonth({ id: m, year, month: monthNum, weeks, published: false });
       creados.push('Fin de semana');
     }
     if (!await db.getAtencion(m)) {
-      const weeks = saturdaysOf(year, monthNum).map(d => ({ saturday: isoDate(d), labores: newAtencion() }));
+      const weeks = mondaysOf(year, monthNum).map(d => { const mon = isoDate(d); return { monday: mon, saturday: addDays(mon, 5), labores: newAtencion() }; });
       await db.putAtencion({ id: m, weeks });
       creados.push('Atención');
     }
     if (!await db.getSalidas(m)) {
-      const weeks = saturdaysOf(year, monthNum).map(d => ({ saturday: isoDate(d), outings: [newOuting()] }));
+      const weeks = mondaysOf(year, monthNum).map(d => { const mon = isoDate(d); return { monday: mon, saturday: addDays(mon, 5), outings: [newOuting()] }; });
       await db.putSalidas({ id: m, congregations: [newCongregation()], weeks });
       creados.push('Salidas');
     }
@@ -3917,10 +3927,10 @@ async function renderNewFin(body, progMonth) {
   }
 
   const preview = () => {
-    const sats = saturdaysOf(year, month);
-    $('#nmPreview').innerHTML = sats.length
-      ? sats.map(s => `<span class="px-3 py-1 bg-primary text-on-primary rounded font-label-md text-label-md">${formatShort(s)}</span>`).join('')
-      : `<span class="text-error font-label-md">No hay sábados en este mes.</span>`;
+    const mons = mondaysOf(year, month);
+    $('#nmPreview').innerHTML = mons.length
+      ? mons.map(s => `<span class="px-3 py-1 bg-primary text-on-primary rounded font-label-md text-label-md">${formatShort(s)}</span>`).join('')
+      : `<span class="text-error font-label-md">No hay semanas en este mes.</span>`;
   };
   preview();
 
@@ -3928,8 +3938,8 @@ async function renderNewFin(body, progMonth) {
     if (await db.getMonth(id)) {
       if (!await confirmDialog(`Ya existe un programa para ${MONTHS_ES[month - 1]} ${year}. ¿Sobreescribirlo?`, 'Sobreescribir')) return;
     }
-    const sats = saturdaysOf(year, month);
-    const weeks = sats.map(d => newWeek(d));
+    const mons = mondaysOf(year, month);
+    const weeks = mons.map(d => newWeek(d));
     applyConfigWeekTypes(weeks);
     const monthObj = { id, year, month, weeks, published: false };
     await db.putMonth(monthObj);
@@ -4516,8 +4526,8 @@ function weekCardList(w, i) {
   const rows = [];
   const presName = personNameOf(w.presidente);
   // Labores de atención de la semana (del programa de atención) + grupo semanal.
-  const atencionSemana = (state.atencionWeeks.find(x => String(x.saturday) === String(w.date)) || {}).labores || {};
-  const grupoSemana = (state.aseoWeeks.find(x => String(x.saturday) === String(w.date)) || {}).group;
+const atencionSemana = (state.atencionWeeks.find(x => String(wmon(x)) === String(wmon(w))) || {}).labores || {};
+const grupoSemana = (state.aseoWeeks.find(x => String(wmon(x)) === String(wmon(w))) || {}).group;
   if (w.type === 'normal') {
     rows.push(['Presidente', presName, 'person']);
     rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
@@ -4575,8 +4585,8 @@ function weekCardList(w, i) {
 }
 
 function previewTabla() {
-  const aseoGroupFor = (sat) => {
-    const w = (state.aseoWeeks || []).find(x => String(x.saturday) === String(sat));
+  const aseoGroupFor = (mon) => {
+    const w = (state.aseoWeeks || []).find(x => String(x.monday) === String(mon));
     return (w && w.group) ? String(w.group) : '';
   };
   const rows = state.month.weeks.map((w, i) => {
@@ -4597,7 +4607,7 @@ function previewTabla() {
          </div></td></tr>`;
     }
 
-    const grupoAseo = aseoGroupFor(w.date);
+    const grupoAseo = aseoGroupFor(w.monday);
     const grupoId = grupoAseo || (w.departamento || '');
     const grupoNum = aseoWeekGroupNum({ group: grupoId });
     let grupoTxt = '—';
@@ -5706,7 +5716,7 @@ async function aplicarRotacionAseos(n) {
       if (prev == null) { w.group = ''; continue; }
       // La semana de asamblea no tiene grupo (no hay reunión) y se salta en la
       // correlatividad: el contador no avanza para esa semana.
-      const mon = addDays(w.saturday, -5), sun = addDays(w.saturday, 1);
+      const mon = w.monday || addDays(w.saturday, -5), sun = addDays(mon, 6);
       const isAssembly = assemblies.some(a2 => {
         const to = a2.to || addDays(a2.from, (Number(a2.days) || 1) - 1);
         return !(to < mon || a2.from > sun);
@@ -7921,11 +7931,7 @@ async function renderAtencion(monthId, opts = {}) {
   // Cada columna es una semana de la organización (domingo que la cierra): la
   // reunión de fin de semana (sábado, del programa de acomodación) y la de entre
   // semana (lunes, de la guía) comparten ese domingo.
-  const weekSunday = (iso) => {
-    const d = new Date(iso + 'T00:00:00');
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6);
-    return isoDate(d);
-  };
+  const weekSunday = (iso) => weekKeyOf(iso); // lunes (primer día de la semana)
   const slotValue = (week, key, si) => {
     const l = ensureAtencion(week).labores;
     return (Array.isArray(l[key]) ? l[key][si] : (si === 0 ? l[key] : '')) || '';
@@ -7951,12 +7957,10 @@ async function renderAtencion(monthId, opts = {}) {
 
   const render = () => {
     const finBySunday = new Map();
-    ((program && program.weeks) || []).forEach((w, wi) => finBySunday.set(weekSunday(w.saturday), { w, wi }));
+    ((program && program.weeks) || []).forEach((w, wi) => finBySunday.set(weekSunday(w.date || w.saturday), { w, wi }));
     const mwBySunday = new Map();
-    state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
-    const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])]
-      .filter(s => s.startsWith(cur))
-      .sort();
+    state.midweeks.filter(m => String(m.id).slice(0, 7) === cur).forEach(m => mwBySunday.set(weekSunday(m.id), m));
+    const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])].sort();
 
     const columns = sundays.map((sunday, i) => {
       const fin = finBySunday.get(sunday); // { w, wi } | undefined
@@ -7989,7 +7993,7 @@ async function renderAtencion(monthId, opts = {}) {
         i,
         fin,
         mw,
-        sub: mw ? mw.header : (fin ? fmtShort(fin.w.saturday) : ''),
+        sub: mw ? mw.header : (fin ? fmtShort(fin.w.saturday || fin.w.date) : ''),
         cell,
       };
     });
@@ -8126,7 +8130,7 @@ async function renderAtencion(monthId, opts = {}) {
   async function createProgram() {
     const year = Number(cur.slice(0, 4));
     const month = Number(cur.slice(5, 7));
-    const weeks = saturdaysOf(year, month).map(d => ({ saturday: isoDate(d), labores: newAtencion() }));
+    const weeks = mondaysOf(year, month).map(d => { const mon = isoDate(d); return { monday: mon, saturday: addDays(mon, 5), labores: newAtencion() }; });
     program = { id: cur, weeks };
     await db.putAtencion(program);
     toast('Programa de acomodación creado', 'success');
@@ -8426,7 +8430,7 @@ async function renderSalidas(monthId, opts = {}) {
   async function createProgram() {
     const year = Number(cur.slice(0, 4));
     const month = Number(cur.slice(5, 7));
-    const weeks = saturdaysOf(year, month).map(d => ({ saturday: isoDate(d), outings: [newOuting()] }));
+    const weeks = mondaysOf(year, month).map(d => { const mon = isoDate(d); return { monday: mon, saturday: addDays(mon, 5), outings: [newOuting()] }; });
     program = { id: cur, congregations: [newCongregation()], weeks };
     await db.putSalidas(program);
     state.month = { weeks: program.weeks, outings: program.congregations };
@@ -8458,30 +8462,30 @@ async function renderGeneralMonth(monthId, opts = {}) {
   const cur = (monthId && /^\d{4}-\d{2}$/.test(String(monthId))) ? String(monthId) : (allMonths[0] || isoDate(new Date()).slice(0, 7));
   const month = monthsArr.find(m => m.id === cur) || null;
 
-  // Cada semana de la organización (domingo que la cierra) agrupa su reunión de
+  // Cada semana de la organización (lunes que la inicia) agrupa su reunión de
   // entre semana (lunes) y su reunión de fin de semana (sábado).
-  const weekSunday = (iso) => {
-    const d = new Date(iso + 'T00:00:00');
-    d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6);
-    return isoDate(d);
-  };
+  const weekSunday = (iso) => weekKeyOf(iso); // lunes (primer día de la semana)
+  const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === cur);
+  const aseoMes = aseos.filter(a => String(a.id) === cur);
+  const salMes = salidasList.filter(p => String(p.id) === cur);
+  const labMes = laboresList.filter(p => String(p.id) === cur);
   const finBySunday = new Map();
-  ((month && month.weeks) || []).forEach(w => finBySunday.set(weekSunday(w.date), w));
+  ((month && month.weeks) || []).forEach(w => finBySunday.set(weekSunday(w.date || w.saturday), w));
   const mwBySunday = new Map();
-  midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
+  mwMes.forEach(m => mwBySunday.set(weekSunday(m.id), m));
 
   const aseoBySunday = new Map();
-  aseos.forEach(a => (a.weeks || []).forEach(w => aseoBySunday.set(weekSunday(w.saturday), w)));
+  aseoMes.forEach(a => (a.weeks || []).forEach(w => aseoBySunday.set(weekSunday(w.saturday || w.monday), w)));
   const salidasBySunday = new Map();
-  salidasList.forEach(p => (p.weeks || []).forEach(w => salidasBySunday.set(weekSunday(w.saturday), w)));
+  salMes.forEach(p => (p.weeks || []).forEach(w => salidasBySunday.set(weekSunday(w.saturday || w.monday), w)));
   const laboresBySunday = new Map();
-  laboresList.forEach(p => (p.weeks || []).forEach(w => laboresBySunday.set(weekSunday(w.saturday), w)));
+  labMes.forEach(p => (p.weeks || []).forEach(w => laboresBySunday.set(weekSunday(w.saturday || w.monday), w)));
 
   // La semana se incluye si cualquiera de los programas la tiene (todos se unen).
   const sundays = [...new Set([
     ...finBySunday.keys(), ...mwBySunday.keys(),
     ...aseoBySunday.keys(), ...salidasBySunday.keys(), ...laboresBySunday.keys(),
-  ])].filter(s => s.startsWith(cur)).sort();
+  ])].sort();
 
   const boxes = [];
   const weekDatas = sundays.map((sunday, i) => {
@@ -8879,7 +8883,7 @@ async function renderConflictos(mes) {
   const excepciones = Array.isArray(config.excepciones) ? config.excepciones : [];
   const exKey = (c) => `${c.value}|${c.regla}|${c.semana}`;
 
-  const weekSunday = (iso) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6); return isoDate(d); };
+  const weekSunday = (iso) => weekKeyOf(iso); // lunes (primer día de la semana)
   const mwBySunday = new Map();
   mwMes.forEach(m => mwBySunday.set(weekSunday(m.id), m));
   const finBySunday = new Map();
@@ -10129,12 +10133,12 @@ function programaExportSvg() {
   for (const f of frac) { ws.push(cw * f); xs.push(PAD + acc); acc += cw * f; }
   const C = { title: '#3f3a2e', sub: '#6b6454', line: '#e7e3db', head: '#6b6454', headbg: '#f4f1ec', name: '#2f2a20' };
   const mesTxt = `${MONTHS_ES[m.month - 1].toUpperCase()} ${m.year}`;
-  const aseoGroupFor = (sat) => {
-    const w = (state.aseoWeeks || []).find(x => String(x.saturday) === String(sat));
+  const aseoGroupFor = (mon) => {
+    const w = (state.aseoWeeks || []).find(x => String(x.monday) === String(mon));
     return (w && w.group) ? String(w.group) : '';
   };
   const grupoTxt = (w) => {
-    const g = aseoGroupFor(w.date) || (w.departamento || '');
+    const g = aseoGroupFor(w.monday) || (w.departamento || '');
     const num = g ? aseoWeekGroupNum({ group: g }) : null;
     if (num != null) return String(num);
     if (g) { const m = String(g).match(/\d+$/); if (m) return m[0]; }
@@ -10217,12 +10221,12 @@ function programaExportSvg() {
 async function laboresExportSvg(cur) {
   const program = await db.getAtencion(cur);
   const mesTxt = `${MONTHS_ES[Number(cur.slice(5)) - 1].toUpperCase()} ${cur.slice(0, 4)}`;
-  const weekSunday = (iso) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6); return isoDate(d); };
+  const weekSunday = (iso) => weekKeyOf(iso); // lunes (primer día de la semana)
   const finBySunday = new Map();
-  ((program && program.weeks) || []).forEach((w, wi) => finBySunday.set(weekSunday(w.saturday), { w, wi }));
+  ((program && program.weeks) || []).forEach((w, wi) => finBySunday.set(weekSunday(w.saturday || w.monday), { w, wi }));
   const mwBySunday = new Map();
-  state.midweeks.forEach(m => mwBySunday.set(weekSunday(m.id), m));
-  const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])].filter(s => s.startsWith(cur)).sort();
+  state.midweeks.filter(m => String(m.id).slice(0, 7) === cur).forEach(m => mwBySunday.set(weekSunday(m.id), m));
+  const sundays = [...new Set([...finBySunday.keys(), ...mwBySunday.keys()])].sort();
 
   const W = 900, PAD = 40;
   const colW = Math.max(120, (W - PAD * 2) / Math.max(1, sundays.length));
@@ -10310,10 +10314,13 @@ async function waAtencion(cur) {
 //  se importan de logic.js)
 
 function newWeek(date) {
-  const iso = isoDate(date); // fecha local (no UTC) para no desplazar el día
+  const iso = isoDate(date); // lunes (primer día de la semana)
+  const sat = addDays(iso, 5); // sábado (reunión de fin de semana)
   return {
     id: cryptoId(),
-    date: iso,
+    monday: iso,
+    saturday: sat,
+    date: sat, // compatibilidad: fecha de la reunión de fin de semana
     type: 'normal',
     estado: 'normal', // estado de la reunión: normal | modificada | cancelada | trasladada | reemplazada
     tituloDiscurso: '',
@@ -10419,28 +10426,28 @@ function aseoWeekGroupNum(w) {
   return m ? Number(m[1]) : null;
 }
 
-// Grupo (id de departamento) asignado a un sábado en los programas de aseo.
-function aseoGroupFor(saturday, aseos) {
+// Grupo (id de departamento) asignado a un lunes en los programas de aseo.
+function aseoGroupFor(monday, aseos) {
   for (const a of (aseos || [])) {
-    const w = (a.weeks || []).find(x => x.saturday === saturday);
+    const w = (a.weeks || []).find(x => wmon(x) === monday);
     if (w && w.group) return w.group;
   }
   return null;
 }
 
-// Salidas (oradores) de un sábado en los programas de salidas; null si no existe.
-function salidasFor(saturday, salidasList) {
+// Salidas (oradores) de un lunes en los programas de salidas; null si no existe.
+function salidasFor(monday, salidasList) {
   for (const p of (salidasList || [])) {
-    const w = (p.weeks || []).find(x => x.saturday === saturday);
+    const w = (p.weeks || []).find(x => wmon(x) === monday);
     if (w) return w.outings || [];
   }
   return null;
 }
 
-// Semana (con labores) de un sábado en los programas de acomodación; null si no existe.
-function laboresWeekFor(saturday, laboresList) {
+// Semana (con labores) de un lunes en los programas de acomodación; null si no existe.
+function laboresWeekFor(monday, laboresList) {
   for (const p of (laboresList || [])) {
-    const w = (p.weeks || []).find(x => x.saturday === saturday);
+    const w = (p.weeks || []).find(x => wmon(x) === monday);
     if (w) return w;
   }
   return null;
@@ -10466,13 +10473,13 @@ async function nextAseoStart(monthId, n) {
 // cae en el mes. Así quedan cubiertos todos los fines de semana del mes y las
 // semanas de borde se traslapan con el mes anterior/siguiente.
 function aseoWeeksForMonth(year, month) {
-  return saturdaysOf(year, month).map(sat => {
-    const satIso = isoDate(sat);
+  return mondaysOf(year, month).map(mon => {
+    const monIso = isoDate(mon);
     return {
-      id: addDays(satIso, -5), // lunes (inicio de semana)
-      monday: addDays(satIso, -5),
-      saturday: satIso,
-      sunday: addDays(satIso, 1),
+      id: monIso,
+      monday: monIso,
+      saturday: addDays(monIso, 5),
+      sunday: addDays(monIso, 6),
       group: '',
     };
   }).sort((a, b) => a.monday.localeCompare(b.monday));
