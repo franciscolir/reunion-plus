@@ -1124,7 +1124,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     expect(foundCommem).toBeTruthy();
   });
 
-  test('eventos: conmemoración en día entre semana marca la semana en vista previa', async ({ page }) => {
+  test('eventos: conmemoración en fin de semana suspende la reunión pública y marca la semana en vista previa', async ({ page }) => {
     await page.addInitScript(() => {
       (async () => {
         const DB = 'reunion-plus';
@@ -1166,7 +1166,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.click('#cfgAddComm');
     const commRow = page.locator('#cfgCommWrap .cfg-event-row').first();
-    await commRow.locator('.cfg-date').fill('2026-08-19'); // miércoles → semana del sábado 22
+    await commRow.locator('.cfg-date').fill('2026-08-22'); // sábado → suspende la reunión pública de ese sábado
 
     await page.click('#evSave');
     await expect(page.locator('#toastRoot')).toContainText('1 programa(s) actualizado(s)');

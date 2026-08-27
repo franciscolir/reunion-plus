@@ -4225,6 +4225,13 @@ function fieldsFor(w, i, conflicts) {
     </div>`;
   }
   if (w.type === 'commemoration') {
+    if (commemorationSuspendsPublic(w)) {
+      return `<div class="h-full flex flex-col items-center justify-center p-8 bg-surface-container rounded-xl border border-dashed border-outline-variant text-center">
+        <span class="material-symbols-outlined text-primary text-[48px] mb-4">stars</span>
+        <h4 class="font-headline-md text-headline-md text-primary uppercase tracking-widest">Conmemoración</h4>
+        <p class="text-on-surface-variant font-body-lg">La reunión pública de esta semana se suspende por la Conmemoración.</p>
+      </div>`;
+    }
     return `
       ${talkPicker('tituloDiscurso', i, w.tituloDiscurso || '', 'Título del discurso de conmemoración', conflicts)}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -4480,6 +4487,15 @@ function previewLista() {
   </div>`;
 }
 
+function commemorationSuspendsPublic(w) {
+  const comms = (state.config && state.config.events && state.config.events.commemorations) || [];
+  return comms.some(d => {
+    const dow = new Date(d + 'T00:00:00').getDay();
+    const satD = addDays(d, (6 - dow) % 7);
+    return satD === w.date && (dow === 0 || dow === 6);
+  });
+}
+
 function weekCardList(w, i) {
   const date = new Date(w.date + 'T00:00:00');
   const day = date.getDate();
@@ -4521,7 +4537,21 @@ function weekCardList(w, i) {
     rows.push(['Lectura', 'Sin lectura', 'library_books']);
     rows.push(['Grupo semanal', grupoSemana ? deptNameOf(grupoSemana) : deptNameOf(w.departamento), 'handshake']);
   } else if (w.type === 'commemoration') {
-    rows.push(['Discurso', w.tituloDiscurso || '—', 'mic_external_on']);
+    if (commemorationSuspendsPublic(w)) {
+      return `<div class="week-card bg-surface-container-low border-l-4 border-secondary p-8 rounded-lg bg-surface-dim">
+        <div class="flex justify-between items-start mb-6">
+          <div><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana ${i + 1}</span>
+          <h2 class="font-headline-lg text-headline-lg text-primary mt-3">${day} ${monthName}</h2></div>
+          <span class="material-symbols-outlined text-primary text-4xl">stars</span>
+        </div>
+        <div class="flex flex-col items-center justify-center py-12 text-center">
+          <span class="material-symbols-outlined text-primary text-6xl mb-2">stars</span>
+          <h3 class="font-headline-lg text-headline-lg text-primary uppercase tracking-widest">Conmemoración</h3>
+          <p class="font-body-md text-body-md text-on-surface-variant mt-2">La reunión pública se suspende esta semana por la Conmemoración.</p>
+        </div>
+      </div>`;
+    }
+    rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Presidente', presName, 'person']);
     rows.push(['Orador', w.orador || '—', 'campaign']);
   }
@@ -4557,11 +4587,16 @@ function previewTabla() {
     const dateStr = date.toLocaleDateString('es', { day: '2-digit' });
     const dateAsam = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
 
-    if (w.type === 'assembly' || w.type === 'commemoration') {
-      const label = w.type === 'assembly' ? 'Asamblea' : 'Conmemoración';
-      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="${label}">
+    if (w.type === 'assembly') {
+      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="Asamblea">
          <div class="py-4">
-           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
+           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Asamblea — ${dateAsam}</div>
+         </div></td></tr>`;
+    }
+    if (w.type === 'commemoration' && commemorationSuspendsPublic(w)) {
+      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="Conmemoración">
+         <div class="py-4">
+           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Conmemoración — ${dateAsam}</div>
          </div></td></tr>`;
     }
 
@@ -4598,7 +4633,7 @@ function previewTabla() {
       cells.reader = '—';
       cells.attendance = 'Conmemoración';
     }
-    const big = w.type === 'assembly' || w.type === 'commemoration';
+    const big = w.type === 'assembly' || (w.type === 'commemoration' && commemorationSuspendsPublic(w));
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
       <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
