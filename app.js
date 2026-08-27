@@ -3933,8 +3933,8 @@ async function renderNewFin(body, progMonth) {
 
 // Marca automáticamente el tipo de reunión de cada semana según las fechas
 // especiales de la configuración general (conmemoración, visita, asamblea).
-function applyConfigWeekTypes(weeks, silent) {
-  const events = state.config?.events || {};
+function applyConfigWeekTypes(weeks, silent, eventsOverride) {
+  const events = eventsOverride || state.config?.events || {};
   let marked = 0;
   for (const w of weeks) {
     const type = eventTypeForDate(events, w.date);
@@ -3950,7 +3950,9 @@ async function renderEdit() {
   let m = await db.getMonth(state.monthId);
   if (!m) { toast('Programa no encontrado', 'error'); go('home'); return; }
   ensureOutings(m);
-  applyConfigWeekTypes(m.weeks, true); // el tipo de reunión se determina por los eventos
+  const cfg = await db.getConfig();
+  state.config = cfg;
+  applyConfigWeekTypes(m.weeks, true, cfg.events); // el tipo de reunión se determina por los eventos
   state.month = m;
   renderTop();
   const app = $('#app');
@@ -4395,7 +4397,9 @@ async function renderPreview() {
   if (!state.monthId) { go('home'); return; }
   const m = await db.getMonth(state.monthId);
   if (!m) { toast('Programa no encontrado', 'error'); go('home'); return; }
-  applyConfigWeekTypes(m.weeks, true); // el tipo de reunión se determina por los eventos
+  const cfg = await db.getConfig();
+  state.config = cfg;
+  applyConfigWeekTypes(m.weeks, true, cfg.events); // el tipo de reunión se determina por los eventos
   state.month = m;
   // Programa de aseo del mes: para mostrar el grupo asignado en la columna Grupo.
   const aseo = await db.getAseo(state.monthId).catch(() => null);
@@ -6973,7 +6977,7 @@ async function renderEventos() {
       </div>`;
     }
     return `<div class="cfg-event-row flex items-center gap-2">
-      <input type="date" class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+      <input type="date" value="${escapeAttr(it.date || it.from || '')}" class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
       <button data-cfg-del="${i}" type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
     </div>`;
   }).join('');
@@ -7125,11 +7129,13 @@ async function renderEventos() {
     await db.setConfig(cfg);
     state.config = cfg;
     // Re-sincronizar el tipo de reunión de todos los programas según las fechas.
+    // Se pasan los eventos directamente para evitar que state.config se lea
+    // en un estado desactualizado durante el await.
     const months = await db.listMonths();
     let updated = 0;
     for (const m of months) {
       const before = m.weeks.map(w => w.type).join(',');
-      applyConfigWeekTypes(m.weeks, true);
+      applyConfigWeekTypes(m.weeks, true, events);
       if (m.weeks.map(w => w.type).join(',') !== before) { await db.putMonth(m); updated++; }
     }
     toast(`Eventos guardados · ${updated} programa(s) actualizado(s)`, 'success');
