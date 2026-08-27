@@ -747,9 +747,9 @@ async function renderIa() {
   }
 
   const iaWhUrl = $('#iaWhUrl');
-  if (iaWhUrl) iaWhUrl.onchange = () => db.setSetting('iaWebhookUrl', iaWhUrl.value.trim());
+  if (iaWhUrl) iaWhUrl.onchange = () => db.setSettingSilent('iaWebhookUrl', iaWhUrl.value.trim());
   const iaWhKey = $('#iaWhKey');
-  if (iaWhKey) iaWhKey.onchange = () => db.setSetting('iaWebhookAnonKey', iaWhKey.value.trim());
+  if (iaWhKey) iaWhKey.onchange = () => db.setSettingSilent('iaWebhookAnonKey', iaWhKey.value.trim());
   const whHeaders = () => {
     const h = { 'content-type': 'application/json' };
     const k = (iaWhKey?.value || '').trim();
@@ -1191,18 +1191,17 @@ async function bindAttendanceTab() {
   };
   compute();
   document.querySelectorAll('.att-input').forEach(inp => {
-    inp.addEventListener('input', async () => {
+    inp.addEventListener('input', () => {
       const v = parseInt(inp.value, 10);
       if (isNaN(v) || v < 0) return;
       att[inp.dataset.att][inp.dataset.date] = v;
-      await db.putAttendance({ ...att, id: sy });
       compute();
     });
   });
   const dl = $('#attDownload');
   if (dl) dl.onclick = () => downloadAsistenciaMes(month, 'pdf');
   const sv = $('#attSave');
-  if (sv) sv.onclick = () => toast('Asistencia guardada', 'success');
+  if (sv) sv.onclick = async () => { await db.putAttendance({ ...att, id: sy }); toast('Asistencia guardada · pendiente sincronizar', 'success'); };
 }
 
 async function migrateArrangementsToCongregations() {
@@ -4223,6 +4222,13 @@ function fieldsFor(w, i, conflicts) {
     </div>`;
   }
   if (w.type === 'commemoration') {
+    if (commemorationSuspendsPublic(w)) {
+      return `<div class="h-full flex flex-col items-center justify-center p-8 bg-surface-container rounded-xl border border-dashed border-outline-variant text-center">
+        <span class="material-symbols-outlined text-primary text-[48px] mb-4">stars</span>
+        <h4 class="font-headline-md text-headline-md text-primary uppercase tracking-widest">Conmemoración</h4>
+        <p class="text-on-surface-variant font-body-lg">La reunión pública de esta semana se suspende por la Conmemoración.</p>
+      </div>`;
+    }
     return `
       ${talkPicker('tituloDiscurso', i, w.tituloDiscurso || '', 'Título del discurso de conmemoración', conflicts)}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -4478,6 +4484,15 @@ function previewLista() {
   </div>`;
 }
 
+function commemorationSuspendsPublic(w) {
+  const comms = (state.config && state.config.events && state.config.events.commemorations) || [];
+  return comms.some(d => {
+    const dow = new Date(d + 'T00:00:00').getDay();
+    const satD = addDays(d, (6 - dow) % 7);
+    return satD === w.date && (dow === 0 || dow === 6);
+  });
+}
+
 function weekCardList(w, i) {
   const date = new Date(w.date + 'T00:00:00');
   const day = date.getDate();
@@ -4519,7 +4534,21 @@ function weekCardList(w, i) {
     rows.push(['Lectura', 'Sin lectura', 'library_books']);
     rows.push(['Grupo semanal', grupoSemana ? deptNameOf(grupoSemana) : deptNameOf(w.departamento), 'handshake']);
   } else if (w.type === 'commemoration') {
-    rows.push(['Discurso', w.tituloDiscurso || '—', 'mic_external_on']);
+    if (commemorationSuspendsPublic(w)) {
+      return `<div class="week-card bg-surface-container-low border-l-4 border-secondary p-8 rounded-lg bg-surface-dim">
+        <div class="flex justify-between items-start mb-6">
+          <div><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana ${i + 1}</span>
+          <h2 class="font-headline-lg text-headline-lg text-primary mt-3">${day} ${monthName}</h2></div>
+          <span class="material-symbols-outlined text-primary text-4xl">stars</span>
+        </div>
+        <div class="flex flex-col items-center justify-center py-12 text-center">
+          <span class="material-symbols-outlined text-primary text-6xl mb-2">stars</span>
+          <h3 class="font-headline-lg text-headline-lg text-primary uppercase tracking-widest">Conmemoración</h3>
+          <p class="font-body-md text-body-md text-on-surface-variant mt-2">La reunión pública se suspende esta semana por la Conmemoración.</p>
+        </div>
+      </div>`;
+    }
+    rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Presidente', presName, 'person']);
     rows.push(['Orador', w.orador || '—', 'campaign']);
   }
@@ -4555,11 +4584,16 @@ function previewTabla() {
     const dateStr = date.toLocaleDateString('es', { day: '2-digit' });
     const dateAsam = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
 
-    if (w.type === 'assembly' || w.type === 'commemoration') {
-      const label = w.type === 'assembly' ? 'Asamblea' : 'Conmemoración';
-      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="${label}">
+    if (w.type === 'assembly') {
+      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="Asamblea">
          <div class="py-4">
-           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">${label} — ${dateAsam}</div>
+           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Asamblea — ${dateAsam}</div>
+         </div></td></tr>`;
+    }
+    if (w.type === 'commemoration' && commemorationSuspendsPublic(w)) {
+      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="Conmemoración">
+         <div class="py-4">
+           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Conmemoración — ${dateAsam}</div>
          </div></td></tr>`;
     }
 
@@ -4596,7 +4630,7 @@ function previewTabla() {
       cells.reader = '—';
       cells.attendance = 'Conmemoración';
     }
-    const big = w.type === 'assembly' || w.type === 'commemoration';
+    const big = w.type === 'assembly' || (w.type === 'commemoration' && commemorationSuspendsPublic(w));
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
       <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
@@ -5659,8 +5693,10 @@ async function renderGruposConfigModal() {
 
 // Re-aplica la rotación correlativa de grupos a todos los programas de aseo.
 async function aplicarRotacionAseos(n) {
+  const cfg = (state.config && state.config.events) ? state.config : await db.getConfig();
   const aseos = await db.listAseos();
   aseos.sort((a, b) => a.id.localeCompare(b.id)); // cronológico
+  const assemblies = cfg.events?.assemblies || [];
   let semanas = 0;
   for (const a of aseos) {
     if (!Array.isArray(a.weeks) || !a.weeks.length) continue;
@@ -5668,6 +5704,14 @@ async function aplicarRotacionAseos(n) {
     let prev = start;
     for (const w of a.weeks) {
       if (prev == null) { w.group = ''; continue; }
+      // La semana de asamblea no tiene grupo (no hay reunión) y se salta en la
+      // correlatividad: el contador no avanza para esa semana.
+      const mon = addDays(w.saturday, -5), sun = addDays(w.saturday, 1);
+      const isAssembly = assemblies.some(a2 => {
+        const to = a2.to || addDays(a2.from, (Number(a2.days) || 1) - 1);
+        return !(to < mon || a2.from > sun);
+      });
+      if (isAssembly) { w.group = ''; continue; }
       w.group = groupDeptForNum(prev);
       prev = (prev % n) + 1;
       semanas++;
@@ -7132,6 +7176,22 @@ async function renderEventos() {
       visits: readRows('cfgVisitWrap'),
       assemblies: readRows('cfgAssemblyWrap'),
     };
+    // No puede haber más de un evento la misma semana.
+    const occ = {};
+    const addWeek = (key, label) => { (occ[key] = occ[key] || []).push(label); };
+    const walk = (fromIso, toIso, label) => {
+      let d = new Date(fromIso + 'T00:00:00');
+      const end = new Date((toIso || fromIso) + 'T00:00:00');
+      while (d <= end) { addWeek(weekKeyOf(isoDate(d)), label); d.setDate(d.getDate() + 1); }
+    };
+    events.commemorations.forEach(d => walk(d, d, 'Conmemoración'));
+    events.visits.forEach(v => walk(v.from, v.to, 'Visita'));
+    events.assemblies.forEach(a => walk(a.from, a.to, 'Asamblea'));
+    const conflicts = Object.entries(occ).filter(([, arr]) => arr.length > 1);
+    if (conflicts.length) {
+      toast('No puede haber más de un evento la misma semana: ' + conflicts.map(([s, arr]) => arr.join(' + ') + ' (' + s + ')').join(' · '), 'error');
+      return;
+    }
     const cfg = await db.getConfig();
     cfg.events = events;
     await db.setConfig(cfg);
@@ -8033,8 +8093,7 @@ async function renderAtencion(monthId, opts = {}) {
         else week.labores[key] = next;
         await db.putAtencion(program);
         await syncAssignmentLog();
-        await subirStores(['atencion']);
-        toast('Labor asignada', 'success');
+        toast('Labor asignada · pendiente sincronizar', 'success');
         render();
       });
     });
@@ -8054,8 +8113,7 @@ async function renderAtencion(monthId, opts = {}) {
         await db.putMidweek(week);
         state.midweeks = await db.listMidweeks();
         await syncAssignmentLog();
-        await subirStores(['midweeks']);
-        toast('Labor asignada', 'success');
+        toast('Labor asignada · pendiente sincronizar', 'success');
         render();
       });
     });
