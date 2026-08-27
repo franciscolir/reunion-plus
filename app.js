@@ -7176,20 +7176,24 @@ async function renderEventos() {
       visits: readRows('cfgVisitWrap'),
       assemblies: readRows('cfgAssemblyWrap'),
     };
-    // No puede haber más de un evento la misma semana.
+    // No puede haber más de un evento la misma semana. Cada evento se cuenta
+    // una sola vez por su identidad, aunque ocupe varios días de la semana.
     const occ = {};
-    const addWeek = (key, label) => { (occ[key] = occ[key] || []).push(label); };
-    const walk = (fromIso, toIso, label) => {
+    const walk = (fromIso, toIso, evKey, label) => {
       let d = new Date(fromIso + 'T00:00:00');
       const end = new Date((toIso || fromIso) + 'T00:00:00');
-      while (d <= end) { addWeek(weekKeyOf(isoDate(d)), label); d.setDate(d.getDate() + 1); }
+      while (d <= end) {
+        const wk = weekKeyOf(isoDate(d));
+        (occ[wk] = occ[wk] || new Map()).set(evKey, label);
+        d.setDate(d.getDate() + 1);
+      }
     };
-    events.commemorations.forEach(d => walk(d, d, 'Conmemoración'));
-    events.visits.forEach(v => walk(v.from, v.to, 'Visita'));
-    events.assemblies.forEach(a => walk(a.from, a.to, 'Asamblea'));
-    const conflicts = Object.entries(occ).filter(([, arr]) => arr.length > 1);
+    events.commemorations.forEach(d => walk(d, d, 'C:' + d, 'Conmemoración'));
+    events.visits.forEach(v => walk(v.from, v.to, 'V:' + v.from + '-' + v.to, 'Visita'));
+    events.assemblies.forEach(a => walk(a.from, a.to, 'A:' + a.from + '-' + a.to, 'Asamblea'));
+    const conflicts = Object.entries(occ).filter(([, m]) => m.size > 1);
     if (conflicts.length) {
-      toast('No puede haber más de un evento la misma semana: ' + conflicts.map(([s, arr]) => arr.join(' + ') + ' (' + s + ')').join(' · '), 'error');
+      toast('No puede haber más de un evento la misma semana: ' + conflicts.map(([s, m]) => [...new Set(m.values())].join(' + ') + ' (' + s + ')').join(' · '), 'error');
       return;
     }
     const cfg = await db.getConfig();
