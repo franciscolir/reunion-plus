@@ -1,10 +1,10 @@
 // db.js - Capa de acceso a IndexedDB
 // Stores: months (programas mensuales), people, departments, settings, talks, midweeks, aseos
 
-import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots } from './logic.js';
+import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots, addDays } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -249,6 +249,40 @@ function openDB() {
             c.continue();
           };
         }
+      }
+
+      // Migración v11→v12: la semana inicia el lunes. Se añade `monday` a cada
+      // semana de months/aseos/atencion/salidas (derivado de sábado/fecha).
+      if (e.oldVersion < 12) {
+        const t = e.target.transaction;
+        const normalizarSemana = (w) => {
+          if (!w || typeof w !== 'object') return w;
+          const saturday = w.saturday || (w.date ? w.date : (w.monday ? addDays(w.monday, 5) : null));
+          const monday = w.monday || (w.date ? addDays(w.date, -5) : (saturday ? addDays(saturday, -5) : null));
+          const sunday = w.sunday || (saturday ? addDays(saturday, 1) : null);
+          return { ...w, monday, saturday, sunday };
+        };
+        const migrarWeeks = (name) => {
+          if (!t.objectStoreNames.contains(name)) return;
+          const cur = t.objectStore(name).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const rec = c.value || {};
+            if (Array.isArray(rec.weeks)) {
+              c.update({ ...rec, weeks: rec.weeks.map(normalizarSemana) });
+            } else if (rec && rec.weeks) {
+              c.update({ ...rec, weeks: normalizarSemana(rec.weeks) });
+            } else {
+              c.update(rec);
+            }
+            c.continue();
+          };
+        };
+        migrarWeeks(STORE_MONTHS);
+        migrarWeeks(STORE_ASEOS);
+        migrarWeeks(STORE_SALIDAS);
+        migrarWeeks(STORE_ATENCION);
       }
     };
 

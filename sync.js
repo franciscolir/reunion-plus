@@ -17,6 +17,7 @@
 //   settings    → configuracion/general
 
 import * as db from './db.js';
+import { addDays } from './logic.js';
 import { batchWrite, isSupabaseReady } from './supabase.js?v=217';
 import { isSupabaseConfigured } from './supabase-config.js?v=217';
 import { isAdmin, isAuthenticated } from './auth.js';
@@ -601,6 +602,8 @@ async function desplegarPrograma(prog) {
   const semanas = (prog.semanas || []).map(s => ({
     ...s,
     date: s.fecha,
+    monday: addDays(s.fecha, -5),
+    saturday: s.fecha,
     type: s.tipo || s.type || 'normal',
     outings: (s.salidas || []).map(o => ({ oradorSalida: o.oradorSalida, tituloDiscurso: o.tituloDiscurso })),
     labores: s.atencion || {},
@@ -612,9 +615,9 @@ async function desplegarPrograma(prog) {
       return { ...rest, outings: w.outings };
     };
     await db.putMonthSilent({ id: mes, year: prog.year, month: prog.month, weeks: semanas.map(limpiar), published: !!prog.published });
-    await db.putSalidasSilent({ id: mes, weeks: semanas.map(w => ({ saturday: w.fecha, outings: w.outings })) });
-    await db.putAtencionSilent({ id: mes, weeks: semanas.map(w => ({ saturday: w.fecha, labores: w.labores })) });
-    await db.putAseoSilent({ id: mes, weeks: semanas.map(w => ({ saturday: w.fecha, group: w.group })) });
+    await db.putSalidasSilent({ id: mes, weeks: semanas.map(w => ({ monday: addDays(w.fecha, -5), saturday: w.fecha, outings: w.outings })) });
+    await db.putAtencionSilent({ id: mes, weeks: semanas.map(w => ({ monday: addDays(w.fecha, -5), saturday: w.fecha, labores: w.labores })) });
+    await db.putAseoSilent({ id: mes, weeks: semanas.map(w => ({ monday: addDays(w.fecha, -5), saturday: w.fecha, group: w.group })) });
   }
 }
 

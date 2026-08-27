@@ -142,6 +142,19 @@ export function saturdaysOf(year, month) {
   return out;
 }
 
+// Devuelve los lunes (primer día de la semana) de un mes "YYYY-MM".
+// La semana de la organización va de lunes a domingo.
+export function mondaysOf(year, month) {
+  const out = [];
+  const d = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0).getDate();
+  for (let day = 1; day <= last; day++) {
+    d.setDate(day);
+    if (d.getDay() === 1) out.push(new Date(d));
+  }
+  return out;
+}
+
 // Convierte una fecha JS a "YYYY-MM-DD" local.
 export function isoDate(d) {
   const y = d.getFullYear();
@@ -1575,11 +1588,18 @@ export function midweekGuideSummary(text) {
 }
 
 /* ---------- Conflictos cruzados entre programas (contexto global) ---------- */
-// Cada semana de la organización cierra en domingo. La reunión de entre semana
-// (lunes) y la de fin de semana/acomodación/salidas (sábado) comparten domingo.
+// Cada semana de la organización va de lunes a domingo. La reunión de entre
+// semana (lunes) y la de fin de semana/acomodación/salidas (sábado) comparten domingo.
 export function weekSundayOf(iso) {
   const d = new Date(iso + 'T00:00:00');
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 6);
+  return isoDate(d);
+}
+
+// Lunes (primer día de la semana) de la semana que contiene `iso`.
+export function weekMondayOf(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return isoDate(d);
 }
 
@@ -1596,7 +1616,7 @@ export function collectPersonAssignments(context) {
   // Entre semana
   (context.midweeks || []).forEach(mw => {
     const mes = String(mw.id || '').slice(0, 7);
-    const semana = weekSundayOf(mw.id);
+    const semana = weekMondayOf(mw.id);
     const header = mw.header || mw.id || '';
     add(asId(mw.presidente), mes, semana, 'entre', 'presidente', `Presidente · ${header}`);
     (mw.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
@@ -1617,7 +1637,7 @@ export function collectPersonAssignments(context) {
   (context.months || []).forEach(m => (m.weeks || []).forEach(w => {
     if (!/^\d{4}-\d{2}$/.test(String(m.id || ''))) return;
     const mes = m.id;
-    const semana = weekSundayOf(w.date);
+    const semana = weekMondayOf(w.monday || w.date || w.saturday);
     const mesTxt = MONTHS_ES[Number(m.month) - 1] || mes;
     ['presidente', 'conductor', 'lector'].forEach(f => {
       const v = asId(w[f]);
@@ -1631,7 +1651,7 @@ export function collectPersonAssignments(context) {
     const l = (w.labores || {});
     ATENCION_DEF.forEach(d => {
       const arr = Array.isArray(l[d.key]) ? l[d.key] : [l[d.key] || ''];
-      arr.forEach((id, si) => { const pid = asId(id); if (pid) add(pid, p.id, weekSundayOf(w.saturday), 'acomodacion', `${d.key}_${si}`, `${d.label} ${si + 1} (fin de semana)`); });
+      arr.forEach((id, si) => { const pid = asId(id); if (pid) add(pid, p.id, weekMondayOf(w.monday || w.saturday || w.date), 'acomodacion', `${d.key}_${si}`, `${d.label} ${si + 1} (fin de semana)`); });
     });
   }));
 
@@ -1640,7 +1660,7 @@ export function collectPersonAssignments(context) {
     if (w.sinSalida) return;
     (w.outings || []).forEach((o, oi) => {
       const v = asId(o.oradorSalida);
-      if (v) add(v, p.id, weekSundayOf(w.saturday), 'salida', `salida_${wi}_${oi}`, `Orador de salida · semana ${wi + 1}`);
+      if (v) add(v, p.id, weekMondayOf(w.monday || w.saturday || w.date), 'salida', `salida_${wi}_${oi}`, `Orador de salida · semana ${wi + 1}`);
     });
   }));
 
