@@ -154,12 +154,23 @@ export function isoDate(d) {
 // La configuración lista fechas de conmemoración, visitas de superintendente (rango
 // desde/hasta) y asambleas (1 o 3 días). `iso` debe ser "YYYY-MM-DD".
 // `events` = { commemorations:[], visits:[], assemblies:[] } (se extienden desde db.defaultConfig).
-export function eventTypeForDate(events, iso) {
+// `weekDays` = { wkDay, midDay } días de reunión pública y de entre semana (0=dom..6=sáb).
+// La conmemoración se marca según la SEMANA que contiene la fecha (no solo la fecha exacta),
+// y se suspende la reunión que corresponda: pública si cae fin de semana, de entre semana si cae entre semana.
+export function eventTypeForDate(events, iso, weekDays) {
   if (!events) return 'normal';
+  const wkDay = (weekDays && weekDays.wkDay != null) ? weekDays.wkDay : 6;
+  const midDay = (weekDays && weekDays.midDay != null) ? weekDays.midDay : 2;
+  const dowOf = (d) => new Date(d + 'T00:00:00').getDay();
   const inRange = (from, to) => from && to && iso >= from && iso <= to;
   const visitFrom = (v) => v.from || (v.date ? v.date : null);
   const visitTo = (v) => v.to || v.from || (v.date ? v.date : null);
-  if ((events.commemorations || []).some(d => d === iso)) return 'commemoration';
+  if ((events.commemorations || []).some(d => {
+    if (d === iso) return true;
+    const dDow = dowOf(d);
+    const satD = addDays(d, (6 - dDow) % 7);
+    return iso === satD;
+  })) return 'commemoration';
   if ((events.visits || []).some(v => inRange(visitFrom(v), visitTo(v)))) return 'supervisor';
   if ((events.assemblies || []).some(a => {
     if (a.from && a.to) return inRange(a.from, a.to);

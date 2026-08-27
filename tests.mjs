@@ -229,7 +229,12 @@ const cfgEvents = {
   visits: [{ from: '2026-05-13', to: '2026-05-16' }],
   assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }],
 };
-eq('conmemoración detectada', eventTypeForDate(cfgEvents, '2026-04-04'), 'commemoration');
+eq('conmemoración detectada (fecha exacta)', eventTypeForDate(cfgEvents, '2026-04-04'), 'commemoration');
+// Conmemoración en miércoles (2026-04-01) → se marca la semana (sábado de esa semana) en el programa.
+eq('conmemoración miércoles marca el sábado de la semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-04'), 'commemoration');
+eq('conmemoración miércoles no afecta otra semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-11'), 'normal');
+// Conmemoración en sábado (2026-04-04) → marca el sábado de la semana.
+eq('conmemoración sábado marca el sábado de la semana', eventTypeForDate({ commemorations: ['2026-04-04'] }, '2026-04-04'), 'commemoration');
 eq('visita en rango (inicio)', eventTypeForDate(cfgEvents, '2026-05-13'), 'supervisor');
 eq('visita en rango (fin)', eventTypeForDate(cfgEvents, '2026-05-16'), 'supervisor');
 eq('visita en rango (medio)', eventTypeForDate(cfgEvents, '2026-05-14'), 'supervisor');

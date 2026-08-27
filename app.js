@@ -836,12 +836,20 @@ function meetingDatesForYear(year, config, events) {
     while (cur && cur <= to) { blankWeeks.add(weekKeyOf(cur)); cur = addDays(cur, 1); }
   });
   const out = { midweek: [], weekend: [] };
+  const weekDays = { wkDay, midDay };
+  const commemWeekendFor = (sat) => (events?.commemorations || []).some(cc => {
+    const ccDow = new Date(cc + 'T00:00:00').getDay();
+    const ccSat = addDays(cc, (6 - ccDow) % 7);
+    return ccSat === sat && (ccDow === 0 || ccDow === 6);
+  });
   let cur = start;
   while (cur <= end) {
-    const ev = eventTypeForDate(events, cur);
+    const ev = eventTypeForDate(events, cur, weekDays);
     const [y, m, d] = cur.split('-').map(Number);
     const dow = new Date(y, m - 1, d).getDay();
-    const blank = blankWeeks.has(weekKeyOf(cur)) || ev === 'assembly' || ev === 'commemoration';
+    const satCur = addDays(cur, (6 - dow) % 7);
+    const commemWeekend = commemWeekendFor(satCur);
+    const blank = blankWeeks.has(weekKeyOf(cur)) || ev === 'assembly' || (ev === 'commemoration' && commemWeekend);
     if (dow === midDay) out.midweek.push({ date: cur, blank, supervisor: ev === 'supervisor', ev });
     if (dow === wkDay) out.weekend.push({ date: cur, blank, supervisor: ev === 'supervisor', ev });
     cur = addDays(cur, 1);
@@ -3937,7 +3945,7 @@ function applyConfigWeekTypes(weeks, silent, eventsOverride) {
   const events = eventsOverride || state.config?.events || {};
   let marked = 0;
   for (const w of weeks) {
-    const type = eventTypeForDate(events, w.date);
+    const type = eventTypeForDate(events, w.date, { wkDay: state.config?.schedule?.day ?? 6, midDay: state.config?.midweek?.day ?? 2 });
     if (type !== w.type) { w.type = type; marked++; }
   }
   if (marked > 0 && !silent) toast(`${marked} semana(s) marcada(s) según los eventos`, 'success');
