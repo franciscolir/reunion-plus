@@ -7176,24 +7176,22 @@ async function renderEventos() {
       visits: readRows('cfgVisitWrap'),
       assemblies: readRows('cfgAssemblyWrap'),
     };
-    // No puede haber más de un evento la misma semana. Cada evento se cuenta
-    // una sola vez por su identidad, aunque ocupe varios días de la semana.
-    const occ = {};
-    const walk = (fromIso, toIso, evKey, label) => {
-      let d = new Date(fromIso + 'T00:00:00');
-      const end = new Date((toIso || fromIso) + 'T00:00:00');
-      while (d <= end) {
-        const wk = weekKeyOf(isoDate(d));
-        (occ[wk] = occ[wk] || new Map()).set(evKey, label);
-        d.setDate(d.getDate() + 1);
+    // No puede haber dos eventos que se solapen en fechas (compartan al menos
+    // un día). El programa asigna un tipo por fecha, así que dos eventos en días
+    // distintos de la misma semana no entran en conflicto.
+    const evs = [
+      ...events.commemorations.map(d => ({ from: d, to: d, label: 'Conmemoración' })),
+      ...events.visits.map(v => ({ from: v.from, to: v.to || v.from, label: 'Visita' })),
+      ...events.assemblies.map(a => ({ from: a.from, to: a.to || addDays(a.from, (Number(a.days) || 1) - 1), label: 'Asamblea' })),
+    ];
+    let conflict = null;
+    for (let i = 0; i < evs.length && !conflict; i++) {
+      for (let j = i + 1; j < evs.length; j++) {
+        if (evs[i].from <= evs[j].to && evs[j].from <= evs[i].to) { conflict = evs[i].label + ' + ' + evs[j].label; break; }
       }
-    };
-    events.commemorations.forEach(d => walk(d, d, 'C:' + d, 'Conmemoración'));
-    events.visits.forEach(v => walk(v.from, v.to, 'V:' + v.from + '-' + v.to, 'Visita'));
-    events.assemblies.forEach(a => walk(a.from, a.to, 'A:' + a.from + '-' + a.to, 'Asamblea'));
-    const conflicts = Object.entries(occ).filter(([, m]) => m.size > 1);
-    if (conflicts.length) {
-      toast('No puede haber más de un evento la misma semana: ' + conflicts.map(([s, m]) => [...new Set(m.values())].join(' + ') + ' (' + s + ')').join(' · '), 'error');
+    }
+    if (conflict) {
+      toast('No puede haber más de un evento que se solape en fechas: ' + conflict, 'error');
       return;
     }
     const cfg = await db.getConfig();

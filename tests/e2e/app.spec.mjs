@@ -1252,7 +1252,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     expect(stored).toContain('2026-08-22');
   });
 
-  test('eventos: rechaza dos eventos en la misma semana', async ({ page }) => {
+  test('eventos: rechaza dos eventos que se solapan en fechas', async ({ page }) => {
     await page.addInitScript(() => {
       (async () => {
         const DB = 'reunion-plus';
@@ -1300,10 +1300,65 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#cfgAddComm');
     const rows = page.locator('#cfgCommWrap .cfg-event-row');
     await expect(rows).toHaveCount(2);
-    await rows.nth(1).locator('.cfg-date').fill('2026-08-11'); // misma semana que 2026-08-15
+    await rows.nth(1).locator('.cfg-date').fill('2026-08-15'); // misma fecha: se solapa
     await page.click('#evSave');
     await expect(page.locator('#toastRoot')).toContainText('No puede haber más de un evento');
     await expect(page.locator('#cfgCommWrap .cfg-event-row')).toHaveCount(2);
+  });
+
+  test('eventos: visita y conmemoración en días distintos no conflictúan', async ({ page }) => {
+    await page.addInitScript(() => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['months', 'salidas', 'atencion', 'settings', 'departments', 'aseos'], 'readwrite');
+        const fsDates = ['2026-08-01','2026-08-08','2026-08-15','2026-08-22'];
+        const baseWeek = { presidente: '', conductor: '', lector: '', orador: '', tituloDiscurso: '', estudioSinLectura: '' };
+        const weeks = fsDates.map(date => ({ ...baseWeek, date, type: 'normal' }));
+        tx.objectStore('months').put({ id: '2026-08', year: 2026, month: 8, published: false, weeks });
+        tx.objectStore('salidas').put({ id: '2026-08', congregations: [], weeks: fsDates.map(s => ({ saturday: s, outings: [] })) });
+        tx.objectStore('atencion').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, labores: {} })) });
+        tx.objectStore('departments').add({ id: 1, name: 'Grupo 1', activo: true });
+        tx.objectStore('aseos').put({ id: '2026-08', weeks: fsDates.map(s => ({ saturday: s, group: 1 })) });
+        tx.objectStore('settings').put({ schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: [], visits: [], assemblies: [] }, emailsPermitidos: [], excepciones: [] }, 'config');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    });
+
+    await page.route('**/supabase-config.js*', route =>
+      route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE }));
+    await page.goto('/');
+    await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
+
+    await page.evaluate(() => { location.hash = '#/eventos'; });
+    await page.waitForSelector('#evSave', { state: 'visible' });
+
+    await page.click('#cfgAddVisit');
+    const visitRow = page.locator('#cfgVisitWrap .cfg-event-row').first();
+    await visitRow.locator('[data-cfg-from]').fill('2026-08-17');
+    await visitRow.locator('[data-cfg-to]').fill('2026-08-23');
+    await page.click('#evSave');
+    await expect(page.locator('#toastRoot')).toContainText('programa(s) actualizado(s)');
+
+    await page.click('#cfgAddComm');
+    await page.locator('#cfgCommWrap .cfg-event-row').first().locator('.cfg-date').fill('2026-08-26');
+    await page.click('#evSave');
+    await expect(page.locator('#toastRoot')).not.toContainText('No puede haber más de un evento');
+    await expect(page.locator('#toastRoot')).toContainText('programa(s) actualizado(s)');
+    await expect(page.locator('#cfgCommWrap .cfg-event-row')).toHaveCount(1);
   });
 
 });
