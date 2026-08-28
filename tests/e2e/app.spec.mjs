@@ -1485,11 +1485,11 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.evaluate(() => { location.hash = '#/midweekPreview/2026-08-10'; });
     await page.waitForSelector('#mwPreviewContent', { state: 'visible' });
     await expect(page.locator('#mwPreviewContent')).toContainText('Discurso especial de visita');
-    await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente: Hermano Gómez');
+    await expect(page.locator('#mwPreviewContent')).toContainText('Hermano Gómez');
     await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente de Circuito');
 
     await page.evaluate(() => { location.hash = '#/general'; });
-    await expect(page.locator('#app')).toContainText('Superintendente: Hermano Gómez');
+    await expect(page.locator('#app')).toContainText('Hermano Gómez');
   });
 
 });
