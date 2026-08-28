@@ -1468,17 +1468,24 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     const visitRow = page.locator('#cfgVisitWrap .cfg-event-row').first();
     await visitRow.locator('[data-cfg-from]').fill('2026-08-10');
     await visitRow.locator('[data-cfg-to]').fill('2026-08-10');
+    await visitRow.locator('[data-cfg-nombre]').fill('Hermano Gómez');
     await page.click('#evSave');
     await expect(page.locator('#toastRoot')).toContainText('programa(s) actualizado(s)');
 
     await page.evaluate(() => { location.hash = '#/midweek/2026-08-10'; });
     await page.waitForSelector('#mwEditor', { state: 'visible' });
-    await expect(page.locator('#mwEditor')).toContainText('Discurso de servicio del superintendente');
+    await expect(page.locator('#mwEditor')).toContainText('Discurso');
+    await expect(page.locator('#mwEditor')).toContainText('Superintendente: Hermano Gómez');
     await expect(page.locator('#mwEditor')).toContainText('Superintendente de Circuito');
+
+    await page.locator('[data-mw-sup-titulo]').fill('Discurso especial de visita');
+    await page.click('#mwSave');
+    await expect(page.locator('#toastRoot')).toContainText('Asignaciones guardadas');
 
     await page.evaluate(() => { location.hash = '#/midweekPreview/2026-08-10'; });
     await page.waitForSelector('#mwPreviewContent', { state: 'visible' });
-    await expect(page.locator('#mwPreviewContent')).toContainText('Discurso de servicio del superintendente');
+    await expect(page.locator('#mwPreviewContent')).toContainText('Discurso: Discurso especial de visita');
+    await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente: Hermano Gómez');
     await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente de Circuito');
   });
 

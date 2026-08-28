@@ -171,6 +171,7 @@ function reunionADocumento(mw) {
       discursoSupervisor1: mw.discursoSupervisor1 || '',
       discursoSupervisor2: mw.discursoSupervisor2 || '',
       nombreSupervisor: mw.nombreSupervisor || '',
+      tituloDiscursoSupervisor: mw.tituloDiscursoSupervisor || '',
       sections: (mw.sections || []).map(sec => ({
         id: sec.id,
         title: sec.title,
@@ -569,6 +570,7 @@ export async function pullAll() {
         discursoSupervisor1: r.discursoSupervisor1 || '',
         discursoSupervisor2: r.discursoSupervisor2 || '',
         nombreSupervisor: r.nombreSupervisor || '',
+        tituloDiscursoSupervisor: r.tituloDiscursoSupervisor || '',
         sections: r.sections || [],
         createdAt: r.createdAt || Date.now(),
       });

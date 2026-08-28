@@ -3967,10 +3967,19 @@ function applyConfigWeekTypes(weeks, silent, eventsOverride) {
 function applyConfigMidweekTypes(midweeks, silent, eventsOverride) {
   const events = eventsOverride || state.config?.events || {};
   const weekDays = { wkDay: state.config?.schedule?.day ?? 6, midDay: state.config?.midweek?.day ?? 2 };
+  const visitFrom = (v) => v.from || (v.date ? v.date : null);
+  const visitTo = (v) => v.to || v.from || (v.date ? v.date : null);
+  const inRange = (from, to, iso) => from && to && iso >= from && iso <= to;
   let marked = 0;
   for (const w of midweeks) {
     const type = eventTypeForDate(events, w.id, weekDays, 'midweek');
     if (type !== w.type) { w.type = type; marked++; }
+    if (type === 'supervisor') {
+      const v = (events.visits || []).find(v => inRange(visitFrom(v), visitTo(v), w.id));
+      w.nombreSupervisor = (v && v.nombre) ? v.nombre : '';
+    } else if (w.nombreSupervisor) {
+      w.nombreSupervisor = '';
+    }
   }
   return midweeks;
 }
@@ -7002,13 +7011,15 @@ async function renderEventos() {
   const cfgRow = (arr, type) => (Array.isArray(arr) ? arr : []).map((item, i) => {
     const it = typeof item === 'string' ? { date: item } : (item || {});
     if (type === 'visits') {
-      return `<div class="cfg-event-row flex items-center gap-2">
+      return `<div class="cfg-event-row flex items-center gap-2 flex-wrap">
         <span class="text-on-surface-variant text-sm">Desde</span>
         <input data-cfg-from type="date" value="${escapeAttr(it.from || it.date || '')}"
           class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
         <span class="text-on-surface-variant text-sm">hasta</span>
         <input data-cfg-to type="date" value="${escapeAttr(it.to || it.date || '')}"
           class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+        <input data-cfg-nombre type="text" value="${escapeAttr(it.nombre || '')}" placeholder="Nombre del superintendente"
+          class="cfg-nombre flex-1 min-w-[180px] bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
         <button data-cfg-del="${i}" type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
       </div>`;
     }
@@ -7082,13 +7093,15 @@ async function renderEventos() {
 
   const addRow = (wrap, type) => {
     const row = type === 'visits'
-      ? `<div class="cfg-event-row flex items-center gap-2">
+      ? `<div class="cfg-event-row flex items-center gap-2 flex-wrap">
           <span class="text-on-surface-variant text-sm">Desde</span>
           <input data-cfg-from type="date" value=""
             class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
           <span class="text-on-surface-variant text-sm">hasta</span>
           <input data-cfg-to type="date" value=""
             class="cfg-date flex-1 bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
+          <input data-cfg-nombre type="text" value="" placeholder="Nombre del superintendente"
+            class="cfg-nombre flex-1 min-w-[180px] bg-surface-bright border border-outline-variant rounded-lg p-2 font-body-md focus:border-primary">
           <button data-cfg-del type="button" class="cfg-del material-symbols-outlined p-2 text-error hover:bg-error-container rounded-lg">close</button>
         </div>`
       : type === 'assemblies'
@@ -7161,7 +7174,8 @@ async function renderEventos() {
       } else if (kind === 'visits') {
         const from = r.querySelector('[data-cfg-from]').value;
         const to = r.querySelector('[data-cfg-to]').value;
-        if (from) out.push({ from, to: to || from });
+        const nombre = r.querySelector('[data-cfg-nombre]') ? r.querySelector('[data-cfg-nombre]').value.trim() : '';
+        if (from) out.push({ from, to: to || from, nombre });
       } else if (kind === 'assemblies') {
         const days = parseInt(r.querySelector('[data-cfg-days]').value, 10) || 1;
         const from = r.querySelector('[data-cfg-from]').value;
@@ -8616,7 +8630,7 @@ function generalEsContent(w) {
   }
   const isSup = w.type === 'supervisor';
   const assigned = (sec, p, isLastVida) => {
-    if (isSup && isLastVida) return 'Discurso de servicio del superintendente (30 min)';
+    if (isSup && isLastVida) return 'Discurso: ' + escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
     const ap = p.assignments || {};
     return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
@@ -8761,7 +8775,7 @@ function generalWeekExportSvg(data, cur, opts = {}) {
     (mw ? (mw.sections || []) : []).forEach(sec => (sec.parts || []).forEach((p, pi) => {
       const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
       let nm = mwSlotsFor(sec, p, isSup).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
-      if (isSup && isLastVida) nm = 'Discurso de servicio del superintendente (30 min)';
+      if (isSup && isLastVida) nm = 'Discurso: ' + escapeHtml(mw.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (mw.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(mw.nombreSupervisor) : '');
       esLines.push({ t: `${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, s: 13, w: 400, f: C.name });
     }));
     if (mw) {
@@ -9206,7 +9220,12 @@ async function renderMidweek(id) {
       const slots = mwSlotsFor(sec, p, week.type === 'supervisor');
       const ap = p.assignments || {};
       const slotFields = isSupEstudio
-        ? `<div class="flex-1 min-w-[160px]"><span class="block font-label-md text-label-md text-on-surface-variant mb-1">Discurso de servicio</span><div class="font-body-lg font-bold text-on-surface">Discurso de servicio del superintendente (30 min)</div></div>`
+        ? `<div class="flex-1 min-w-[220px]">
+            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Título del discurso</label>
+            <input data-mw-sup-titulo type="text" value="${escapeAttr(week.tituloDiscursoSupervisor || '')}" placeholder="Discurso de servicio del superintendente"
+              class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-lg font-bold focus:border-primary">
+            <p class="mt-1 text-sm text-on-surface-variant">Superintendente: <span class="font-semibold text-on-surface">${escapeHtml(week.nombreSupervisor || '—')}</span></p>
+          </div>`
         : slots.map(s => {
         const cur = ap[s.key];
         const opts = ['<option value="">— Sin asignar —</option>'];
@@ -9237,7 +9256,7 @@ async function renderMidweek(id) {
         <div class="min-w-[32px] h-8 px-2 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-md text-label-md">${p.num}</div>
         <div class="flex-1">
           <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">${p.mins} min</p>
-          <p class="font-body-lg text-body-lg text-on-surface">${escapeHtml(p.title)}</p>
+          <p class="font-body-lg text-body-lg text-on-surface">${isSupEstudio ? 'Discurso' : escapeHtml(p.title)}</p>
           ${pairWarning(sec, p)}
         </div>
         <div class="flex-1 flex flex-wrap gap-3">${slotFields}</div>
@@ -9260,6 +9279,9 @@ async function renderMidweek(id) {
     editor.innerHTML = normalEditorHtml;
     mwRefreshConflicts(editor, week);
     editor.querySelectorAll('select[data-mw-presidente], select.mwSel').forEach(bindMwChange);
+    editor.querySelectorAll('input[data-mw-sup-titulo]').forEach(inp => {
+      inp.addEventListener('input', () => { week.tituloDiscursoSupervisor = inp.value.trim(); });
+    });
     editor.querySelectorAll('button[data-mwsug]').forEach(btn => {
       btn.onclick = () => {
         const key = btn.dataset.mwsug;
@@ -9514,7 +9536,11 @@ function midweekBlockContent(w) {
   }
   const isSup = w.type === 'supervisor';
   const assigned = (sec, p, isLastVida) => {
-    if (isSup && isLastVida) return '<span class="text-gray-600 italic">· Discurso de servicio del superintendente (30 min)</span>';
+    if (isSup && isLastVida) {
+      const tit = escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente');
+      const nom = w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '';
+      return `<span class="text-gray-600 italic">· Discurso: ${tit}${nom}</span>`;
+    }
     const ap = p.assignments || {};
     const slots = mwSlotsFor(sec, p, isSup);
     const names = slots.map(s => {
@@ -9670,7 +9696,7 @@ function compactWeekCard(w) {
   }
   const isSup = w.type === 'supervisor';
   const assigned = (sec, p, isLastVida) => {
-    if (isSup && isLastVida) return 'Discurso de servicio del superintendente (30 min)';
+    if (isSup && isLastVida) return 'Discurso: ' + escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
     const ap = p.assignments || {};
     return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
@@ -10196,7 +10222,7 @@ function midweekSvgLayout(w, y0) {
     (sec.parts || []).forEach((p, pi) => {
       const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
       let nm = mwSlotsFor(sec, p, isSup).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
-      if (isSup && isLastVida) nm = 'Discurso de servicio del superintendente (30 min)';
+      if (isSup && isLastVida) nm = 'Discurso: ' + escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
       svgTextLines(`${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 400, C.name)); y += 18; });
     });
   });
