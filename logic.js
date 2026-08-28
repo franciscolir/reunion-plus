@@ -54,6 +54,8 @@ export const FIELD_LABORE = {
   lector:            'lector1',      // Lector Atalaya (fin de semana)
   estudioSinLectura: 'conductor1',
   oradorSalida:      'salida',
+  oracionPan:        'oracionConmem',
+  oracionVino:       'oracionConmem',
 };
 
 export const FIELD_LABELS = {
@@ -67,6 +69,8 @@ export const FIELD_LABELS = {
   discursoSupervisor1: 'discurso público',
   discursoSupervisor2: 'discurso de servicio',
   estudioSinLectura: 'estudio (sin lectura)',
+  oracionPan: 'oración por el pan',
+  oracionVino: 'oración por el vino',
 };
 
 export function normalizeStr(s) {
@@ -170,19 +174,20 @@ export function isoDate(d) {
 // `weekDays` = { wkDay, midDay } días de reunión pública y de entre semana (0=dom..6=sáb).
 // La conmemoración se marca según la SEMANA que contiene la fecha (no solo la fecha exacta),
 // y se suspende la reunión que corresponda: pública si cae fin de semana, de entre semana si cae entre semana.
-export function eventTypeForDate(events, iso, weekDays) {
+export function eventTypeForDate(events, iso, weekDays, kind) {
   if (!events) return 'normal';
   const wkDay = (weekDays && weekDays.wkDay != null) ? weekDays.wkDay : 6;
   const midDay = (weekDays && weekDays.midDay != null) ? weekDays.midDay : 2;
   const dowOf = (d) => new Date(d + 'T00:00:00').getDay();
+  const mondayOf = (d) => addDays(d, -((dowOf(d) + 6) % 7));
+  const sameWeek = (d) => mondayOf(d) === mondayOf(iso);
   const inRange = (from, to) => from && to && iso >= from && iso <= to;
   const visitFrom = (v) => v.from || (v.date ? v.date : null);
   const visitTo = (v) => v.to || v.from || (v.date ? v.date : null);
   if ((events.commemorations || []).some(d => {
-    if (d === iso) return true;
-    const dDow = dowOf(d);
-    const satD = addDays(d, (6 - dDow) % 7);
-    return iso === satD;
+    const dow = dowOf(d);
+    if (kind === 'midweek') return dow >= 1 && dow <= 5 && sameWeek(d);
+    return (dow === 0 || dow === 6) && sameWeek(d);
   })) return 'commemoration';
   if ((events.visits || []).some(v => inRange(visitFrom(v), visitTo(v)))) return 'supervisor';
   if ((events.assemblies || []).some(a => {
@@ -550,7 +555,7 @@ export function collectWeekPersons(w) {
   const mainFields = [];
   if (w.type === 'normal') mainFields.push('presidente', 'conductor', 'lector');
   else if (w.type === 'supervisor') mainFields.push('presidente', 'estudioSinLectura');
-  else if (w.type === 'commemoration') mainFields.push('presidente');
+  else if (w.type === 'commemoration') mainFields.push('presidente', 'oracionPan', 'oracionVino');
   for (const f of mainFields) {
     const v = asId(w[f]);
     if (v) out.push({ value: String(v), key: f });
@@ -619,12 +624,23 @@ export function collectAtencionPersons(atencion) {
 // key: "mw_<si>_<num>_<slot>" (si=sección, num=nº de parte, slot=rol).
 export function collectMidweekPersons(week) {
   const out = [];
+  if (week.type === 'commemoration') {
+    ['presidente', 'oracionPan', 'oracionVino'].forEach(f => {
+      const v = asId(week[f]);
+      if (v) out.push({ value: String(v), key: `mw_${f}` });
+    });
+    collectAtencionPersons(week.labores).forEach(x => out.push(x));
+    return out;
+  }
   const pres = asId(week.presidente);
   if (pres) out.push({ value: String(pres), key: 'mw_presidente' });
   (week.sections || []).forEach((sec, si) => {
     (sec.parts || []).forEach(p => {
       const ap = p.assignments || {};
       Object.entries(ap).forEach(([slot, id]) => {
+        // En semana de visita el estudio es reemplazado por el discurso del
+        // superintendente: no cuenta el conductor ni el lector local (conductor2/lector2).
+        if (week.type === 'supervisor' && (slot === 'conductor2' || slot === 'lector2')) return;
         const pid = asId(id);
         if (pid) out.push({ value: String(pid), key: `mw_${si}_${p.num}_${slot}`, sectionTitle: sec.title, partNum: p.num, slot });
       });
@@ -1903,7 +1919,7 @@ export function laboreAllowedForPerson(person, labore) {
 /* ---------- Estructura de partes de entre semana ---------- */
 // Devuelve los puestos (slots) de una parte con su rol. Fuente única usada por
 // el editor y por el algoritmo de automatización.
-export function midweekSlotsOf(sec, part) {
+export function midweekSlotsOf(sec, part, isSupervisor) {
   const secId = sec && sec.id;
   const parts = (sec && sec.parts) || [];
   const idx = parts.indexOf(part);
@@ -1921,7 +1937,10 @@ export function midweekSlotsOf(sec, part) {
   }
   if (secId === 'vida') {
     // Última parte = Estudio Bíblico de la Congregación (conductor2 + lector2);
-    // las anteriores son discursos de la reunión (asignacion4).
+    // las anteriores son discursos de la reunión (asignacion4). En semana de
+    // visita del superintendente, el estudio es reemplazado por su discurso de
+    // servicio de 30 min (sin conductor ni lector local).
+    if (isSupervisor && idx === parts.length - 1) return [{ key: 'discursoSupervisor', label: 'Discurso de servicio del superintendente (30 min)', labore: 'discursoSupervisor' }];
     if (idx === parts.length - 1) return [{ key: 'conductor', label: 'Conductor', labore: 'conductor2' }, { key: 'lector', label: 'Lector', labore: 'lector2' }];
     return [{ key: 'conductor', label: 'Discurso', labore: 'asignacion4' }];
   }
@@ -1957,7 +1976,12 @@ function peopleForLabore(people, labore) {
 // Solo los campos listados se automatizan (el orador es texto libre/manual).
 export function camposFinSemana(w) {
   if (w.type === 'assembly') return [];
-  if (w.type === 'commemoration') return [{ campo: 'presidente', labore: 'presidenteFin' }];
+  if (w.type === 'commemoration') return [
+    { campo: 'presidente', labore: 'presidenteFin' },
+    { campo: 'orador', labore: 'oradorFin' },
+    { campo: 'oracionPan', labore: 'oracionConmem' },
+    { campo: 'oracionVino', labore: 'oracionConmem' },
+  ];
   if (w.type === 'supervisor') return [
     { campo: 'presidente', labore: 'presidenteFin' },
     { campo: 'estudioSinLectura', labore: 'conductor1' },
@@ -2677,8 +2701,15 @@ export function extractAssignments(midweeks, months, salidas, atencion, people =
     const date = String(w.id);
     const pres = asId(w.presidente);
     if (pres) push(pres, date, 'entre', 'presidente', 'Presidente');
+    if (w.type === 'commemoration') {
+      ['orador', 'oracionPan', 'oracionVino'].forEach(f => {
+        const v = asId(w[f]);
+        if (v) push(v, date, 'entre', `conmem_${f}`, labelOf(f));
+      });
+      return;
+    }
     (w.sections || []).forEach((sec, si) => (sec.parts || []).forEach(p => {
-      midweekSlotsOf(sec, p).forEach(slot => {
+      midweekSlotsOf(sec, p, w.type === 'supervisor').forEach(slot => {
         const id = asId((p.assignments || {})[slot.key]);
         if (id) push(id, date, 'entre', slot.labore, slot.label);
       });

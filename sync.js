@@ -155,6 +155,7 @@ function reunionADocumento(mw) {
     data: {
       fecha: String(mw.id),
       tipo: 'entre',
+      evento: mw.type || 'normal',
       lectura: mw.reading || '',
       canciones: { intro: mw.songIn || 0, salida: mw.songOut || 0 },
       introTitle: mw.introTitle || 'Palabras de introducción',
@@ -163,6 +164,13 @@ function reunionADocumento(mw) {
       closingMins: mw.closingMins || 3,
       header: mw.header || '',
       estado: mw.estado || 'normal',
+      presidente: mw.presidente || '',
+      orador: mw.orador || '',
+      oracionPan: mw.oracionPan || '',
+      oracionVino: mw.oracionVino || '',
+      discursoSupervisor1: mw.discursoSupervisor1 || '',
+      discursoSupervisor2: mw.discursoSupervisor2 || '',
+      nombreSupervisor: mw.nombreSupervisor || '',
       sections: (mw.sections || []).map(sec => ({
         id: sec.id,
         title: sec.title,
@@ -205,6 +213,8 @@ async function mesADocumento(mes, version = 0) {
       tituloDiscurso: (mes && mes.tituloDiscurso) || '',
       presidente: (mes && mes.presidente) || '',
       orador: (mes && mes.orador) || '',
+      oracionPan: (mes && mes.oracionPan) || '',
+      oracionVino: (mes && mes.oracionVino) || '',
       conductor: (mes && mes.conductor) || '',
       lector: (mes && mes.lector) || '',
       estudioSinLectura: (mes && mes.estudioSinLectura) || '',
@@ -542,6 +552,7 @@ export async function pullAll() {
     for (const r of reuniones) {
       await db.putMidweekSilent({
         id: String(r.id),
+        type: r.evento || 'normal',
         header: r.header || '',
         reading: r.lectura || '',
         songIn: (r.canciones && r.canciones.intro) || 0,
@@ -551,6 +562,13 @@ export async function pullAll() {
         closingTitle: r.closingTitle,
         closingMins: r.closingMins,
         estado: r.estado || 'normal',
+        presidente: r.presidente || '',
+        orador: r.orador || '',
+        oracionPan: r.oracionPan || '',
+        oracionVino: r.oracionVino || '',
+        discursoSupervisor1: r.discursoSupervisor1 || '',
+        discursoSupervisor2: r.discursoSupervisor2 || '',
+        nombreSupervisor: r.nombreSupervisor || '',
         sections: r.sections || [],
         createdAt: r.createdAt || Date.now(),
       });

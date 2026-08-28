@@ -230,8 +230,10 @@ const cfgEvents = {
   assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }],
 };
 eq('conmemoración detectada (fecha exacta)', eventTypeForDate(cfgEvents, '2026-04-04'), 'commemoration');
-// Conmemoración en miércoles (2026-04-01) → se marca la semana (sábado de esa semana) en el programa.
-eq('conmemoración miércoles marca el sábado de la semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-04'), 'commemoration');
+// Conmemoración en miércoles (2026-04-01) → en fin de semana la reunión sigue
+// normal; es la reunión de entre semana (martes 2026-03-31) la que se suspende.
+eq('conmemoración miércoles no afecta el fin de semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-04'), 'normal');
+eq('conmemoración miércoles suspende la entre semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-03-31', undefined, 'midweek'), 'commemoration');
 eq('conmemoración miércoles no afecta otra semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-11'), 'normal');
 // Conmemoración en sábado (2026-04-04) → marca el sábado de la semana.
 eq('conmemoración sábado marca el sábado de la semana', eventTypeForDate({ commemorations: ['2026-04-04'] }, '2026-04-04'), 'commemoration');
@@ -250,6 +252,19 @@ eq('asamblea legacy sin days = 1 día', eventTypeForDate({ assemblies: [{ date: 
 eq('visita legacy con date', eventTypeForDate({ visits: [{ date: '2026-05-16' }] }, '2026-05-16'), 'supervisor');
 eq('fecha sin evento es normal', eventTypeForDate(cfgEvents, '2026-07-06'), 'normal');
 eq('sin eventos devuelve normal', eventTypeForDate(null, '2026-04-04'), 'normal');
+
+// --- Conmemoración / Visita del Superintendente: slots y recolección ---
+console.log('[eventos: conmemoración y visita]');
+eq('camposFinSemana conmemoración incluye los 4 puestos', camposFinSemana({ type: 'commemoration' }).map(c => c.campo).join(','), 'presidente,orador,oracionPan,oracionVino');
+const vidaSec = { id: 'vida', parts: [{ num: 1, title: 'Estudio bíblico' }] };
+eq('visita: estudio reemplazado por discurso del superintendente', midweekSlotsOf(vidaSec, vidaSec.parts[0], true)[0].key, 'discursoSupervisor');
+eq('estudio normal conserva conductor (labore conductor2)', midweekSlotsOf(vidaSec, vidaSec.parts[0], false)[0].key, 'conductor');
+const wkC = { type: 'commemoration', presidente: 1, oracionPan: 2, oracionVino: 3 };
+eq('collectWeekPersons conmemoración', collectWeekPersons(wkC).map(x => x.key).sort().join(','), 'oracionPan,oracionVino,presidente');
+const mwC = { type: 'commemoration', presidente: 1, oracionPan: 2, oracionVino: 3 };
+eq('collectMidweekPersons conmemoración', collectMidweekPersons(mwC).map(x => x.key).sort().join(','), 'mw_oracionPan,mw_oracionVino,mw_presidente');
+const mwSup = { type: 'supervisor', presidente: 1, sections: [{ id: 'vida', parts: [{ num: 3, title: 'Estudio', assignments: { conductor2: 5, lector2: 6 } }] }] };
+ok('collectMidweekPersons supervisor omite conductor2/lector2', !collectMidweekPersons(mwSup).some(x => /conductor2|lector2/.test(x.key)));
 
 // --- isSpecialDate ---
 console.log('[isSpecialDate]');
