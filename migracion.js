@@ -134,7 +134,7 @@ export function convertirADocumentosSupabase(exported) {
       const base = mes || sal || ate || aseo || {};
       const semana = {
         fecha,
-        tipo: base.type || 'normal',
+        tipo: base.type || 'no_event',
         tituloDiscurso: (mes && mes.tituloDiscurso) || '',
         presidente: (mes && mes.presidente) || '',
         orador: (mes && mes.orador) || '',

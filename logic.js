@@ -40,11 +40,17 @@ export function defaultScoringConfig() {
 }
 
 export const WEEK_TYPES = {
-  normal:       { label: 'Normal',               icon: 'calendar_today' },
+  no_event:       { label: 'Sin evento',           icon: 'calendar_today' },
   supervisor:   { label: 'Visita Superintendente',icon: 'verified' },
   assembly:     { label: 'Asamblea',              icon: 'event_busy' },
   commemoration:{ label: 'Conmemoración',         icon: 'stars' },
 };
+
+// Una semana tiene evento cuando su tipo no es el predeterminado (sin evento).
+export function isEventWeek(w) {
+  const t = w && w.type;
+  return t === 'supervisor' || t === 'assembly' || t === 'commemoration';
+}
 
 // Mapea el nombre interno del campo al rol de la lista de personas.
 // Si un campo no está aquí (ej. orador de reunión normal), es texto libre.
@@ -175,7 +181,7 @@ export function isoDate(d) {
 // La conmemoración se marca según la SEMANA que contiene la fecha (no solo la fecha exacta),
 // y se suspende la reunión que corresponda: pública si cae fin de semana, de entre semana si cae entre semana.
 export function eventTypeForDate(events, iso, weekDays, kind) {
-  if (!events) return 'normal';
+  if (!events) return 'no_event';
   const wkDay = (weekDays && weekDays.wkDay != null) ? weekDays.wkDay : 6;
   const midDay = (weekDays && weekDays.midDay != null) ? weekDays.midDay : 2;
   const dowOf = (d) => new Date(d + 'T00:00:00').getDay();
@@ -196,7 +202,7 @@ export function eventTypeForDate(events, iso, weekDays, kind) {
     const days = Number(a.days) || 1;
     return inRange(start, addDays(start, days - 1));
   })) return 'assembly';
-  return 'normal';
+  return 'no_event';
 }
 
 export const DAYS_ES_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -543,7 +549,7 @@ export function upcomingEvents(events, fromIso, max = 5) {
 
 // ¿Hay un evento programado para la fecha exacta `date`?
 export function isSpecialDate(events, date) {
-  return eventTypeForDate(events, date) !== 'normal';
+  return eventTypeForDate(events, date) !== 'no_event';
 }
 
 // Recoge todas las asignaciones de PERSONA (por ID) de una semana:
@@ -553,7 +559,7 @@ export function isSpecialDate(events, date) {
 export function collectWeekPersons(w) {
   const out = [];
   const mainFields = [];
-  if (w.type === 'normal') mainFields.push('presidente', 'conductor', 'lector');
+  if (!isEventWeek(w)) mainFields.push('presidente', 'conductor', 'lector');
   else if (w.type === 'supervisor') mainFields.push('presidente', 'estudioSinLectura');
   else if (w.type === 'commemoration') mainFields.push('presidente', 'oracionPan', 'oracionVino');
   for (const f of mainFields) {
@@ -700,7 +706,7 @@ export function computeConflicts(month) {
   const errors = [];
   month.weeks.forEach((w, i) => {
     let required = [];
-    if (w.type === 'normal') {
+    if (!isEventWeek(w)) {
       required = ['presidente', 'tituloDiscurso', 'orador', 'conductor', 'lector'];
     } else if (w.type === 'supervisor') {
       required = ['presidente', 'nombreSupervisor', 'discursoSupervisor1', 'estudioSinLectura'];
@@ -1387,7 +1393,7 @@ export function convertPdfMidweeks(text) {
   const newWeek = (h) => ({
     id: `${year}-${String(h.month).padStart(2, '0')}-${String(h.mIni).padStart(2, '0')}`,
     header: h.header,
-    type: 'normal', // normal | supervisor | assembly | commemoration (según evento)
+    type: 'no_event', // no_event | supervisor | assembly | commemoration (según evento)
     estado: 'normal', // estado de la reunión: normal | modificada | cancelada | trasladada | reemplazada
     reading: '',
     songIn: 0, songOut: 0,

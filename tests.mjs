@@ -232,26 +232,26 @@ const cfgEvents = {
 eq('conmemoración detectada (fecha exacta)', eventTypeForDate(cfgEvents, '2026-04-04'), 'commemoration');
 // Conmemoración en miércoles (2026-04-01) → en fin de semana la reunión sigue
 // normal; es la reunión de entre semana (martes 2026-03-31) la que se suspende.
-eq('conmemoración miércoles no afecta el fin de semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-04'), 'normal');
+eq('conmemoración miércoles no afecta el fin de semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-04'), 'no_event');
 eq('conmemoración miércoles suspende la entre semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-03-31', undefined, 'midweek'), 'commemoration');
-eq('conmemoración miércoles no afecta otra semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-11'), 'normal');
+eq('conmemoración miércoles no afecta otra semana', eventTypeForDate({ commemorations: ['2026-04-01'] }, '2026-04-11'), 'no_event');
 // Conmemoración en sábado (2026-04-04) → marca el sábado de la semana.
 eq('conmemoración sábado marca el sábado de la semana', eventTypeForDate({ commemorations: ['2026-04-04'] }, '2026-04-04'), 'commemoration');
 eq('visita en rango (inicio)', eventTypeForDate(cfgEvents, '2026-05-13'), 'supervisor');
 eq('visita en rango (fin)', eventTypeForDate(cfgEvents, '2026-05-16'), 'supervisor');
 eq('visita en rango (medio)', eventTypeForDate(cfgEvents, '2026-05-14'), 'supervisor');
-eq('fuera del rango es normal', eventTypeForDate(cfgEvents, '2026-05-17'), 'normal');
+eq('fuera del rango es normal', eventTypeForDate(cfgEvents, '2026-05-17'), 'no_event');
 eq('asamblea día 1', eventTypeForDate(cfgEvents, '2026-06-11'), 'assembly');
 eq('asamblea día 3', eventTypeForDate(cfgEvents, '2026-06-13'), 'assembly');
-eq('asamblea día 4 es normal', eventTypeForDate(cfgEvents, '2026-06-14'), 'normal');
-eq('asamblea 1 día', eventTypeForDate({ assemblies: [{ from: '2026-06-11', days: 1 }] }, '2026-06-12'), 'normal');
+eq('asamblea día 4 es normal', eventTypeForDate(cfgEvents, '2026-06-14'), 'no_event');
+eq('asamblea 1 día', eventTypeForDate({ assemblies: [{ from: '2026-06-11', days: 1 }] }, '2026-06-12'), 'no_event');
 eq('asamblea de 3 días con rango (desde)', eventTypeForDate({ assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }] }, '2026-06-11'), 'assembly');
 eq('asamblea de 3 días con rango (hasta)', eventTypeForDate({ assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }] }, '2026-06-13'), 'assembly');
-eq('asamblea de 3 días con rango (fuera)', eventTypeForDate({ assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }] }, '2026-06-14'), 'normal');
-eq('asamblea legacy sin days = 1 día', eventTypeForDate({ assemblies: [{ date: '2026-06-11' }] }, '2026-06-12'), 'normal');
+eq('asamblea de 3 días con rango (fuera)', eventTypeForDate({ assemblies: [{ from: '2026-06-11', to: '2026-06-13', days: 3 }] }, '2026-06-14'), 'no_event');
+eq('asamblea legacy sin days = 1 día', eventTypeForDate({ assemblies: [{ date: '2026-06-11' }] }, '2026-06-12'), 'no_event');
 eq('visita legacy con date', eventTypeForDate({ visits: [{ date: '2026-05-16' }] }, '2026-05-16'), 'supervisor');
-eq('fecha sin evento es normal', eventTypeForDate(cfgEvents, '2026-07-06'), 'normal');
-eq('sin eventos devuelve normal', eventTypeForDate(null, '2026-04-04'), 'normal');
+eq('fecha sin evento es normal', eventTypeForDate(cfgEvents, '2026-07-06'), 'no_event');
+eq('sin eventos devuelve normal', eventTypeForDate(null, '2026-04-04'), 'no_event');
 
 // --- Conmemoración / Visita del Superintendente: slots y recolección ---
 console.log('[eventos: conmemoración y visita]');
