@@ -973,7 +973,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
       const text = await row.textContent();
       const colspan = await row.locator('td').first().getAttribute('colspan');
       if (colspan === '7' && text.includes('Asamblea')) { foundAssembly = true; await expect(row).toContainText('22 de agosto'); }
-      if (colspan === '7' && text.includes('Conmemoración')) { foundCommemoration = true; await expect(row).toContainText('15 de agosto'); }
+      if (text.includes('Conmemoración') && !foundCommemoration) { foundCommemoration = true; await expect(row).toContainText('Oración Pan'); await expect(row).toContainText('Oración Vino'); }
       if (text.includes('Sin lectura') && colspan !== '7') {
         foundSupervisor = true;
         await expect(row).toContainText('Hermano López');
@@ -1118,13 +1118,12 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     for (let i = 0; i < count; i++) {
       const row = rows.nth(i);
       const text = await row.textContent();
-      const colspan = await row.locator('td').first().getAttribute('colspan');
-      if (colspan === '7' && text.includes('Conmemoración')) { foundCommem = true; await expect(row).toContainText('15 de agosto'); }
+      if (text.includes('Conmemoración') && !foundCommem) { foundCommem = true; await expect(row).toContainText('Oración Pan'); await expect(row).toContainText('Oración Vino'); }
     }
     expect(foundCommem).toBeTruthy();
   });
 
-  test('eventos: conmemoración en fin de semana suspende la reunión pública y marca la semana en vista previa', async ({ page }) => {
+  test('eventos: conmemoración en fin de semana muestra los 4 puestos en vista previa', async ({ page }) => {
     await page.addInitScript(() => {
       (async () => {
         const DB = 'reunion-plus';
@@ -1182,8 +1181,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     for (let i = 0; i < count; i++) {
       const row = rows.nth(i);
       const text = await row.textContent();
-      const colspan = await row.locator('td').first().getAttribute('colspan');
-      if (colspan === '7' && text.includes('Conmemoración')) { foundCommem = true; await expect(row).toContainText('22 de agosto'); }
+      if (text.includes('Conmemoración') && !foundCommem) { foundCommem = true; await expect(row).toContainText('Oración Pan'); await expect(row).toContainText('Oración Vino'); }
     }
     expect(foundCommem).toBeTruthy();
   });
@@ -1359,6 +1357,124 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#toastRoot')).not.toContainText('No puede haber más de un evento');
     await expect(page.locator('#toastRoot')).toContainText('programa(s) actualizado(s)');
     await expect(page.locator('#cfgCommWrap .cfg-event-row')).toHaveCount(1);
+  });
+
+  test('eventos: conmemoración entre semana muestra los 4 puestos en vista de entre semana', async ({ page }) => {
+    await page.addInitScript(() => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['people', 'midweeks', 'settings', 'departments'], 'readwrite');
+        const people = [
+          { name: 'Álvaro P.', genero: 'masculino', calificacion: 'A', labores: ['presidente', 'oracionConmem'] },
+          { name: 'Benjamín R.', genero: 'masculino', calificacion: 'B', labores: ['oracionConmem'] },
+          { name: 'Carlos M.', genero: 'masculino', calificacion: 'B', labores: ['oracionConmem'] },
+        ];
+        people.forEach(p => tx.objectStore('people').add(p));
+        const section = (id, title, parts) => ({ id, title, parts: parts.map(n => ({ num: n, title: `Parte ${n}`, mins: 5, assignments: {} })) });
+        ['2026-08-03', '2026-08-10', '2026-08-17', '2026-08-24'].forEach((id) => {
+          tx.objectStore('midweeks').put({
+            id, presidente: '', header: 'Semana ' + id, reading: 'Lectura',
+            introSong: '1', introTitle: 'Canción de entrada', introMins: 2,
+            closingTitle: 'Palabras de conclusión', closingMins: 3, songOut: '2',
+            sections: [section('tesoros', 'Tesoros', [1, 2]), section('maestros', 'Maestros', [3, 4]), section('vida', 'Vida', [5, 6, 7])],
+          });
+        });
+        tx.objectStore('departments').add({ id: 1, name: 'Grupo 1', activo: true });
+        tx.objectStore('settings').put({ schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: [], visits: [], assemblies: [] }, emailsPermitidos: [], excepciones: [] }, 'config');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    });
+
+    await page.route('**/supabase-config.js*', route =>
+      route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE }));
+    await page.goto('/');
+    await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
+
+    await page.evaluate(() => { location.hash = '#/eventos'; });
+    await page.waitForSelector('#evSave', { state: 'visible' });
+    await page.click('#cfgAddComm');
+    await page.locator('#cfgCommWrap .cfg-event-row').first().locator('.cfg-date').fill('2026-08-10');
+    await page.click('#evSave');
+    await expect(page.locator('#toastRoot')).toContainText('programa(s) actualizado(s)');
+
+    await page.evaluate(() => { location.hash = '#/midweekPreview/2026-08-10'; });
+    await page.waitForSelector('#mwPreviewContent', { state: 'visible' });
+    await expect(page.locator('#mwPreviewContent')).toContainText('Conmemoración');
+    await expect(page.locator('#mwPreviewContent')).toContainText('Oración por el Pan');
+    await expect(page.locator('#mwPreviewContent')).toContainText('Oración por el Vino');
+  });
+
+  test('eventos: visita del superintendente entre semana muestra discurso de servicio y oración final', async ({ page }) => {
+    await page.addInitScript(() => {
+      (async () => {
+        const DB = 'reunion-plus';
+        await new Promise((res) => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open(DB, 8);
+          req.onupgradeneeded = (e) => {
+            const d = e.target.result;
+            const mk = (n, kp, auto) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, kp ? { keyPath: kp, ...(auto ? { autoIncrement: true } : {}) } : undefined); };
+            mk('months', 'id'); mk('people', 'id', true); mk('departments', 'id', true);
+            mk('settings'); mk('talks', 'num'); mk('midweeks', 'id'); mk('aseos', 'id');
+            mk('salidas', 'id'); mk('atencion', 'id'); mk('assignment_log', 'id');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        const tx = db.transaction(['people', 'midweeks', 'settings', 'departments'], 'readwrite');
+        const people = [
+          { name: 'Álvaro P.', genero: 'masculino', calificacion: 'A', labores: ['presidente', 'conductor1', 'estudioSinLectura'] },
+          { name: 'Benjamín R.', genero: 'masculino', calificacion: 'B', labores: ['conductor1', 'estudioSinLectura'] },
+        ];
+        people.forEach(p => tx.objectStore('people').add(p));
+        const section = (id, title, parts) => ({ id, title, parts: parts.map(n => ({ num: n, title: `Parte ${n}`, mins: 5, assignments: {} })) });
+        ['2026-08-03', '2026-08-10', '2026-08-17', '2026-08-24'].forEach((id) => {
+          tx.objectStore('midweeks').put({
+            id, presidente: '', header: 'Semana ' + id, reading: 'Lectura',
+            introSong: '1', introTitle: 'Canción de entrada', introMins: 2,
+            closingTitle: 'Palabras de conclusión', closingMins: 3, songOut: '2',
+            sections: [section('tesoros', 'Tesoros', [1, 2]), section('maestros', 'Maestros', [3, 4]), section('vida', 'Vida', [5, 6, 7])],
+          });
+        });
+        tx.objectStore('departments').add({ id: 1, name: 'Grupo 1', activo: true });
+        tx.objectStore('settings').put({ schedule: { day: 6, time: '10:00' }, midweek: { day: 2, time: '19:00' }, events: { commemorations: [], visits: [], assemblies: [] }, emailsPermitidos: [], excepciones: [] }, 'config');
+        await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+        db.close();
+      })();
+    });
+
+    await page.route('**/supabase-config.js*', route =>
+      route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE }));
+    await page.goto('/');
+    await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
+
+    await page.evaluate(() => { location.hash = '#/eventos'; });
+    await page.waitForSelector('#evSave', { state: 'visible' });
+    await page.click('#cfgAddVisit');
+    const visitRow = page.locator('#cfgVisitWrap .cfg-event-row').first();
+    await visitRow.locator('[data-cfg-from]').fill('2026-08-10');
+    await visitRow.locator('[data-cfg-to]').fill('2026-08-10');
+    await page.click('#evSave');
+    await expect(page.locator('#toastRoot')).toContainText('programa(s) actualizado(s)');
+
+    await page.evaluate(() => { location.hash = '#/midweekPreview/2026-08-10'; });
+    await page.waitForSelector('#mwPreviewContent', { state: 'visible' });
+    await expect(page.locator('#mwPreviewContent')).toContainText('Discurso de servicio del superintendente');
+    await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente de Circuito');
   });
 
 });

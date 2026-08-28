@@ -93,7 +93,7 @@ async function refreshCatalogs() {
   state.departments = await db.listDepartments();
   state.departmentsAll = await db.listDepartmentsAll();
   state.talks = await db.listTalks();
-  state.midweeks = await db.listMidweeks();
+  await cargarMidweeks();
   state.config = await db.getConfig();
   // Auto-reparación de grupos: la plantilla XLSX guarda el número de grupo que
   // escribe la congregación (p. ej. "3"), no el id interno del departamento. Si
@@ -2769,7 +2769,7 @@ async function renderAutoAsignacion() {
       writes.push(db.putSalidas(d.sal));
     }
     await Promise.all(writes);
-    state.midweeks = await db.listMidweeks();
+    await cargarMidweeks();
     await syncAssignmentLog();
   };
 
@@ -2968,7 +2968,7 @@ async function renderAutoAsignacion() {
       sesion.hechos = { entre: false, atencion: false, salidas: false, fin: false };
       sesion.reportes = { entre: null, atencion: null, salidas: null, fin: null };
       sesion.creados = await crearProgramasFaltantes(month);
-      state.midweeks = await db.listMidweeks();
+      await cargarMidweeks();
       render();
     };
     if ($('#autoBack')) $('#autoBack').onclick = () => go('new');
@@ -3052,7 +3052,7 @@ async function renderAutoAsignacion() {
   // (fin de semana, acomodación y salidas no dependen de la guía; la reunión de
   // entre semana sí, y esa card muestra el aviso de cargar la guía).
   sesion.creados = await crearProgramasFaltantes(month);
-  state.midweeks = await db.listMidweeks();
+  await cargarMidweeks();
 
   await render();
 }
@@ -3109,7 +3109,7 @@ async function etapaEntreSemana(month) {
     entreOpts: { historial, nombres },
   });
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
-  state.midweeks = await db.listMidweeks();
+  await cargarMidweeks();
   const r = out.reportes.entre || { asignados: 0, vacios: [] };
   return {
     asignados: r.asignados,
@@ -3134,7 +3134,7 @@ async function etapaAtencion(month) {
   // Las labores de entre semana se guardan en cada week.labores del midweek.
   await Promise.all(out.atencion.map(p => db.putAtencion(p)));
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
-  state.midweeks = await db.listMidweeks();
+  await cargarMidweeks();
   const r = out.reportes.atencion || { asignados: 0, vacios: [] };
   return {
     asignados: r.asignados,
@@ -3165,7 +3165,7 @@ async function etapaFinSemana(month) {
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
   await Promise.all(out.months.map(m => db.putMonth(m)));
   await Promise.all(out.salidas.map(s => db.putSalidas(s)));
-  state.midweeks = await db.listMidweeks();
+  await cargarMidweeks();
 
   const rEnt = outEntre.reportes.entre || { asignados: 0, vacios: [] };
   const rFin = out.reportes.fin || { asignados: 0, vacios: [] };
@@ -3270,7 +3270,7 @@ async function generateProgram(month, scope) {
   if (persist.includes('salidas')) out.salidas.forEach(s => writes.push(db.putSalidas(s)));
   if (persist.includes('atencion')) out.atencion.forEach(a => writes.push(db.putAtencion(a)));
   await Promise.all(writes);
-  state.midweeks = await db.listMidweeks();
+  await cargarMidweeks();
   await syncAssignmentLog();
 
   const total = Object.values(out.reportes).reduce((s, r) => s + (r && r.asignados || 0), 0);
@@ -3612,7 +3612,7 @@ async function aplicarPropuesta(p, month) {
   (p.salidas || []).forEach(x => writes.push(db.putSalidas(x)));
   (p.atencion || []).forEach(x => writes.push(db.putAtencion(x)));
   await Promise.all(writes);
-  state.midweeks = await db.listMidweeks();
+  await cargarMidweeks();
   await syncAssignmentLog();
   await subirStores(['midweeks', 'months', 'salidas', 'atencion']);
 }
@@ -3961,6 +3961,28 @@ function applyConfigWeekTypes(weeks, silent, eventsOverride) {
   return weeks;
 }
 
+// Marca el tipo de reunión de cada semana de entre semana según los eventos
+// especiales (la conmemoración entre semana y la asamblea/visita cancelan o
+// modifican la reunión de entre semana, no la de fin de semana).
+function applyConfigMidweekTypes(midweeks, silent, eventsOverride) {
+  const events = eventsOverride || state.config?.events || {};
+  const weekDays = { wkDay: state.config?.schedule?.day ?? 6, midDay: state.config?.midweek?.day ?? 2 };
+  let marked = 0;
+  for (const w of midweeks) {
+    const type = eventTypeForDate(events, w.id, weekDays, 'midweek');
+    if (type !== w.type) { w.type = type; marked++; }
+  }
+  return midweeks;
+}
+
+// Carga las reuniones de entre semana y aplica el tipo de evento (conmemoración/
+// visita) derivado de la configuración, para que todas las vistas lo reflejen.
+async function cargarMidweeks() {
+  state.midweeks = await db.listMidweeks();
+  applyConfigMidweekTypes(state.midweeks, true);
+  return state.midweeks;
+}
+
 /* ---------- EDIT: editor de semanas ---------- */
 async function renderEdit() {
   if (!state.monthId) { go('home'); return; }
@@ -4232,18 +4254,16 @@ function fieldsFor(w, i, conflicts) {
     </div>`;
   }
   if (w.type === 'commemoration') {
-    if (commemorationSuspendsPublic(w)) {
-      return `<div class="h-full flex flex-col items-center justify-center p-8 bg-surface-container rounded-xl border border-dashed border-outline-variant text-center">
-        <span class="material-symbols-outlined text-primary text-[48px] mb-4">stars</span>
-        <h4 class="font-headline-md text-headline-md text-primary uppercase tracking-widest">Conmemoración</h4>
-        <p class="text-on-surface-variant font-body-lg">La reunión pública de esta semana se suspende por la Conmemoración.</p>
-      </div>`;
-    }
     return `
+      <div class="mb-2 flex items-center gap-2 text-primary font-label-md uppercase tracking-wider">
+        <span class="material-symbols-outlined">stars</span> Conmemoración
+      </div>
       ${talkPicker('tituloDiscurso', i, w.tituloDiscurso || '', 'Título del discurso de conmemoración', conflicts)}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         ${peopleSelect('presidente', i, w.presidente, 'Presidente', conflicts)}
-        ${textInput('orador', i, w.orador || '', 'Nombre del orador (a mano)', conflicts)}
+        ${peopleSelect('orador', i, w.orador || '', 'Orador (Discurso de Conmemoración)', conflicts)}
+        ${peopleSelect('oracionPan', i, w.oracionPan, 'Oración por el Pan', conflicts)}
+        ${peopleSelect('oracionVino', i, w.oracionVino, 'Oración por el Vino', conflicts)}
       </div>`;
   }
   if (w.type === 'supervisor') {
@@ -4494,15 +4514,6 @@ function previewLista() {
   </div>`;
 }
 
-function commemorationSuspendsPublic(w) {
-  const comms = (state.config && state.config.events && state.config.events.commemorations) || [];
-  return comms.some(d => {
-    const dow = new Date(d + 'T00:00:00').getDay();
-    const satD = addDays(d, (6 - dow) % 7);
-    return satD === w.date && (dow === 0 || dow === 6);
-  });
-}
-
 function weekCardList(w, i) {
   const date = new Date(w.date + 'T00:00:00');
   const day = date.getDate();
@@ -4544,23 +4555,10 @@ const grupoSemana = (state.aseoWeeks.find(x => String(wmon(x)) === String(wmon(w
     rows.push(['Lectura', 'Sin lectura', 'library_books']);
     rows.push(['Grupo semanal', grupoSemana ? deptNameOf(grupoSemana) : deptNameOf(w.departamento), 'handshake']);
   } else if (w.type === 'commemoration') {
-    if (commemorationSuspendsPublic(w)) {
-      return `<div class="week-card bg-surface-container-low border-l-4 border-secondary p-8 rounded-lg bg-surface-dim">
-        <div class="flex justify-between items-start mb-6">
-          <div><span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana ${i + 1}</span>
-          <h2 class="font-headline-lg text-headline-lg text-primary mt-3">${day} ${monthName}</h2></div>
-          <span class="material-symbols-outlined text-primary text-4xl">stars</span>
-        </div>
-        <div class="flex flex-col items-center justify-center py-12 text-center">
-          <span class="material-symbols-outlined text-primary text-6xl mb-2">stars</span>
-          <h3 class="font-headline-lg text-headline-lg text-primary uppercase tracking-widest">Conmemoración</h3>
-          <p class="font-body-md text-body-md text-on-surface-variant mt-2">La reunión pública se suspende esta semana por la Conmemoración.</p>
-        </div>
-      </div>`;
-    }
-    rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Presidente', presName, 'person']);
-    rows.push(['Orador', w.orador || '—', 'campaign']);
+    rows.push(['Orador (Discurso)', w.orador || '—', 'campaign']);
+    rows.push(['Oración por el Pan', personNameOf(w.oracionPan), 'worship']);
+    rows.push(['Oración por el Vino', personNameOf(w.oracionVino), 'worship']);
   }
   const rowsHtml = rows.map((r, idx) => `<div class="flex items-center justify-between py-2 ${idx < rows.length - 1 ? 'border-b border-outline-variant/20' : ''}">
     <div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant">${r[2]}</span><span class="font-label-md text-label-md text-on-surface-variant">${r[0]}</span></div>
@@ -4600,12 +4598,6 @@ function previewTabla() {
            <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Asamblea — ${dateAsam}</div>
          </div></td></tr>`;
     }
-    if (w.type === 'commemoration' && commemorationSuspendsPublic(w)) {
-      return `<tr class="transition-colors"><td class="p-4 bg-surface-variant/50 text-center" colspan="7" data-label="Conmemoración">
-         <div class="py-4">
-           <div class="font-headline-md text-headline-md text-primary uppercase tracking-widest font-bold">Conmemoración — ${dateAsam}</div>
-         </div></td></tr>`;
-    }
 
     const grupoAseo = aseoGroupFor(w.monday);
     const grupoId = grupoAseo || (w.departamento || '');
@@ -4636,11 +4628,11 @@ function previewTabla() {
       cells.title = escapeHtml(w.tituloDiscurso || '—');
       cells.chairman = escapeHtml(personNameOf(w.presidente));
       cells.speaker = escapeHtml(w.orador || '—');
-      cells.conductor = '—';
-      cells.reader = '—';
+      cells.conductor = 'Oración Pan: ' + escapeHtml(personNameOf(w.oracionPan));
+      cells.reader = 'Oración Vino: ' + escapeHtml(personNameOf(w.oracionVino));
       cells.attendance = 'Conmemoración';
     }
-    const big = w.type === 'assembly' || (w.type === 'commemoration' && commemorationSuspendsPublic(w));
+    const big = w.type === 'assembly';
     const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
       <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
@@ -7218,6 +7210,9 @@ async function renderEventos() {
       applyConfigWeekTypes(m.weeks, true, events);
       if (m.weeks.map(w => w.type).join(',') !== before) { await db.putMonth(m); updated++; }
     }
+    const midweeks = await db.listMidweeks();
+    applyConfigMidweekTypes(midweeks, true, events);
+    await Promise.all(midweeks.map(w => db.putMidweek(w)));
     toast(`Eventos guardados · ${updated} programa(s) actualizado(s)`, 'success');
     renderEventos();
   };
@@ -7831,6 +7826,7 @@ async function renderMidweeks(opts = {}) {
 /* ---------- MIDWEEK: vista lista (cards por reunión, similar a fin de semana) ---------- */
 function renderMidweekList() {
   state.month = null;
+  applyConfigMidweekTypes(state.midweeks, true);
   renderTop();
   const app = $('#app');
   const weeks = state.midweeks.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -8117,7 +8113,7 @@ async function renderAtencion(monthId, opts = {}) {
         if (Array.isArray(week.labores[key])) week.labores[key][si] = next;
         else week.labores[key] = next;
         await db.putMidweek(week);
-        state.midweeks = await db.listMidweeks();
+        await cargarMidweeks();
         await syncAssignmentLog();
         toast('Labor asignada · pendiente sincronizar', 'success');
         render();
@@ -8602,13 +8598,32 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
 
 // Reunión de entre semana compacta para el cuadro semanal.
 function generalEsContent(w) {
-  const assigned = (sec, p) => {
+  applyConfigMidweekTypes(state.midweeks, true);
+  if (w.type === 'commemoration') {
+    const row = (k, v) => `<div class="flex justify-between gap-3 py-1 border-b border-outline-variant/20">
+      <span class="text-xs text-on-surface-variant whitespace-nowrap">${k}</span>
+      <span class="text-sm font-semibold text-on-surface text-right">${escapeHtml(String(v || '—'))}</span>
+    </div>`;
+    return `
+      <div class="text-center mb-2">
+        <div class="font-bold text-on-surface text-sm">${escapeHtml(w.header)}</div>
+        <div class="text-[11px] text-on-surface-variant mt-1">Conmemoración · la reunión de entre semana se suspende.</div>
+      </div>
+      ${row('Presidente', personNameOf(w.presidente))}
+      ${row('Orador (Discurso)', personNameOf(w.orador))}
+      ${row('Oración por el Pan', personNameOf(w.oracionPan))}
+      ${row('Oración por el Vino', personNameOf(w.oracionVino))}`;
+  }
+  const isSup = w.type === 'supervisor';
+  const assigned = (sec, p, isLastVida) => {
+    if (isSup && isLastVida) return 'Discurso de servicio del superintendente (30 min)';
     const ap = p.assignments || {};
-    return mwSlotsFor(sec, p).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+    return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
   const section = (sec) => {
-    const parts = (sec.parts || []).map(p => {
-      const nm = assigned(sec, p);
+    const parts = (sec.parts || []).map((p, pi) => {
+      const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
+      const nm = assigned(sec, p, isLastVida);
       return `<div class="flex items-baseline justify-between gap-2 py-[2px]">
         <span class="text-xs text-on-surface">${p.num}. ${escapeHtml(p.title)} <span class="text-on-surface-variant">(${p.mins})</span></span>
         <span class="text-xs font-semibold text-on-surface text-right whitespace-nowrap">${nm ? escapeHtml(nm) : ''}</span>
@@ -8620,6 +8635,7 @@ function generalEsContent(w) {
     </div>`;
   };
   const introSong = w.introSong || w.songIn;
+  const oracionFinal = isSup ? 'Superintendente de Circuito' : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico');
   return `
     <div class="text-center mb-2">
       <div class="font-bold text-on-surface text-sm">${escapeHtml(w.header)}</div>
@@ -8631,7 +8647,7 @@ function generalEsContent(w) {
     ${section((w.sections || []).find(s => s.id === 'maestros'))}
     ${section((w.sections || []).find(s => s.id === 'vida'))}
     <div class="text-[11px] text-on-surface-variant border-t border-outline-variant/30 pt-1 mt-1">${escapeHtml(w.closingTitle || 'Palabras de conclusión')} (${w.closingMins || 3} mins.) · ♪ ${escapeHtml(w.songOut || '—')}</div>
-    <div class="text-[11px] text-on-surface-variant mt-0.5">Oración final: <span class="font-semibold text-on-surface">${escapeHtml(mwConductorEstudio(w) || 'el conductor del Estudio Bíblico')}</span></div>`;
+    <div class="text-[11px] text-on-surface-variant mt-0.5">Oración final: <span class="font-semibold text-on-surface">${escapeHtml(oracionFinal)}</span></div>`;
 }
 
 // Reunión de fin de semana compacta para el cuadro semanal.
@@ -8663,6 +8679,8 @@ function generalFsContent(w, outings, sinSalida) {
     rows.push(['Discurso', w.tituloDiscurso || '—']);
     rows.push(['Presidente', personNameOf(w.presidente)]);
     rows.push(['Orador', w.orador || '—']);
+    rows.push(['Oración por el Pan', personNameOf(w.oracionPan)]);
+    rows.push(['Oración por el Vino', personNameOf(w.oracionVino)]);
   }
   return `<div class="flex items-center gap-2 mb-2">
     <span class="material-symbols-outlined text-secondary text-[18px]">${WEEK_TYPES[w.type].icon}</span>
@@ -8730,15 +8748,26 @@ function generalWeekExportSvg(data, cur, opts = {}) {
   const rows = [];
 
   const esLines = [];
-  esLines.push({ t: `Lectura: ${mw ? (mw.reading || '—') : '—'}`, s: 14, w: 400, f: C.sub });
-  esLines.push({ t: `Presidente: ${personNameOf(mw ? mw.presidente : null)}`, s: 16, w: 700, f: C.name });
-  (mw ? (mw.sections || []) : []).forEach(sec => (sec.parts || []).forEach(p => {
-    const nm = mwSlotsFor(sec, p).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
-    esLines.push({ t: `${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, s: 13, w: 400, f: C.name });
-  }));
-  if (mw) {
-    esLines.push({ t: `${mw.closingTitle || 'Palabras de conclusión'} (${mw.closingMins || 3} mins.) · ♪ ${mw.songOut || '—'}`, s: 13, w: 400, f: C.sub });
-    esLines.push({ t: `Oración final: ${mwConductorEstudio(mw) || 'el conductor del Estudio Bíblico'}`, s: 13, w: 600, f: C.name });
+  const isSup = mw && mw.type === 'supervisor';
+  if (mw && mw.type === 'commemoration') {
+    esLines.push({ t: 'Conmemoración · reunión de entre semana suspendida', s: 14, w: 400, f: C.sub });
+    esLines.push({ t: `Presidente: ${personNameOf(mw.presidente)}`, s: 16, w: 700, f: C.name });
+    esLines.push({ t: `Orador (Discurso): ${mw.orador || '—'}`, s: 13, w: 400, f: C.name });
+    esLines.push({ t: `Oración por el Pan: ${personNameOf(mw.oracionPan)}`, s: 13, w: 400, f: C.name });
+    esLines.push({ t: `Oración por el Vino: ${personNameOf(mw.oracionVino)}`, s: 13, w: 400, f: C.name });
+  } else {
+    esLines.push({ t: `Lectura: ${mw ? (mw.reading || '—') : '—'}`, s: 14, w: 400, f: C.sub });
+    esLines.push({ t: `Presidente: ${personNameOf(mw ? mw.presidente : null)}`, s: 16, w: 700, f: C.name });
+    (mw ? (mw.sections || []) : []).forEach(sec => (sec.parts || []).forEach((p, pi) => {
+      const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
+      let nm = mwSlotsFor(sec, p, isSup).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+      if (isSup && isLastVida) nm = 'Discurso de servicio del superintendente (30 min)';
+      esLines.push({ t: `${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, s: 13, w: 400, f: C.name });
+    }));
+    if (mw) {
+      esLines.push({ t: `${mw.closingTitle || 'Palabras de conclusión'} (${mw.closingMins || 3} mins.) · ♪ ${mw.songOut || '—'}`, s: 13, w: 400, f: C.sub });
+      esLines.push({ t: `Oración final: ${(isSup ? 'Superintendente de Circuito' : (mwConductorEstudio(mw) || 'el conductor del Estudio Bíblico'))}`, s: 13, w: 600, f: C.name });
+    }
   }
   rows.push({ label: 'ENTRE SEMANA', fill: '#eef2ff', lines: esLines });
 
@@ -8759,6 +8788,11 @@ function generalWeekExportSvg(data, cur, opts = {}) {
       fsLines.push({ t: `Discurso público: ${fin.discursoSupervisor1 || '—'}`, s: 14, w: 400, f: C.name });
       fsLines.push({ t: `Estudio: ${personNameOf(fin.estudioSinLectura)}`, s: 14, w: 400, f: C.name });
       fsLines.push({ t: `Discurso de servicio: ${fin.discursoSupervisor2 || '—'}`, s: 14, w: 400, f: C.name });
+    } else if (fin.type === 'commemoration') {
+      fsLines.push({ t: `Presidente: ${personNameOf(fin.presidente)}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Orador (Discurso): ${fin.orador || '—'}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Oración por el Pan: ${personNameOf(fin.oracionPan)}`, s: 14, w: 400, f: C.name });
+      fsLines.push({ t: `Oración por el Vino: ${personNameOf(fin.oracionVino)}`, s: 14, w: 400, f: C.name });
     } else {
       fsLines.push({ t: `Discurso: ${fin.tituloDiscurso || '—'}`, s: 14, w: 400, f: C.name });
       fsLines.push({ t: `Presidente: ${personNameOf(fin.presidente)}`, s: 14, w: 400, f: C.name });
@@ -8945,7 +8979,7 @@ async function renderConflictos(mes) {
   };
 
   const persistir = async (res) => {
-    if (res.store === 'midweeks') { await db.putMidweek(res.rec); state.midweeks = await db.listMidweeks(); }
+    if (res.store === 'midweeks') { await db.putMidweek(res.rec); await cargarMidweeks(); }
     else if (res.store === 'months') { await db.putMonth(res.rec); }
     else if (res.store === 'atencion') { await db.putAtencion(res.rec); }
     else if (res.store === 'salidas') { await db.putSalidas(res.rec); }
@@ -9055,8 +9089,46 @@ async function renderConflictos(mes) {
 /* ---------- MIDWEEK: editor de una semana ---------- */
 // Mapea cada parte de entre semana a sus puestos y al rol que la cubre
 // (lógica compartida con el algoritmo, en logic.js).
-function mwSlotsFor(sec, part) {
-  return midweekSlotsOf(sec, part);
+function mwSlotsFor(sec, part, isSupervisor) {
+  return midweekSlotsOf(sec, part, isSupervisor);
+}
+
+// Editor de la reunión de entre semana cuando la semana es de Conmemoración:
+// la reunión regular se suspende y se muestra el programa de la Conmemoración.
+function mwCommemorationEditorHtml(week) {
+  const optsFor = (val, labore) => {
+    const list = state.people.filter(p => laboreEligible(p, labore));
+    return ['<option value="">— Sin asignar —</option>']
+      .concat(list.map(p => `<option value="${p.id}" ${asStr(val) === String(p.id) ? 'selected' : ''}>${escapeHtml(invertName(p.name))}</option>`))
+      .join('');
+  };
+  const field = (f, label, labore, val) => `
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
+      <h2 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3">${label}</h2>
+      <select data-mw-field="${f}" data-people data-labore="${labore}" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-lg font-bold focus:border-primary">${optsFor(val, labore)}</select>
+    </div>`;
+  return `
+    <div class="bg-surface-container-lowest rounded-xl border border-primary/40 p-5 md:p-6 mb-2">
+      <div class="flex items-center gap-2 text-primary font-label-md uppercase tracking-wider">
+        <span class="material-symbols-outlined">stars</span> Conmemoración
+      </div>
+      <p class="text-sm text-on-surface-variant mt-1">La reunión de Vida y Ministerio Cristianos se suspende; se presenta el programa de la Conmemoración.</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      ${field('presidente', 'Presidente', 'presidente', week.presidente)}
+      ${field('orador', 'Orador (Discurso de Conmemoración)', 'oradorFin', week.orador)}
+      ${field('oracionPan', 'Oración por el Pan', 'oracionConmem', week.oracionPan)}
+      ${field('oracionVino', 'Oración por el Vino', 'oracionConmem', week.oracionVino)}
+    </div>`;
+}
+
+function bindMwCommemorationEditor(editor, week) {
+  editor.querySelectorAll('select[data-mw-field]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const f = sel.dataset.mwField;
+      week[f] = sel.value ? parseInt(sel.value, 10) : '';
+    });
+  });
 }
 
 // Quien conduce el Estudio Bíblico de la Congregación (última parte de "Nuestra
@@ -9071,6 +9143,7 @@ function mwConductorEstudio(w) {
 
 async function renderMidweek(id) {
   state.month = null;
+  applyConfigMidweekTypes(state.midweeks, true);
   renderTop();
   const app = $('#app');
   const week = state.midweeks.find(w => String(w.id) === String(id));
@@ -9079,6 +9152,10 @@ async function renderMidweek(id) {
       <button class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md hover:opacity-90" onclick="location.hash='#/midweeks'">Volver</button>`;
     return;
   }
+
+  const weekDays = { wkDay: state.config?.schedule?.day ?? 6, midDay: state.config?.midweek?.day ?? 2 };
+  const mwType = eventTypeForDate(state.config?.events || {}, week.id, weekDays, 'midweek');
+  if (mwType !== week.type) week.type = mwType;
 
   app.innerHTML = `
     <div class="flex items-center gap-3 mb-2">
@@ -9110,7 +9187,7 @@ async function renderMidweek(id) {
   for (const person of presList) {
     presOpts.push(`<option value="${person.id}" ${asStr(week.presidente) === String(person.id) ? 'selected' : ''}>${escapeHtml(invertName(person.name))}</option>`);
   }
-  editor.innerHTML = `
+  const normalEditorHtml = `
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-5 md:p-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
@@ -9145,10 +9222,13 @@ async function renderMidweek(id) {
         </div>`;
       }).join('');
       const esEstudio = sec.id === 'vida' && (sec.parts || []).indexOf(p) === (sec.parts || []).length - 1;
+      const oracionFinalText = (week.type === 'supervisor' && esEstudio)
+        ? 'Superintendente de Circuito'
+        : (ap.conductor ? personNameOf(ap.conductor) : 'Quien conduce el estudio');
       const oracionFinalRow = esEstudio ? `
         <div class="flex items-center justify-end gap-2 md:flex-col md:items-end md:justify-center">
           <span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Oración final</span>
-          <span data-oracion-final class="font-body-lg font-bold ${ap.conductor ? 'text-on-surface' : 'text-on-surface-variant italic'}">${escapeHtml(ap.conductor ? personNameOf(ap.conductor) : 'Quien conduce el estudio')}</span>
+          <span data-oracion-final class="font-body-lg font-bold ${(week.type === 'supervisor' && esEstudio) || ap.conductor ? 'text-on-surface' : 'text-on-surface-variant italic'}">${escapeHtml(oracionFinalText)}</span>
         </div>` : '';
       return `<div class="flex flex-col md:flex-row gap-3 md:items-center md:gap-4 bg-surface-container-low rounded-lg p-4 border border-outline-variant">
         <div class="min-w-[32px] h-8 px-2 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-md text-label-md">${p.num}</div>
@@ -9170,27 +9250,33 @@ async function renderMidweek(id) {
     </div>`;
   }).join('');
 
-  mwRefreshConflicts(editor, week);
-  editor.querySelectorAll('select[data-mw-presidente], select.mwSel').forEach(bindMwChange);
-  editor.querySelectorAll('button[data-mwsug]').forEach(btn => {
-    btn.onclick = () => {
-      const key = btn.dataset.mwsug;
-      const pid = btn.dataset.mwsugId;
-      let sel;
-      if (key === 'presidente') sel = editor.querySelector('select[data-mw-presidente]');
-      else {
-        const [si, part, slot] = key.split('.');
-        sel = editor.querySelector(`select[data-sec="${si}"][data-part="${part}"][data-slot="${slot}"]`);
-      }
-      if (!sel) return;
-      if (![...sel.options].some(o => String(o.value) === pid)) {
-        sel.add(new Option(personNameOf(pid), pid));
-      }
-      sel.value = pid;
-      btn.closest('[data-mwsugwrap]')?.remove();
-      sel.dispatchEvent(new Event('change'));
-    };
-  });
+  if (week.type === 'commemoration') {
+    editor.innerHTML = mwCommemorationEditorHtml(week);
+    bindMwCommemorationEditor(editor, week);
+  } else {
+    editor.innerHTML = normalEditorHtml;
+    mwRefreshConflicts(editor, week);
+    editor.querySelectorAll('select[data-mw-presidente], select.mwSel').forEach(bindMwChange);
+    editor.querySelectorAll('button[data-mwsug]').forEach(btn => {
+      btn.onclick = () => {
+        const key = btn.dataset.mwsug;
+        const pid = btn.dataset.mwsugId;
+        let sel;
+        if (key === 'presidente') sel = editor.querySelector('select[data-mw-presidente]');
+        else {
+          const [si, part, slot] = key.split('.');
+          sel = editor.querySelector(`select[data-sec="${si}"][data-part="${part}"][data-slot="${slot}"]`);
+        }
+        if (!sel) return;
+        if (![...sel.options].some(o => String(o.value) === pid)) {
+          sel.add(new Option(personNameOf(pid), pid));
+        }
+        sel.value = pid;
+        btn.closest('[data-mwsugwrap]')?.remove();
+        sel.dispatchEvent(new Event('change'));
+      };
+    });
+  }
 
   renderCrossAlerts($('#mwCross'), String(id).slice(0, 7));
 
@@ -9204,20 +9290,28 @@ async function renderMidweek(id) {
     if (pairs.length) {
       toast(`Pareja no compatible: ${invertName(pairs[0].a.name)} / ${invertName(pairs[0].b.name)}. Se guardará igualmente; revise la asignación.`, 'info');
     }
-    week.sections.forEach((sec, si) => {
-      sec.parts.forEach(p => {
-        const slots = mwSlotsFor(sec, p);
-        const ap = { ...(p.assignments || {}) };
-        for (const f of slots) {
-          const sel = editor.querySelector(`[data-sec="${si}"][data-part="${p.num}"][data-slot="${f.key}"]`);
-          ap[f.key] = sel ? sel.value : ap[f.key];
-        }
-        p.assignments = ap;
+    if (week.type === 'commemoration') {
+      editor.querySelectorAll('select[data-mw-field]').forEach(sel => {
+        const f = sel.dataset.mwField;
+        week[f] = sel.value ? parseInt(sel.value, 10) : '';
       });
-    });
-    week.labores = ensureAtencion(week).labores;
-    const presSel = editor.querySelector('select[data-mw-presidente]');
-    if (presSel) week.presidente = presSel.value;
+    } else {
+      week.sections.forEach((sec, si) => {
+        sec.parts.forEach(p => {
+          const slots = mwSlotsFor(sec, p, week.type === 'supervisor');
+          const ap = { ...(p.assignments || {}) };
+          for (const f of slots) {
+            const sel = editor.querySelector(`[data-sec="${si}"][data-part="${p.num}"][data-slot="${f.key}"]`);
+            ap[f.key] = sel ? sel.value : ap[f.key];
+          }
+          if (week.type === 'supervisor') { delete ap.conductor2; delete ap.lector2; }
+          p.assignments = ap;
+        });
+      });
+      week.labores = ensureAtencion(week).labores;
+      const presSel = editor.querySelector('select[data-mw-presidente]');
+      if (presSel) week.presidente = presSel.value;
+    }
     if (!week.estado) week.estado = 'normal';
     // Envolver en formato {id, src, locked}: lo cambiado → MANUAL; lo no tocado
     // conserva su origen (las asignaciones AUTO no se pierden al editar a mano).
@@ -9226,7 +9320,7 @@ async function renderMidweek(id) {
     const wrapped = wrapManualPrograms({ midweeks: [week] }, changed).midweeks[0];
     wrapped.updatedAt = Date.now();
     await db.putMidweek(wrapped);
-    state.midweeks = await db.listMidweeks();
+    await cargarMidweeks();
     await syncAssignmentLog();
     await subirStores(['midweeks']);
     toast('Asignaciones guardadas', 'success');
@@ -9347,6 +9441,7 @@ function bindMwChange(node) {
 /* ---------- MIDWEEK: vista final (documento imprimible) ---------- */
 async function renderMidweekPreview(id) {
   state.month = null;
+  applyConfigMidweekTypes(state.midweeks, true);
   renderTop();
   const app = $('#app');
   const week = state.midweeks.find(w => String(w.id) === String(id));
@@ -9396,9 +9491,29 @@ function midweekPreviewDocument(w) {
 // Contenido de una semana de entre semana (cabecera + secciones + conclusión).
 // Reutilizado por la vista final de una semana y por la vista final mensual.
 function midweekBlockContent(w) {
-  const assigned = (sec, p) => {
+  if (w.type === 'commemoration') {
+    return `<header class="mb-4">
+      <h1 class="text-2xl font-bold text-gray-600 mb-1">${escapeHtml(w.header)}</h1>
+      <p class="text-primary font-bold text-lg mb-2">Conmemoración · reunión de entre semana suspendida</p>
+      <div class="mw-sep mb-3"></div>
+    </header>
+    <section class="mb-8">
+      <div class="flex items-center mb-2">
+        <span class="text-white rounded-sm mr-2 flex items-center justify-center w-6 h-6" style="background-color:#9e2a2b">★</span>
+        <h2 class="text-lg font-bold uppercase tracking-wide" style="color:#9e2a2b">Programa de la Conmemoración</h2>
+      </div>
+      <div class="mw-sep mb-4"></div>
+      <div class="px-4 mb-4"><p class="font-bold">Presidente:</p><p class="text-gray-600 text-sm ml-4">${escapeHtml(personNameOf(w.presidente))}</p></div>
+      <div class="px-4 mb-4"><p class="font-bold">Orador (Discurso):</p><p class="text-gray-600 text-sm ml-4">${escapeHtml(w.orador || '—')}</p></div>
+      <div class="px-4 mb-4"><p class="font-bold">Oración por el Pan:</p><p class="text-gray-600 text-sm ml-4">${escapeHtml(personNameOf(w.oracionPan))}</p></div>
+      <div class="px-4 mb-4"><p class="font-bold">Oración por el Vino:</p><p class="text-gray-600 text-sm ml-4">${escapeHtml(personNameOf(w.oracionVino))}</p></div>
+    </section>`;
+  }
+  const isSup = w.type === 'supervisor';
+  const assigned = (sec, p, isLastVida) => {
+    if (isSup && isLastVida) return '<span class="text-gray-600 italic">· Discurso de servicio del superintendente (30 min)</span>';
     const ap = p.assignments || {};
-    const slots = mwSlotsFor(sec, p);
+    const slots = mwSlotsFor(sec, p, isSup);
     const names = slots.map(s => {
       const v = ap[s.key];
       return v ? personNameOf(v) : null;
@@ -9407,11 +9522,14 @@ function midweekBlockContent(w) {
   };
 
   const sectionBlock = (sec, color) => {
-    const parts = (sec.parts || []).map(p => `
+    const parts = (sec.parts || []).map((p, pi) => {
+      const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
+      return `
       <div class="px-4 mb-4">
         <p class="font-bold" style="color:${color.strong}">${p.num}. ${escapeHtml(p.title)}</p>
-        <p class="text-gray-600 text-sm ml-4">(${p.mins} mins.) ${assigned(sec, p)}</p>
-      </div>`).join('');
+        <p class="text-gray-600 text-sm ml-4">(${p.mins} mins.) ${assigned(sec, p, isLastVida)}</p>
+      </div>`;
+    }).join('');
     const song = sec.song ? `
       <div class="flex items-center text-sm mb-6 ml-4">
         <span class="text-blue-custom mr-2">♪</span>
@@ -9430,7 +9548,7 @@ function midweekBlockContent(w) {
   };
 
   const introSong = w.introSong || w.songIn;
-  const oracionFinalName = mwConductorEstudio(w);
+  const oracionFinalName = isSup ? 'Superintendente de Circuito' : mwConductorEstudio(w);
   return `
     <header class="mb-4">
       <h1 class="text-2xl font-bold text-gray-600 mb-1">${escapeHtml(w.header)}</h1>
@@ -9468,6 +9586,7 @@ function midweekBlockContent(w) {
 /* ---------- MIDWEEK: vista final mensual (todas las reuniones del mes) ---------- */
 async function renderMidweekMonthPreview(monthId) {
   state.month = null;
+  applyConfigMidweekTypes(state.midweeks, true);
   renderTop();
   const app = $('#app');
   const cur = monthId || state.mwMonth || '';
@@ -9530,13 +9649,32 @@ function midweekMonthDocument(weeks, monthLabel) {
 
 // Tarjeta compacta de una semana para la vista final mensual.
 function compactWeekCard(w) {
-  const assigned = (sec, p) => {
+  if (w.type === 'commemoration') {
+    const field = (k, v) => `<div class="flex items-baseline justify-between gap-2 py-[1px]">
+      <span class="text-[10px] text-gray-600">${k}</span>
+      <span class="text-[10px] font-semibold text-gray-700 text-right whitespace-nowrap">${escapeHtml(personNameOf(v) || '—')}</span>
+    </div>`;
+    return `<article class="border border-primary/40 rounded-md p-2.5" style="break-inside:avoid;page-break-inside:avoid;">
+      <div class="text-center mb-1.5">
+        <div class="font-bold text-sm text-gray-800">${escapeHtml(w.header)}</div>
+        <div class="text-[10px] text-primary">Conmemoración · reunión de entre semana suspendida</div>
+      </div>
+      ${field('Presidente', w.presidente)}
+      ${field('Orador (Discurso)', w.orador)}
+      ${field('Oración por el Pan', w.oracionPan)}
+      ${field('Oración por el Vino', w.oracionVino)}
+    </article>`;
+  }
+  const isSup = w.type === 'supervisor';
+  const assigned = (sec, p, isLastVida) => {
+    if (isSup && isLastVida) return 'Discurso de servicio del superintendente (30 min)';
     const ap = p.assignments || {};
-    return mwSlotsFor(sec, p).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+    return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
   const section = (sec, color) => {
-    const parts = (sec.parts || []).map(p => {
-      const nm = assigned(sec, p);
+    const parts = (sec.parts || []).map((p, pi) => {
+      const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
+      const nm = assigned(sec, p, isLastVida);
       return `<div class="flex items-baseline justify-between gap-2 py-[1px]">
         <span class="text-[10px] leading-tight" style="color:${color}"><b>${p.num}.</b> <span class="text-gray-800">${escapeHtml(p.title)}</span> <span class="text-gray-500">(${p.mins})</span></span>
         <span class="text-[10px] font-semibold text-gray-700 text-right whitespace-nowrap">${nm ? escapeHtml(nm) : ''}</span>
@@ -9548,7 +9686,7 @@ function compactWeekCard(w) {
     </div>`;
   };
   const introSong = w.introSong || w.songIn;
-  const oracionFinalName = mwConductorEstudio(w);
+  const oracionFinalName = isSup ? 'Superintendente de Circuito' : mwConductorEstudio(w);
   return `
   <article class="border border-gray-300 rounded-md p-2.5" style="break-inside:avoid;page-break-inside:avoid;">
     <div class="text-center mb-1.5">
@@ -10035,6 +10173,16 @@ function midweekSvgLayout(w, y0) {
   let y = y0;
   P.push(svgT(W / 2, y + 24, w.header || w.id, 20, 700, C.title, 'middle'));
   y += 30;
+  if (w.type === 'commemoration') {
+    P.push(svgT(W / 2, y + 14, 'Conmemoración · reunión de entre semana suspendida', 13, 400, C.sub, 'middle'));
+    y += 22;
+    P.push(svgT(PAD, y + 14, `Presidente: ${personNameOf(w.presidente)}`, 14, 700, C.name)); y += 20;
+    P.push(svgT(PAD, y + 14, `Orador (Discurso): ${w.orador || '—'}`, 14, 400, C.name)); y += 20;
+    P.push(svgT(PAD, y + 14, `Oración por el Pan: ${personNameOf(w.oracionPan)}`, 14, 400, C.name)); y += 20;
+    P.push(svgT(PAD, y + 14, `Oración por el Vino: ${personNameOf(w.oracionVino)}`, 14, 400, C.name)); y += 24;
+    return { parts: P, nextY: y, W };
+  }
+  const isSup = w.type === 'supervisor';
   P.push(svgT(W / 2, y + 14, `Lectura: ${w.reading || '—'}`, 13, 400, C.sub, 'middle'));
   y += 20;
   P.push(svgT(W / 2, y + 16, `Presidente: ${personNameOf(w.presidente)}`, 15, 700, C.name, 'middle'));
@@ -10042,8 +10190,10 @@ function midweekSvgLayout(w, y0) {
   (w.sections || []).forEach(sec => {
     P.push(svgT(PAD, y + 14, sec.title, 13, 700, C.sub));
     y += 18;
-    (sec.parts || []).forEach(p => {
-      const nm = mwSlotsFor(sec, p).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+    (sec.parts || []).forEach((p, pi) => {
+      const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
+      let nm = mwSlotsFor(sec, p, isSup).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
+      if (isSup && isLastVida) nm = 'Discurso de servicio del superintendente (30 min)';
       svgTextLines(`${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 400, C.name)); y += 18; });
     });
   });
@@ -10060,7 +10210,7 @@ function midweekSvgLayout(w, y0) {
   y += 14;
   P.push(svgT(PAD, y + 14, `${w.closingTitle || 'Palabras de conclusión'} (${w.closingMins || 3} mins.)`, 13, 400, C.name));
   y += 18;
-  P.push(svgT(PAD, y + 14, `Oración final: ${mwConductorEstudio(w) || 'el conductor del Estudio Bíblico'}`, 13, 600, C.name));
+  P.push(svgT(PAD, y + 14, `Oración final: ${(isSup ? 'Superintendente de Circuito' : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico'))}`, 13, 600, C.name));
   y += 24;
   return { parts: P, nextY: y, W };
 }
@@ -10151,7 +10301,10 @@ function programaExportSvg() {
     if (w.type === 'assembly' || w.type === 'commemoration') {
       const label = w.type === 'assembly' ? 'ASAMBLEA' : 'CONMEMORACIÓN';
       const fechaLarga = date.toLocaleDateString('es', { day: '2-digit', month: 'long' });
-      return { band: true, label: `${label} — ${fechaLarga}` };
+      const sub = w.type === 'commemoration'
+        ? `Presidente: ${personNameOf(w.presidente)} · Orador: ${w.orador || '—'} · Pan: ${personNameOf(w.oracionPan)} · Vino: ${personNameOf(w.oracionVino)}`
+        : '';
+      return { band: true, label: `${label} — ${fechaLarga}`, sub };
     }
     const celdas = { f: dia, p: '', d: [], o: '', e: '', l: '', g: '', rh: 50 };
     if (w.type === 'normal') {
@@ -10163,7 +10316,7 @@ function programaExportSvg() {
       celdas.g = grupoTxt(w);
     } else if (w.type === 'supervisor') {
       celdas.p = personNameOf(w.presidente);
-      celdas.d = svgTextLines(w.discursoSuperior1 || '—', 15, ws[2] - 22)
+      celdas.d = svgTextLines(w.discursoSupervisor1 || '—', 15, ws[2] - 22)
         .concat(w.discursoSupervisor2 ? ['', ...svgTextLines(w.discursoSupervisor2 || '—', 15, ws[2] - 22)] : []);
       celdas.o = w.nombreSupervisor || '—';
       celdas.e = personNameOf(w.estudioSinLectura);
@@ -10193,12 +10346,13 @@ function programaExportSvg() {
   y += 38;
 
   rowsInfo.forEach((r) => {
-    if (r.band) {
-      P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="50" fill="#f7f4ef"/>`);
-      P.push(svgT(W / 2, y + 31, r.label, 17, 700, C.title, 'middle'));
-      y += 52;
-      return;
-    }
+      if (r.band) {
+        P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="50" fill="#f7f4ef"/>`);
+        P.push(svgT(W / 2, y + 22, r.label, 17, 700, C.title, 'middle'));
+        if (r.sub) P.push(svgT(W / 2, y + 42, r.sub, 12, 600, C.name, 'middle'));
+        y += 52;
+        return;
+      }
     const y0 = y;
     P.push(svgT(xs[0] + 12, y0 + 26, r.f, 22, 700, C.title));
     P.push(svgT(xs[1] + 12, y0 + 26, r.p, 16, 400, C.name));
