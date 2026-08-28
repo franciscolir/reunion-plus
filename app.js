@@ -3952,10 +3952,20 @@ async function renderNewFin(body, progMonth) {
 // especiales de la configuración general (conmemoración, visita, asamblea).
 function applyConfigWeekTypes(weeks, silent, eventsOverride) {
   const events = eventsOverride || state.config?.events || {};
+  const weekDays = { wkDay: state.config?.schedule?.day ?? 6, midDay: state.config?.midweek?.day ?? 2 };
+  const visitFrom = (v) => v.from || (v.date ? v.date : null);
+  const visitTo = (v) => v.to || v.from || (v.date ? v.date : null);
+  const inRange = (from, to, iso) => from && to && iso >= from && iso <= to;
   let marked = 0;
   for (const w of weeks) {
-    const type = eventTypeForDate(events, w.date, { wkDay: state.config?.schedule?.day ?? 6, midDay: state.config?.midweek?.day ?? 2 });
+    const type = eventTypeForDate(events, w.date, weekDays);
     if (type !== w.type) { w.type = type; marked++; }
+    if (type === 'supervisor') {
+      const v = (events.visits || []).find(v => inRange(visitFrom(v), visitTo(v), w.date));
+      if (v && v.nombre) w.nombreSupervisor = v.nombre;
+    } else if (w.nombreSupervisor) {
+      w.nombreSupervisor = '';
+    }
   }
   if (marked > 0 && !silent) toast(`${marked} semana(s) marcada(s) según los eventos`, 'success');
   return weeks;
@@ -3976,7 +3986,7 @@ function applyConfigMidweekTypes(midweeks, silent, eventsOverride) {
     if (type !== w.type) { w.type = type; marked++; }
     if (type === 'supervisor') {
       const v = (events.visits || []).find(v => inRange(visitFrom(v), visitTo(v), w.id));
-      w.nombreSupervisor = (v && v.nombre) ? v.nombre : '';
+      if (v && v.nombre) w.nombreSupervisor = v.nombre;
     } else if (w.nombreSupervisor) {
       w.nombreSupervisor = '';
     }
@@ -7220,9 +7230,10 @@ async function renderEventos() {
     const months = await db.listMonths();
     let updated = 0;
     for (const m of months) {
-      const before = m.weeks.map(w => w.type).join(',');
+      const sig = (w) => w.type + '|' + (w.nombreSupervisor || '');
+      const before = m.weeks.map(sig).join(',');
       applyConfigWeekTypes(m.weeks, true, events);
-      if (m.weeks.map(w => w.type).join(',') !== before) { await db.putMonth(m); updated++; }
+      if (m.weeks.map(sig).join(',') !== before) { await db.putMonth(m); updated++; }
     }
     const midweeks = await db.listMidweeks();
     applyConfigMidweekTypes(midweeks, true, events);

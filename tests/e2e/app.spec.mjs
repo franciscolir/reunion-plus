@@ -1435,7 +1435,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
           req.onsuccess = () => res(req.result);
           req.onerror = () => rej(req.error);
         });
-        const tx = db.transaction(['people', 'midweeks', 'settings', 'departments'], 'readwrite');
+        const tx = db.transaction(['people', 'midweeks', 'months', 'settings', 'departments'], 'readwrite');
         const people = [
           { name: 'Álvaro P.', genero: 'masculino', calificacion: 'A', labores: ['presidente', 'conductor1', 'estudioSinLectura'] },
           { name: 'Benjamín R.', genero: 'masculino', calificacion: 'B', labores: ['conductor1', 'estudioSinLectura'] },
@@ -1466,7 +1466,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.waitForSelector('#evSave', { state: 'visible' });
     await page.click('#cfgAddVisit');
     const visitRow = page.locator('#cfgVisitWrap .cfg-event-row').first();
-    await visitRow.locator('[data-cfg-from]').fill('2026-08-10');
+    await visitRow.locator('[data-cfg-from]').fill('2026-08-08');
     await visitRow.locator('[data-cfg-to]').fill('2026-08-10');
     await visitRow.locator('[data-cfg-nombre]').fill('Hermano Gómez');
     await page.click('#evSave');
@@ -1487,6 +1487,9 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#mwPreviewContent')).toContainText('Discurso especial de visita');
     await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente: Hermano Gómez');
     await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente de Circuito');
+
+    await page.evaluate(() => { location.hash = '#/general'; });
+    await expect(page.locator('#app')).toContainText('Superintendente: Hermano Gómez');
   });
 
 });
