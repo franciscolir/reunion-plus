@@ -155,7 +155,7 @@ function reunionADocumento(mw) {
     data: {
       fecha: String(mw.id),
       tipo: 'entre',
-      evento: mw.type || 'normal',
+      evento: mw.type || 'no_event',
       lectura: mw.reading || '',
       canciones: { intro: mw.songIn || 0, salida: mw.songOut || 0 },
       introTitle: mw.introTitle || 'Palabras de introducción',
@@ -210,7 +210,7 @@ async function mesADocumento(mes, version = 0) {
     const base = mes || sal || ate || aseo || {};
     return {
       fecha,
-      tipo: base.type || 'normal',
+      tipo: base.type || 'no_event',
       tituloDiscurso: (mes && mes.tituloDiscurso) || '',
       presidente: (mes && mes.presidente) || '',
       orador: (mes && mes.orador) || '',
@@ -553,7 +553,7 @@ export async function pullAll() {
     for (const r of reuniones) {
       await db.putMidweekSilent({
         id: String(r.id),
-        type: r.evento || 'normal',
+        type: r.evento || 'no_event',
         header: r.header || '',
         reading: r.lectura || '',
         songIn: (r.canciones && r.canciones.intro) || 0,
@@ -624,7 +624,7 @@ async function desplegarPrograma(prog) {
     date: s.fecha,
     monday: addDays(s.fecha, -5),
     saturday: s.fecha,
-    type: s.tipo || s.type || 'normal',
+    type: s.tipo || s.type || 'no_event',
     outings: (s.salidas || []).map(o => ({ oradorSalida: o.oradorSalida, tituloDiscurso: o.tituloDiscurso })),
     labores: s.atencion || {},
     group: (s.aseo && s.aseo.grupo) || '',

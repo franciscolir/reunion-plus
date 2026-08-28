@@ -5,7 +5,7 @@ import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limp
 import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
 import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate, setCurrentPersonaId } from './auth.js';
 import {
-  MONTHS_ES, WEEK_TYPES, FIELD_LABORE, FIELD_LABELS,
+  MONTHS_ES, WEEK_TYPES, isEventWeek, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf, mondaysOf, weekMondayOf,
   collectWeekPersons, labelOfKey, labelOf,
   computeConflicts, computeOutingConflicts, weekComplete, computeMidweekConflicts,
@@ -2470,7 +2470,7 @@ function finWeekAssignDetail() {
   const labores = state.config?.groups?.labores;
   if (labores) return labores;
   const cur = findCurrentFinWeek();
-  if (cur) return `${capitalize(WEEK_TYPES[cur.week.type]?.label || 'Normal')} de la semana`;
+  if (cur && isEventWeek(cur.week)) return `${capitalize(WEEK_TYPES[cur.week.type].label)} de la semana`;
   return 'Seleccione el programa del mes en curso';
 }
 function betweenSemanaReading() {
@@ -4161,13 +4161,13 @@ function weekCard(w, i, conflicts) {
   const date = new Date(w.date + 'T00:00:00');
   const fullDate = capitalize(date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }));
 
-  return `<section class="week-card-accent bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 md:p-8 border ${w.type !== 'normal' ? 'border-primary' : 'border-outline-variant'} hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow">
+  return `<section class="week-card-accent bg-surface-container-lowest rounded-lg shadow-[0px_4px_20px_rgba(0,0,0,0.04)] p-6 md:p-8 border ${isEventWeek(w) ? 'border-primary' : 'border-outline-variant'} hover:shadow-[0px_8px_30px_rgba(0,0,0,0.08)] transition-shadow">
     <div class="flex flex-col lg:flex-row gap-8">
       <div class="lg:w-1/4">
         <h3 class="font-headline-md text-headline-md text-primary mb-1">Semana ${i + 1}</h3>
-        <div class="mb-2 flex items-center gap-1 text-secondary font-bold text-[10px] uppercase">
+        ${isEventWeek(w) ? `<div class="mb-2 flex items-center gap-1 text-secondary font-bold text-[10px] uppercase">
           <span class="material-symbols-outlined text-[14px]">${WEEK_TYPES[w.type].icon}</span> ${WEEK_TYPES[w.type].label}
-        </div>
+        </div>` : ''}
         <div class="inline-block px-3 py-1 bg-primary text-on-primary font-label-md text-label-md rounded">${fullDate}</div>
         <div class="mt-2 flex items-center gap-2">
           <span data-estado-badge="${i}">${estadoBadge(w.estado)}</span>
@@ -4537,7 +4537,7 @@ function weekCardList(w, i) {
   const day = date.getDate();
   const monthName = MONTHS_ES[state.month.month - 1].toUpperCase();
 
-  const icon = WEEK_TYPES[w.type].icon;
+  const icon = isEventWeek(w) ? WEEK_TYPES[w.type].icon : '';
   if (w.type === 'assembly') {
     return `<div class="week-card bg-surface-container-low border-l-4 p-8 rounded-lg bg-surface-dim">
       <div class="flex justify-between items-start mb-6">
@@ -4557,7 +4557,7 @@ function weekCardList(w, i) {
   // Labores de atención de la semana (del programa de atención) + grupo semanal.
 const atencionSemana = (state.atencionWeeks.find(x => String(wmon(x)) === String(wmon(w))) || {}).labores || {};
 const grupoSemana = (state.aseoWeeks.find(x => String(wmon(x)) === String(wmon(w))) || {}).group;
-  if (w.type === 'normal') {
+  if (!isEventWeek(w)) {
     rows.push(['Presidente', presName, 'person']);
     rows.push(['Discurso Público', w.tituloDiscurso || '—', 'mic_external_on']);
     rows.push(['Orador', w.orador || '—', 'campaign']);
@@ -4582,18 +4582,18 @@ const grupoSemana = (state.aseoWeeks.find(x => String(wmon(x)) === String(wmon(w
     <div class="flex items-center gap-3"><span class="material-symbols-outlined text-on-surface-variant">${r[2]}</span><span class="font-label-md text-label-md text-on-surface-variant">${r[0]}</span></div>
     <span class="font-body-md text-body-md font-semibold text-on-surface text-right">${escapeHtml(r[1])}</span>
   </div>`).join('');
-  const accent = w.type === 'normal' ? 'border-primary' : (w.type === 'supervisor' ? 'border-primary bg-primary-fixed/30' : 'border-secondary');
+  const accent = isEventWeek(w) ? (w.type === 'supervisor' ? 'border-primary bg-primary-fixed/30' : 'border-secondary') : 'border-primary';
   return `<div class="week-card bg-surface-container-low border-l-4 ${accent} p-8 rounded-lg">
     <div class="flex justify-between items-start mb-6">
       <div>
         <div class="flex gap-2 items-center mb-3 flex-wrap">
           <span class="font-label-md text-label-md text-on-secondary-container bg-secondary-container px-3 py-1 rounded-full uppercase">Semana ${i + 1}</span>
-          <span class="font-label-md text-label-md text-on-primary bg-primary px-3 py-1 rounded-full uppercase">${WEEK_TYPES[w.type].label}</span>
+          <span class="font-label-md text-label-md text-on-primary bg-primary px-3 py-1 rounded-full uppercase">${isEventWeek(w) ? WEEK_TYPES[w.type].label : ''}</span>
           ${estadoBadge(w.estado)}
         </div>
         <h2 class="font-headline-lg text-headline-lg text-primary">${day} ${monthName}</h2>
       </div>
-      <span class="material-symbols-outlined text-primary text-4xl">${icon}</span>
+      ${icon ? `<span class="material-symbols-outlined text-primary text-4xl">${icon}</span>` : ''}
     </div>
     ${rowsHtml}
     ${previewLaboresBox(atencionSemana)}
@@ -4626,7 +4626,7 @@ function previewTabla() {
     let cells = {
       title: '—', chairman: '—', speaker: '—', conductor: '—', reader: '—', attendance: '—',
     };
-    if (w.type === 'normal') {
+    if (!isEventWeek(w)) {
       cells.title = escapeHtml(w.tituloDiscurso || '—');
       cells.chairman = escapeHtml(personNameOf(w.presidente));
       cells.speaker = escapeHtml(w.orador || '—');
@@ -4651,7 +4651,7 @@ function previewTabla() {
       cells.attendance = 'Conmemoración';
     }
     const big = w.type === 'assembly';
-    const highlight = w.type !== 'normal' ? 'bg-secondary-container/10' : '';
+    const highlight = isEventWeek(w) ? 'bg-secondary-container/10' : '';
     return `<tr class="transition-colors">
       <td class="p-4 align-top ${highlight}" data-label="Fecha"><div class="font-body-md text-body-md text-primary font-semibold whitespace-nowrap ${big ? 'text-lg pt-3' : ''}">${dateStr}</div></td>
       <td class="p-4 align-top ${highlight}" data-label="Presidente"><div class="font-body-md text-body-md ${big ? 'text-lg pt-3' : ''}">${cells.chairman}</div></td>
@@ -8682,7 +8682,7 @@ function generalFsContent(w, outings, sinSalida) {
     <p class="text-on-surface-variant text-sm">Asamblea · sin reunión local.</p>
   </div>`;
   const rows = [];
-  if (w.type === 'normal') {
+  if (!isEventWeek(w)) {
     rows.push(['Presidente', personNameOf(w.presidente)]);
     rows.push(['Discurso', w.tituloDiscurso || '—']);
     rows.push(['Orador', w.orador || '—']);
@@ -8707,10 +8707,10 @@ function generalFsContent(w, outings, sinSalida) {
     rows.push(['Oración por el Pan', personNameOf(w.oracionPan)]);
     rows.push(['Oración por el Vino', personNameOf(w.oracionVino)]);
   }
-  return `<div class="flex items-center gap-2 mb-2">
+  return `${isEventWeek(w) ? `<div class="flex items-center gap-2 mb-2">
     <span class="material-symbols-outlined text-secondary text-[18px]">${WEEK_TYPES[w.type].icon}</span>
     <span class="font-label-md text-label-md text-secondary uppercase">${WEEK_TYPES[w.type].label}</span>
-  </div>` +
+  </div>` : ''}` +
     rows.map(([k, v]) => `<div class="flex justify-between gap-3 py-1 border-b border-outline-variant/20 last:border-0">
       <span class="text-xs text-on-surface-variant whitespace-nowrap">${k}</span>
       <span class="text-sm font-semibold text-on-surface text-right">${escapeHtml(String(v))}</span>
@@ -8799,7 +8799,7 @@ function generalWeekExportSvg(data, cur, opts = {}) {
   const fsLines = [];
   if (fin && fin.type === 'assembly') fsLines.push({ t: 'Asamblea · sin reunión local', s: 14, w: 400, f: C.sub });
   else if (fin) {
-    if (fin.type === 'normal') {
+    if (!isEventWeek(fin)) {
       fsLines.push({ t: `Presidente: ${personNameOf(fin.presidente)}`, s: 14, w: 400, f: C.name });
       fsLines.push({ t: `Discurso: ${fin.tituloDiscurso || '—'}`, s: 14, w: 400, f: C.name });
       fsLines.push({ t: `Orador: ${fin.orador || '—'}`, s: 14, w: 400, f: C.name });
@@ -9851,8 +9851,8 @@ function buildShareText() {
       return;
     }
     lines.push(`\n*Semana ${i + 1} — ${dateStr}*`);
-    lines.push(`Tipo: ${WEEK_TYPES[w.type].label}`);
-    if (w.type === 'normal') {
+    if (isEventWeek(w)) lines.push(`Tipo: ${WEEK_TYPES[w.type].label}`);
+    if (!isEventWeek(w)) {
       lines.push(`Discurso: ${w.tituloDiscurso || '—'}`);
       lines.push(`Presidente: ${personNameOf(w.presidente)}`);
       lines.push(`Orador: ${w.orador || '—'}`);
@@ -10347,7 +10347,7 @@ function programaExportSvg() {
       return { band: true, label: `${label} — ${fechaLarga}`, sub };
     }
     const celdas = { f: dia, p: '', d: [], o: '', e: '', l: '', g: '', rh: 50 };
-    if (w.type === 'normal') {
+    if (!isEventWeek(w)) {
       celdas.p = personNameOf(w.presidente);
       celdas.d = svgTextLines(w.tituloDiscurso || '—', 15, ws[2] - 22);
       celdas.o = w.orador || '—';
@@ -10515,7 +10515,7 @@ function newWeek(date) {
     monday: iso,
     saturday: sat,
     date: sat, // compatibilidad: fecha de la reunión de fin de semana
-    type: 'normal',
+    type: 'no_event',
     estado: 'normal', // estado de la reunión: normal | modificada | cancelada | trasladada | reemplazada
     tituloDiscurso: '',
     presidente: '',
@@ -10527,7 +10527,7 @@ function newWeek(date) {
     discursoSupervisor1: '',
     estudioSinLectura: '',
     discursoSupervisor2: '',
-    // Salidas (sólo relevantes si type === 'normal'): lista de oradores
+    // Salidas (sólo relevantes si type === 'no_event'): lista de oradores
     outings: [ newOuting() ],
     // Atencion departamentos (no son asignaciones del programa)
     labores: newAtencion(),
@@ -10575,7 +10575,7 @@ function ensureOutings(month) {
     month.outings = [ newCongregation() ];
   }
   month.weeks.forEach(w => {
-    if (w.type === 'normal' && !Array.isArray(w.outings)) {
+    if (!isEventWeek(w) && !Array.isArray(w.outings)) {
       w.outings = [ newOuting() ];
     }
   });
