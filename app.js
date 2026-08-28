@@ -8659,7 +8659,7 @@ function generalEsContent(w) {
     </div>`;
   };
   const introSong = w.introSong || w.songIn;
-  const oracionFinal = isSup ? 'Superintendente de Circuito' : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico');
+  const oracionFinal = isSup ? (w.nombreSupervisor || 'Superintendente de Circuito') : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico');
   return `
     <div class="text-center mb-2">
       <div class="font-bold text-on-surface text-sm">${escapeHtml(w.header)}</div>
@@ -8790,7 +8790,7 @@ function generalWeekExportSvg(data, cur, opts = {}) {
     }));
     if (mw) {
       esLines.push({ t: `${mw.closingTitle || 'Palabras de conclusión'} (${mw.closingMins || 3} mins.) · ♪ ${mw.songOut || '—'}`, s: 13, w: 400, f: C.sub });
-      esLines.push({ t: `Oración final: ${(isSup ? 'Superintendente de Circuito' : (mwConductorEstudio(mw) || 'el conductor del Estudio Bíblico'))}`, s: 13, w: 600, f: C.name });
+      esLines.push({ t: `Oración final: ${(isSup ? (mw.nombreSupervisor || 'Superintendente de Circuito') : (mwConductorEstudio(mw) || 'el conductor del Estudio Bíblico'))}`, s: 13, w: 600, f: C.name });
     }
   }
   rows.push({ label: 'ENTRE SEMANA', fill: '#eef2ff', lines: esLines });
@@ -9255,7 +9255,7 @@ async function renderMidweek(id) {
         </div>`;
       }).join('');
       const oracionFinalText = (week.type === 'supervisor' && esEstudio)
-        ? 'Superintendente de Circuito'
+        ? (week.nombreSupervisor || 'Superintendente de Circuito')
         : (ap.conductor ? personNameOf(ap.conductor) : 'Quien conduce el estudio');
       const oracionFinalRow = esEstudio ? `
         <div class="flex items-center justify-end gap-2 md:flex-col md:items-end md:justify-center">
@@ -9587,7 +9587,7 @@ function midweekBlockContent(w) {
   };
 
   const introSong = w.introSong || w.songIn;
-  const oracionFinalName = isSup ? 'Superintendente de Circuito' : mwConductorEstudio(w);
+  const oracionFinalName = isSup ? (w.nombreSupervisor || 'Superintendente de Circuito') : mwConductorEstudio(w);
   return `
     <header class="mb-4">
       <h1 class="text-2xl font-bold text-gray-600 mb-1">${escapeHtml(w.header)}</h1>
@@ -9725,7 +9725,7 @@ function compactWeekCard(w) {
     </div>`;
   };
   const introSong = w.introSong || w.songIn;
-  const oracionFinalName = isSup ? 'Superintendente de Circuito' : mwConductorEstudio(w);
+  const oracionFinalName = isSup ? (w.nombreSupervisor || 'Superintendente de Circuito') : mwConductorEstudio(w);
   return `
   <article class="border border-gray-300 rounded-md p-2.5" style="break-inside:avoid;page-break-inside:avoid;">
     <div class="text-center mb-1.5">
@@ -10249,7 +10249,7 @@ function midweekSvgLayout(w, y0) {
   y += 14;
   P.push(svgT(PAD, y + 14, `${w.closingTitle || 'Palabras de conclusión'} (${w.closingMins || 3} mins.)`, 13, 400, C.name));
   y += 18;
-  P.push(svgT(PAD, y + 14, `Oración final: ${(isSup ? 'Superintendente de Circuito' : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico'))}`, 13, 600, C.name));
+  P.push(svgT(PAD, y + 14, `Oración final: ${(isSup ? (w.nombreSupervisor || 'Superintendente de Circuito') : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico'))}`, 13, 600, C.name));
   y += 24;
   return { parts: P, nextY: y, W };
 }
