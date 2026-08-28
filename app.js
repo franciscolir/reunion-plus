@@ -9201,9 +9201,13 @@ async function renderMidweek(id) {
       </div>
     </div>` + (week.sections || []).map((sec, si) => {
     const parts = (sec.parts || []).map(p => {
-      const slots = mwSlotsFor(sec, p);
+      const esEstudio = sec.id === 'vida' && (sec.parts || []).indexOf(p) === (sec.parts || []).length - 1;
+      const isSupEstudio = week.type === 'supervisor' && esEstudio;
+      const slots = mwSlotsFor(sec, p, week.type === 'supervisor');
       const ap = p.assignments || {};
-      const slotFields = slots.map(s => {
+      const slotFields = isSupEstudio
+        ? `<div class="flex-1 min-w-[160px]"><span class="block font-label-md text-label-md text-on-surface-variant mb-1">Discurso de servicio</span><div class="font-body-lg font-bold text-on-surface">Discurso de servicio del superintendente (30 min)</div></div>`
+        : slots.map(s => {
         const cur = ap[s.key];
         const opts = ['<option value="">— Sin asignar —</option>'];
         // Las partes de estudiante aceptan a cualquier estudiante (cualquier rol de
@@ -9221,7 +9225,6 @@ async function renderMidweek(id) {
           ${missing ? `<div class="mt-1.5 flex flex-wrap gap-1 text-[11px]" data-mwsugwrap="${si}.${p.num}.${s.key}">${mwSuggestChips(week, `${si}.${p.num}.${s.key}`, list, roleFilter, collectMidweekPersons)}</div>` : ''}
         </div>`;
       }).join('');
-      const esEstudio = sec.id === 'vida' && (sec.parts || []).indexOf(p) === (sec.parts || []).length - 1;
       const oracionFinalText = (week.type === 'supervisor' && esEstudio)
         ? 'Superintendente de Circuito'
         : (ap.conductor ? personNameOf(ap.conductor) : 'Quien conduce el estudio');

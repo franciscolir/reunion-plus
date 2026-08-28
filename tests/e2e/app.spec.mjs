@@ -1471,6 +1471,11 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await page.click('#evSave');
     await expect(page.locator('#toastRoot')).toContainText('programa(s) actualizado(s)');
 
+    await page.evaluate(() => { location.hash = '#/midweek/2026-08-10'; });
+    await page.waitForSelector('#mwEditor', { state: 'visible' });
+    await expect(page.locator('#mwEditor')).toContainText('Discurso de servicio del superintendente');
+    await expect(page.locator('#mwEditor')).toContainText('Superintendente de Circuito');
+
     await page.evaluate(() => { location.hash = '#/midweekPreview/2026-08-10'; });
     await page.waitForSelector('#mwPreviewContent', { state: 'visible' });
     await expect(page.locator('#mwPreviewContent')).toContainText('Discurso de servicio del superintendente');
