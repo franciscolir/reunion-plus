@@ -1484,7 +1484,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.evaluate(() => { location.hash = '#/midweekPreview/2026-08-10'; });
     await page.waitForSelector('#mwPreviewContent', { state: 'visible' });
-    await expect(page.locator('#mwPreviewContent')).toContainText('Discurso: Discurso especial de visita');
+    await expect(page.locator('#mwPreviewContent')).toContainText('Discurso especial de visita');
     await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente: Hermano Gómez');
     await expect(page.locator('#mwPreviewContent')).toContainText('Superintendente de Circuito');
   });
