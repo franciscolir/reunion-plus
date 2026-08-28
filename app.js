@@ -5011,6 +5011,7 @@ function estadoMeta(estado) {
   return REUNION_ESTADOS.find(e => e.id === estado) || REUNION_ESTADOS[0];
 }
 function estadoBadge(estado) {
+  if (!estado || estado === 'normal') return '';
   const m = estadoMeta(estado);
   return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-label-md text-label-md ${m.cls}"><span class="material-symbols-outlined text-[16px]">${m.icon}</span>${m.label}</span>`;
 }
