@@ -8630,7 +8630,7 @@ function generalEsContent(w) {
   }
   const isSup = w.type === 'supervisor';
   const assigned = (sec, p, isLastVida) => {
-    if (isSup && isLastVida) return 'Discurso: ' + escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
+    if (isSup && isLastVida) return escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
     const ap = p.assignments || {};
     return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
@@ -8639,7 +8639,7 @@ function generalEsContent(w) {
       const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
       const nm = assigned(sec, p, isLastVida);
       return `<div class="flex items-baseline justify-between gap-2 py-[2px]">
-        <span class="text-xs text-on-surface">${p.num}. ${escapeHtml(p.title)} <span class="text-on-surface-variant">(${p.mins})</span></span>
+        <span class="text-xs text-on-surface">${p.num}. ${isSup && isLastVida ? 'Discurso' : escapeHtml(p.title)} <span class="text-on-surface-variant">(${p.mins})</span></span>
         <span class="text-xs font-semibold text-on-surface text-right whitespace-nowrap">${nm ? escapeHtml(nm) : ''}</span>
       </div>`;
     }).join('');
@@ -9539,7 +9539,7 @@ function midweekBlockContent(w) {
     if (isSup && isLastVida) {
       const tit = escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente');
       const nom = w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '';
-      return `<span class="text-gray-600 italic">· Discurso: ${tit}${nom}</span>`;
+      return `<span class="text-gray-600 italic">· ${tit}${nom}</span>`;
     }
     const ap = p.assignments || {};
     const slots = mwSlotsFor(sec, p, isSup);
@@ -9555,7 +9555,7 @@ function midweekBlockContent(w) {
       const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
       return `
       <div class="px-4 mb-4">
-        <p class="font-bold" style="color:${color.strong}">${p.num}. ${escapeHtml(p.title)}</p>
+        <p class="font-bold" style="color:${color.strong}">${p.num}. ${isSup && isLastVida ? 'Discurso' : escapeHtml(p.title)}</p>
         <p class="text-gray-600 text-sm ml-4">(${p.mins} mins.) ${assigned(sec, p, isLastVida)}</p>
       </div>`;
     }).join('');
@@ -9696,7 +9696,7 @@ function compactWeekCard(w) {
   }
   const isSup = w.type === 'supervisor';
   const assigned = (sec, p, isLastVida) => {
-    if (isSup && isLastVida) return 'Discurso: ' + escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
+    if (isSup && isLastVida) return escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
     const ap = p.assignments || {};
     return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
@@ -9705,7 +9705,7 @@ function compactWeekCard(w) {
       const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
       const nm = assigned(sec, p, isLastVida);
       return `<div class="flex items-baseline justify-between gap-2 py-[1px]">
-        <span class="text-[10px] leading-tight" style="color:${color}"><b>${p.num}.</b> <span class="text-gray-800">${escapeHtml(p.title)}</span> <span class="text-gray-500">(${p.mins})</span></span>
+        <span class="text-[10px] leading-tight" style="color:${color}"><b>${p.num}.</b> <span class="text-gray-800">${isSup && isLastVida ? 'Discurso' : escapeHtml(p.title)}</span> <span class="text-gray-500">(${p.mins})</span></span>
         <span class="text-[10px] font-semibold text-gray-700 text-right whitespace-nowrap">${nm ? escapeHtml(nm) : ''}</span>
       </div>`;
     }).join('');
@@ -10222,8 +10222,8 @@ function midweekSvgLayout(w, y0) {
     (sec.parts || []).forEach((p, pi) => {
       const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
       let nm = mwSlotsFor(sec, p, isSup).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
-      if (isSup && isLastVida) nm = 'Discurso: ' + escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
-      svgTextLines(`${p.num}. ${p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 400, C.name)); y += 18; });
+      if (isSup && isLastVida) nm = escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
+      svgTextLines(`${p.num}. ${isSup && isLastVida ? 'Discurso' : p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 400, C.name)); y += 18; });
     });
   });
   const l = ensureAtencion(w).labores;
