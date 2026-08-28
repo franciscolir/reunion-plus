@@ -4287,7 +4287,6 @@ function fieldsFor(w, i, conflicts) {
   }
   if (w.type === 'supervisor') {
     return `
-      ${textInput('nombreSupervisor', i, w.nombreSupervisor || '', 'Nombre del Superintendente (a mano)', conflicts)}
       ${textInput('discursoSupervisor1', i, w.discursoSupervisor1 || '', 'Título del discurso público', conflicts)}
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         ${peopleSelect('presidente', i, w.presidente, 'Presidente', conflicts)}
@@ -8641,7 +8640,7 @@ function generalEsContent(w) {
   }
   const isSup = w.type === 'supervisor';
   const assigned = (sec, p, isLastVida) => {
-    if (isSup && isLastVida) return escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
+    if (isSup && isLastVida) return escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · ' + escapeHtml(w.nombreSupervisor) : '');
     const ap = p.assignments || {};
     return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
@@ -9549,7 +9548,7 @@ function midweekBlockContent(w) {
   const assigned = (sec, p, isLastVida) => {
     if (isSup && isLastVida) {
       const tit = escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente');
-      const nom = w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '';
+      const nom = w.nombreSupervisor ? ' · ' + escapeHtml(w.nombreSupervisor) : '';
       return `<span class="text-gray-600 italic">· ${tit}${nom}</span>`;
     }
     const ap = p.assignments || {};
@@ -9707,7 +9706,7 @@ function compactWeekCard(w) {
   }
   const isSup = w.type === 'supervisor';
   const assigned = (sec, p, isLastVida) => {
-    if (isSup && isLastVida) return escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
+    if (isSup && isLastVida) return escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · ' + escapeHtml(w.nombreSupervisor) : '');
     const ap = p.assignments || {};
     return mwSlotsFor(sec, p, isSup).map(s => { const v = ap[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
   };
@@ -10233,7 +10232,7 @@ function midweekSvgLayout(w, y0) {
     (sec.parts || []).forEach((p, pi) => {
       const isLastVida = sec.id === 'vida' && pi === (sec.parts || []).length - 1;
       let nm = mwSlotsFor(sec, p, isSup).map(s => { const v = (p.assignments || {})[s.key]; return v ? personNameOf(v) : null; }).filter(Boolean).join(' · ');
-      if (isSup && isLastVida) nm = escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · Superintendente: ' + escapeHtml(w.nombreSupervisor) : '');
+      if (isSup && isLastVida) nm = escapeHtml(w.tituloDiscursoSupervisor || 'Discurso de servicio del superintendente') + (w.nombreSupervisor ? ' · ' + escapeHtml(w.nombreSupervisor) : '');
       svgTextLines(`${p.num}. ${isSup && isLastVida ? 'Discurso' : p.title} (${p.mins})${nm ? ' — ' + nm : ''}`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 400, C.name)); y += 18; });
     });
   });
