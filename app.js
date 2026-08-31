@@ -908,14 +908,44 @@ async function renderInformes() {
 
 async function renderActivityTab() {
   const me = currentUser();
+  const mes = state.reportMonth;
+  let banner = '';
+  if (me && me.rol === 'user' && me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
+  // Solo el admin ve el banner de revisiones pendientes.
+  if (!isUserRole()) {
+    const pend = await db.listActividadRevision();
+    if (pend.length) {
+      const porGrupo = {};
+      const porMes = {};
+      pend.forEach(r => {
+        const dep = (state.departments || []).find(d => String(d.id) === String(r.grupoId));
+        const g = dep ? (dep.name || String(r.grupoId)) : String(r.grupoId);
+        (porGrupo[g] = porGrupo[g] || { grupoId: r.grupoId, count: 0 }).count++;
+        porMes[r.monthId] = (porMes[r.monthId] || 0) + 1;
+      });
+      const items = Object.values(porGrupo).map(g => `
+        <button data-vg="${escapeAttr(String(g.grupoId))}" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-warning text-warning hover:bg-warning/10 transition-colors">
+          <span class="material-symbols-outlined text-[18px]">pending_actions</span>
+          <span class="font-label-md text-label-md">${escapeHtml(g.grupoId)} — ${g.count} pendiente${g.count !== 1 ? 's' : ''}</span>
+        </button>`).join('');
+      banner = `<div class="mb-5 rounded-xl border border-warning/40 bg-warning/10 p-4 flex flex-wrap items-center gap-3">
+        <span class="material-symbols-outlined text-warning text-2xl">notifications</span>
+        <div class="flex-1 min-w-0">
+          <p class="font-label-md text-label-md text-on-warning font-semibold">Hay informes pendientes de revisión</p>
+          <p class="text-on-surface-variant text-caption">Grupos: ${Object.keys(porGrupo).map(g => escapeHtml(g)).join(', ')}</p>
+        </div>
+        <div class="flex gap-2 flex-wrap">${items}</div>
+      </div>`;
+    }
+  }
   if (me && me.rol === 'user') {
     const grupos = (me.grupos && me.grupos.length) ? me.grupos : [];
     const gid = (state.reportGroup && grupos.includes(state.reportGroup)) ? state.reportGroup : grupos[0];
-    if (!gid) return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No tienes un grupo asignado.</div>`;
-    return await renderActivityGroupView(gid, false);
+    if (!gid) return banner + `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No tienes un grupo asignado.</div>`;
+    return banner + await renderActivityGroupView(gid, false);
   }
-  if (state.reportGroup) return await renderActivityGroupView(state.reportGroup, true);
-  return renderActivityCards();
+  if (state.reportGroup) return banner + await renderActivityGroupView(state.reportGroup, true);
+  return banner + renderActivityCards();
 }
 
 function renderActivityCards() {
@@ -946,6 +976,80 @@ function actCellHtml(regular, aux, act, horas, disabled, pid) {
 function auxCellHtml(regular, aux, disabled, pid) {
   if (regular) return `<span class="text-label-md text-label-md text-on-surface-variant">Regular</span>`;
   return `<input type="checkbox" data-act="auxiliar" data-pid="${pid}" ${aux ? 'checked' : ''} ${disabled ? 'disabled' : ''} class="form-checkbox text-primary rounded border-outline-variant cursor-pointer"/>`;
+}
+
+// Modal: el admin revisa un informe enviado por un user y lo confirma.
+// Copia cada registro del actividad_revision del grupo+mes al store definitivo
+// (actividad) y borra esos registros. Muestra persona, auxiliar, horas, cursos, notas.
+export async function openRevisionModal(grupoId) {
+  const monthId = state.reportMonth;
+  const revs = await db.listActividadRevision(grupoId, monthId);
+  if (!revs.length) { toast('No hay nada pendiente para este grupo', 'info'); return; }
+  const dep = (state.departments || []).find(d => String(d.id) === String(grupoId));
+  const gName = dep ? (dep.name || String(grupoId)) : String(grupoId);
+  const monthLabel = `${MONTHS_ES[Number(monthId.slice(5)) - 1]} ${monthId.slice(0, 4)}`;
+  const rows = revs.map(r => {
+    const person = state.people.find(p => String(p.id) === String(r.personId));
+    const name = person ? person.name : String(r.personId);
+    const actTxt = r.actividad ? 'Sí' : 'No';
+    const auxTxt = r.auxiliar ? 'Sí' : 'No';
+    const hrs = r.horas ? `${r.horas} h` : '';
+    const curs = r.cursos ? `${r.cursos} cursos` : '';
+    const notDesc = r.notas ? escapeHtml(r.notas) : '—';
+    return `<tr class="border-b border-outline-variant/30 hover:bg-surface-container-low">
+      <td class="p-3 font-body-md text-body-md font-semibold text-on-surface">${escapeHtml(name)}</td>
+      <td class="p-3 text-center font-body-md">${actTxt}</td>
+      <td class="p-3 text-center font-body-md">${auxTxt}</td>
+      <td class="p-3 text-center font-body-md">${hrs}</td>
+      <td class="p-3 text-center font-body-md">${curs}</td>
+      <td class="p-3 font-body-md text-on-surface-variant text-sm">${notDesc}</td>
+    </tr>`;
+  }).join('');
+
+  openModal(`
+    <div class="max-w-2xl w-full">
+      <div class="flex items-center gap-3 mb-1">
+        <span class="material-symbols-outlined text-primary text-3xl">fact_check</span>
+        <div>
+          <h3 class="font-headline-md text-headline-md text-primary">Revisar informe del ${escapeHtml(gName)}</h3>
+          <p class="text-on-surface-variant text-caption">${monthLabel} — ${revs.length} registro${revs.length !== 1 ? 's' : ''} pendiente${revs.length !== 1 ? 's' : ''}</p>
+        </div>
+      </div>
+      <div class="max-h-96 overflow-y-auto rounded-lg border border-outline-variant mb-5">
+        <table class="w-full text-left">
+          <thead class="bg-surface-container sticky top-0">
+            <tr class="border-b border-outline-variant">
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant">Nombre</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Actividad</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Auxiliar</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Horas</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Cursos</th>
+              <th class="p-3 font-label-md text-label-md text-on-surface-variant">Notas</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-outline-variant/40">${rows}</tbody>
+        </table>
+      </div>
+      <div class="flex gap-3 justify-end">
+        <button id="modalCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
+        <button id="modalConfirm" class="px-5 py-2.5 rounded-lg bg-tertiary text-on-tertiary font-label-md text-label-md hover:opacity-90">Guardar definitivamente</button>
+      </div>
+    </div>`);
+
+  $('#modalCancel').onclick = closeModal;
+  $('#modalConfirm').onclick = async () => {
+    const existing = await db.getActivity(monthId) || { id: monthId, people: {}, locked: false };
+    const merged = { ...(existing.people || {}) };
+    for (const r of revs) {
+      merged[r.personId] = { actividad: r.actividad, auxiliar: r.auxiliar, cursos: r.cursos, horas: r.horas, notas: r.notas || '' };
+    }
+    await db.putActivity({ ...existing, people: merged });
+    await db.clearActividadRevision(grupoId, monthId);
+    closeModal();
+    toast(`Informe del ${gName} guardado`, 'success');
+    try { await subirStores(['activity', 'actividad_revision']); } catch (e) { /* sync error tolerable */ }
+    renderInformes();
+  };
 }
 
 async function renderActivityGroupView(gid, withBack) {
@@ -1014,6 +1118,10 @@ function bindActivityTab() {
   const back = $('#activityBack');
   if (back) back.onclick = () => { state.reportGroup = null; renderInformes(); };
   document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { state.reportGroup = b.dataset.groupCard; renderInformes(); });
+  // Admin: ir a revisar un grupo específico.
+  document.querySelectorAll('[data-vg]').forEach(b => b.onclick = () => {
+    state.reportGroup = b.dataset.vg; renderInformes(); openRevisionModal(b.dataset.vg);
+  });
   const lock = $('#activityLock');
   if (lock) lock.onclick = async () => {
     const month = state.reportMonth;
@@ -1048,6 +1156,28 @@ function bindActivityTab() {
   };
   const save = $('#activitySave');
   if (save) save.onclick = async () => {
+    const me = currentUser();
+    if (me && me.rol === 'user') {
+      const gid = me.grupos && me.grupos.length ? me.grupos[0] : '';
+      const personRows = document.querySelectorAll('[data-row]');
+      const entries = [];
+      let totalCursos = 0, totalHoras = 0, activos = 0;
+      personRows.forEach(row => {
+        const pid = row.dataset.row;
+        const get = (sel) => row.querySelector(`[data-act="${sel}"]`);
+        const act = get('actividad')?.checked ?? false;
+        const aux = get('auxiliar')?.checked ?? false;
+        const cursos = parseInt(get('cursos')?.value, 10) || 0;
+        const horas = parseInt(get('horas')?.value, 10) || 0;
+        entries.push({ personId: pid, actividad: act, auxiliar: aux, cursos, horas, notas: get('notas')?.value || '' });
+        if (act) { activos++; totalCursos += cursos; totalHoras += horas; }
+      });
+      for (const e of entries) await db.addActividadRevision({ grupoId: gid, monthId: month, ...e });
+      toast('Actividad enviada para revisión', 'success');
+      try { await subirStores(['actividad_revision']); } catch (e) { /* sin Supabase: solo local */ }
+      renderInformes();
+      return;
+    }
     await saveData();
     toast('Actividad guardada', 'success');
     try { await subirStores(['activity']); } catch (e) { /* sin Supabase: solo local */ }

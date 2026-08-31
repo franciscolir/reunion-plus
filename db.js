@@ -23,6 +23,7 @@ const STORE_CARGOS = 'cargos';           // keyPath: id (catálogo de cargos: an
 const STORE_CAPACIDADES = 'capacidades'; // keyPath: id (cargo → labores que otorga)
 const STORE_SPEAKER_TALKS = 'speaker_talks'; // keyPath: id (orador ↔ discurso N:N)
 const STORE_AUDIT_LOG = 'audit_log';     // keyPath: id (historial de modificaciones)
+const STORE_ACT_REVISION = 'actividad_revision'; // keyPath: id (actividad pendiente de revisión por admin)
 
 let _db = null;
 
@@ -105,6 +106,9 @@ function openDB() {
         const s = db.createObjectStore(STORE_AUDIT_LOG, { keyPath: 'id', autoIncrement: true });
         s.createIndex('entity', 'entity', { unique: false });
         s.createIndex('entityId', 'entityId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_ACT_REVISION)) {
+        db.createObjectStore(STORE_ACT_REVISION, { keyPath: 'id', autoIncrement: true });
       }
 
       // Migración v7→v8: las asignaciones de persona pasan a formato
@@ -1222,9 +1226,58 @@ export async function putActivitySilent(report) {
   return commitSilent(STORE_ACTIVITY, (store) => reqToPromise(store.put({ ...report, id: String(report.id) })));
 }
 
+// Sin tocar sync (para pull desde la nube).
+export async function putActividadRevisionSilent(r) {
+  const db = await openDB();
+  return commitSilent(STORE_ACT_REVISION, (store) => reqToPromise(store.put(r)));
+}
+
 export async function listActivity() {
   const db = await openDB();
   return reqToPromise(tx(db, STORE_ACTIVITY).getAll());
+}
+
+// ===== ACTIVIDAD REVISION (pendiente de revisión del admin) =====
+// El user escribe aquí; solo el admin la copia a actividad definitiva.
+export async function addActividadRevision(entry) {
+  const db = await openDB();
+  return commit(STORE_ACT_REVISION, (store) => reqToPromise(store.add({
+    grupoId: entry.grupoId,
+    monthId: entry.monthId,
+    personId: entry.personId,
+    nombre: entry.nombre || '',
+    actividad: !!entry.actividad,
+    auxiliar: entry.auxiliar || false,
+    cursos: Number(entry.cursos) || 0,
+    horas: Number(entry.horas) || 0,
+    notas: entry.notas || '',
+    createdAt: Date.now(),
+    ...entry,
+  })));
+}
+
+export async function listActividadRevision(grupoId = null, monthId = null) {
+  const db = await openDB();
+  let all = await reqToPromise(tx(db, STORE_ACT_REVISION).getAll());
+  if (grupoId) all = all.filter(r => String(r.grupoId) === String(grupoId));
+  if (monthId) all = all.filter(r => String(r.monthId) === String(monthId));
+  return all;
+}
+
+export async function deleteActividadRevision(id) {
+  return commit(STORE_ACT_REVISION, (store) => reqToPromise(store.delete(id)));
+}
+
+export async function clearActividadRevision(grupoId, monthId) {
+  const db = await openDB();
+  const all = await reqToPromise(tx(db, STORE_ACT_REVISION).getAll());
+  const toDelete = all.filter(r =>
+    String(r.grupoId) === String(grupoId) &&
+    String(r.monthId) === String(monthId)
+  );
+  return commit(STORE_ACT_REVISION, (store) => Promise.all(
+    toDelete.map(r => reqToPromise(store.delete(r.id)))
+  ));
 }
 
 export async function getAttendance(id) {
