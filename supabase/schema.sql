@@ -76,16 +76,7 @@ create table if not exists public.capacidades (
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-create table if not exists public.excepciones (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-create table if not exists public.restricciones (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
+
 create table if not exists public.speaker_talks (
   id text primary key,
   data jsonb not null default '{}'::jsonb,
@@ -111,8 +102,7 @@ create index if not exists idx_asignaciones_programa on public.asignaciones ((da
 create index if not exists idx_programas_mes on public.programas ((data->>'mes'));
 create index if not exists idx_cargos_nombre on public.cargos ((data->>'name'));
 create index if not exists idx_capacidades_cargo on public.capacidades ((data->>'cargoId'));
-create index if not exists idx_excepciones_persona on public.excepciones ((data->>'personId'));
-create index if not exists idx_restricciones_persona on public.restricciones ((data->>'personId'));
+
 create index if not exists idx_speaker_talks_persona on public.speaker_talks ((data->>'personId'));
 create index if not exists idx_speaker_talks_talk on public.speaker_talks ((data->>'talkNum'));
 create index if not exists idx_audit_log_entity on public.audit_log ((data->>'entity'));
@@ -206,8 +196,7 @@ select internal.def_policies('asistencia');
 select internal.def_policies('arreglos');
 select internal.def_policies('cargos');
 select internal.def_policies('capacidades');
-select internal.def_policies('excepciones');
-select internal.def_policies('restricciones');
+
 select internal.def_policies('speaker_talks');
 select internal.def_policies('audit_log');
 
@@ -260,8 +249,8 @@ create policy "usuarios_borrado_admin" on public.usuarios
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
-  public.asistencia, public.arreglos, public.cargos, public.capacidades, public.excepciones,
-  public.restricciones, public.speaker_talks, public.audit_log, public.usuarios
+  public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
+  public.audit_log, public.usuarios
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
 
@@ -269,8 +258,8 @@ grant select, insert, update, delete on public.usuarios to authenticated;
 -- bypass RLS y acceder a las tablas.
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
-  public.asistencia, public.arreglos, public.cargos, public.capacidades, public.excepciones,
-  public.restricciones, public.speaker_talks, public.audit_log, public.usuarios
+  public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
+  public.audit_log, public.usuarios
   to service_role;
 
 -- Elimina las versiones públicas obsoletas de is_admin / email_autorizado (de

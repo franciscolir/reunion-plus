@@ -21,8 +21,6 @@ const STORE_ARRANGEMENTS = 'arrangements'; // key: "YYYY-MM" (intercambio, orado
 const STORE_REPORTS = 'reports'; // legacy: migrado a activity/attendance/arrangements en v10
 const STORE_CARGOS = 'cargos';           // keyPath: id (catálogo de cargos: anciano, ministerial, publicador, etc.)
 const STORE_CAPACIDADES = 'capacidades'; // keyPath: id (cargo → labores que otorga)
-const STORE_EXCEPCIONES = 'excepciones'; // keyPath: id (persona → capacidad extra o restringida)
-const STORE_RESTRICCIONES = 'restricciones'; // keyPath: id (persona → regla estructurada)
 const STORE_SPEAKER_TALKS = 'speaker_talks'; // keyPath: id (orador ↔ discurso N:N)
 const STORE_AUDIT_LOG = 'audit_log';     // keyPath: id (historial de modificaciones)
 
@@ -98,14 +96,6 @@ function openDB() {
         const s = db.createObjectStore(STORE_CAPACIDADES, { keyPath: 'id', autoIncrement: true });
         s.createIndex('cargoId', 'cargoId', { unique: false });
       }
-      if (!db.objectStoreNames.contains(STORE_EXCEPCIONES)) {
-        const s = db.createObjectStore(STORE_EXCEPCIONES, { keyPath: 'id', autoIncrement: true });
-        s.createIndex('personId', 'personId', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(STORE_RESTRICCIONES)) {
-        const s = db.createObjectStore(STORE_RESTRICCIONES, { keyPath: 'id', autoIncrement: true });
-        s.createIndex('personId', 'personId', { unique: false });
-      }
       if (!db.objectStoreNames.contains(STORE_SPEAKER_TALKS)) {
         const s = db.createObjectStore(STORE_SPEAKER_TALKS, { keyPath: 'id', autoIncrement: true });
         s.createIndex('personId', 'personId', { unique: false });
@@ -168,8 +158,7 @@ function openDB() {
       // 1. Semilla de catálogo de cargos por defecto
       // 2. Campos nuevos en personas (phone, email, prioridad)
       // 3. Campo encargadoId en departments
-      // 4. Migrar excepciones de config al store dedicado
-      // 5. Agregar estado a informes de actividad
+      // 4. Agregar estado a informes de actividad
       if (e.oldVersion < 11) {
         const t = e.target.transaction;
         const DEFAULT_CARGOS = [
@@ -1020,8 +1009,6 @@ export async function exportAll() {
     arrangements: await listArrangements(),
     cargos: await listCargos(),
     capacidades: await listCapacidades(),
-    excepciones: await listExcepciones(),
-    restricciones: await listRestricciones(),
     speakerTalks: await listSpeakerTalks(),
     settings: {
       congregation: await getSetting('congregation', ''),
@@ -1168,7 +1155,7 @@ export async function replaceAllTalksSilent(talks) {
 // sync. Se usa tras limpiar Supabase para dejar la caché local vacía.
 export async function limpiarIndexedDBLocal() {
   const db = await openDB();
-  const stores = [STORE_MONTHS, STORE_PEOPLE, STORE_DEPARTMENTS, STORE_TALKS, STORE_MIDWEEKS, STORE_ASEOS, STORE_SALIDAS, STORE_ATENCION, STORE_ASSIGNMENT_LOG, STORE_CARGOS, STORE_CAPACIDADES, STORE_EXCEPCIONES, STORE_RESTRICCIONES, STORE_SPEAKER_TALKS, STORE_AUDIT_LOG];
+  const stores = [STORE_MONTHS, STORE_PEOPLE, STORE_DEPARTMENTS, STORE_TALKS, STORE_MIDWEEKS, STORE_ASEOS, STORE_SALIDAS, STORE_ATENCION, STORE_ASSIGNMENT_LOG, STORE_CARGOS, STORE_CAPACIDADES, STORE_SPEAKER_TALKS, STORE_AUDIT_LOG];
   for (const s of stores) {
     if (db.objectStoreNames.contains(s)) {
       await commitSilent(s, (store) => reqToPromise(store.clear()));
@@ -1370,56 +1357,6 @@ export async function clearCapacidadesByCargo(cargoId) {
       r.onerror = () => reject(r.error);
     }
   }));
-}
-
-// ===== EXCEPCIONES (persona → capacidad extra o restringida) =====
-export async function listExcepciones() {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_EXCEPCIONES).getAll());
-}
-
-export async function listExcepcionesByPerson(personId) {
-  const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_EXCEPCIONES).getAll());
-  return all.filter(e => String(e.personId) === String(personId));
-}
-
-export async function addExcepcion(exc) {
-  const record = { personId: exc.personId, laborId: exc.laborId, tipo: exc.tipo || 'autorizar', motivo: exc.motivo || '', activo: exc.activo !== false, createdAt: Date.now() };
-  return commitSilent(STORE_EXCEPCIONES, (store) => reqToPromise(store.add(record)));
-}
-
-export async function updateExcepcion(exc) {
-  return commitSilent(STORE_EXCEPCIONES, (store) => reqToPromise(store.put({ ...exc, updatedAt: Date.now() })));
-}
-
-export async function deleteExcepcion(id) {
-  return commitSilent(STORE_EXCEPCIONES, (store) => reqToPromise(store.delete(id)));
-}
-
-// ===== RESTRICCIONES (persona → regla estructurada) =====
-export async function listRestricciones() {
-  const db = await openDB();
-  return reqToPromise(tx(db, STORE_RESTRICCIONES).getAll());
-}
-
-export async function listRestriccionesByPerson(personId) {
-  const db = await openDB();
-  const all = await reqToPromise(tx(db, STORE_RESTRICCIONES).getAll());
-  return all.filter(r => String(r.personId) === String(personId));
-}
-
-export async function addRestriccion(res) {
-  const record = { personId: res.personId, tipo: res.tipo || 'asignacion', laborId: res.laborId || '', motivo: res.motivo || '', permanente: res.permanente !== false, activo: res.activo !== false, createdAt: Date.now() };
-  return commitSilent(STORE_RESTRICCIONES, (store) => reqToPromise(store.add(record)));
-}
-
-export async function updateRestriccion(res) {
-  return commitSilent(STORE_RESTRICCIONES, (store) => reqToPromise(store.put({ ...res, updatedAt: Date.now() })));
-}
-
-export async function deleteRestriccion(id) {
-  return commitSilent(STORE_RESTRICCIONES, (store) => reqToPromise(store.delete(id)));
 }
 
 // ===== SPEAKER_TALKS (orador ↔ discurso N:N) =====
