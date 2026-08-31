@@ -126,6 +126,22 @@ as $$
   );
 $$;
 
+-- Rol arbitrario (admin, user, reader, ia).
+-- Uso: escritura de actividad permitida para user; pendientes futuros desarrollo.
+create or replace function internal.has_role(rol text)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.usuarios u
+    where u.id = (auth.uid())::text
+      and (u.data->>'rol') = rol
+  );
+$$;
+
 -- Whitelist: ¿el correo del usuario está autorizado a leer los datos?
 -- Lee la whitelist de la app (configuracion/general → config.emailsPermitidos).
 -- SECURITY DEFINER para leer configuracion aunque su RLS esté restringida.
@@ -192,6 +208,22 @@ select internal.def_policies('asignaciones');
 select internal.def_policies('discursos');
 select internal.def_policies('configuracion');
 select internal.def_policies('actividad');
+-- Actividad: lectura para autorizados, escritura para admin + user.
+-- (def_policies YA creó las políticas genéricas; aquí las refinamos para que
+-- el rol user también pueda escribir en actividad, p. ej. ingresar el informe
+-- de su grupo.) Al ser la misma tabla, recreamos las políticas con el nuevo
+-- criterio — las anteriores son solo placeholders que PostgreSQL sustituye.
+drop policy if exists "escritura_admin" on public.actividad;
+drop policy if exists "lectura_autorizados" on public.actividad;
+create policy "lectura_autorizados" on public.actividad
+  for select to authenticated using (internal.email_autorizado());
+create policy "escritura_admin" on public.actividad
+  for all to authenticated
+  using (internal.is_admin())
+  with check (internal.is_admin());
+create policy "escritura_user_actividad" on public.actividad
+  for all to authenticated
+  using (internal.has_role('user')) with check (internal.has_role('user'));
 select internal.def_policies('asistencia');
 select internal.def_policies('arreglos');
 select internal.def_policies('cargos');
