@@ -484,11 +484,11 @@ function router() {
     location.hash = '#/ia';
     return;
   }
-  if (isUserRole() && !['home', 'lists', 'grupo'].includes(view)) {
+  if (isUserRole() && !['home', 'lists', 'grupo', 'informes'].includes(view)) {
     location.hash = '#/home';
     return;
   }
-  if (view === 'informes' && isSupabaseConfigured() && currentUser()?.rol !== 'admin') {
+  if (view === 'informes' && isSupabaseConfigured() && !['admin', 'user', 'ia'].includes(currentUser()?.rol)) {
     location.hash = '#/home';
     return;
   }
@@ -641,6 +641,7 @@ function renderSide() {
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'grupo', icon: 'group_work', label: 'Mi grupo', view: 'grupo' },
     { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
+    { id: 'informes', icon: 'assignment', label: 'Informes', view: 'informes' },
   ] : [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
@@ -875,12 +876,14 @@ async function renderInformes() {
   const months = availableReportMonths();
   if (!state.reportMonth || !months.includes(state.reportMonth)) state.reportMonth = months[months.length - 1];
   const tab = state.reportTab || 'actividad';
-  const tabs = [
-    ['actividad', 'Actividad', 'assignment'],
-    ['asistencia', 'Asistencia', 'groups'],
-    ['arreglos', 'Arreglos', 'swap_horiz'],
-    ['formularios', 'Formularios', 'download'],
-  ];
+  const tabs = isUserRole()
+    ? [['actividad', 'Actividad', 'assignment']]
+    : [
+        ['actividad', 'Actividad', 'assignment'],
+        ['asistencia', 'Asistencia', 'groups'],
+        ['arreglos', 'Arreglos', 'swap_horiz'],
+        ['formularios', 'Formularios', 'download'],
+      ];
   let body = '';
   if (tab === 'actividad') body = await renderActivityTab();
   else if (tab === 'asistencia') body = await renderAttendanceTab();
@@ -1047,9 +1050,7 @@ function bindActivityTab() {
   if (save) save.onclick = async () => {
     await saveData();
     toast('Actividad guardada', 'success');
-    if (currentUser()?.rol === 'admin') {
-      try { await subirStores(['activity']); } catch (e) { /* sin Supabase: solo local */ }
-    }
+    try { await subirStores(['activity']); } catch (e) { /* sin Supabase: solo local */ }
     renderInformes();
   };
   document.querySelectorAll('[data-act="auxiliar"]').forEach(c => c.onchange = () => {
