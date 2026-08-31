@@ -4,7 +4,7 @@
 import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots, addDays } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 12;
+const DB_VERSION = 13;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)

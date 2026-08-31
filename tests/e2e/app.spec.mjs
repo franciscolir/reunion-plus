@@ -285,7 +285,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     // El programa de entre semana quedó asignado en la BD.
     const [presidente, primerSlot] = await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 12);
+      const req = indexedDB.open('reunion-plus', 13);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('midweeks', 'readonly');
@@ -352,7 +352,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     // Duplicado provocado de propósito: el MISMO orador dos veces en la semana 1
     // (antes mostraba el badge "Repite en la semana" y el cuadro de avisos).
     await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 12);
+      const req = indexedDB.open('reunion-plus', 13);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('salidas', 'readwrite');
@@ -413,7 +413,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     // Asignar orador + discurso en la primera salida directamente en la BD.
     await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 12);
+      const req = indexedDB.open('reunion-plus', 13);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('salidas', 'readwrite');
@@ -493,7 +493,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     // Asignar un puesto de sonido en el programa de atención (semana 1).
     await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 12);
+      const req = indexedDB.open('reunion-plus', 13);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('atencion', 'readwrite');
@@ -532,7 +532,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     // Salida con orador y discurso (se escribe directo en la BD).
     await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 12);
+      const req = indexedDB.open('reunion-plus', 13);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('salidas', 'readwrite');
@@ -586,7 +586,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     // Acomodación de la MISMA semana (atencion sábado 08-08 → domingo 08-09).
     await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 12);
+      const req = indexedDB.open('reunion-plus', 13);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('atencion', 'readwrite');
@@ -629,7 +629,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     // Crear un conflicto en fin de semana: la misma persona presidente y conductor.
     await page.evaluate(() => new Promise((res, rej) => {
-      const req = indexedDB.open('reunion-plus', 12);
+      const req = indexedDB.open('reunion-plus', 13);
       req.onsuccess = (e) => {
         const db = e.target.result;
         const tx = db.transaction('months', 'readwrite');

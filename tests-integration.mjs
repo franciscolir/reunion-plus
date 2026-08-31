@@ -15,7 +15,7 @@ import {
 } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports', 'activity', 'attendance', 'arrangements', 'cargos', 'capacidades', 'speaker_talks', 'audit_log'];
+const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports', 'activity', 'attendance', 'arrangements', 'cargos', 'capacidades', 'speaker_talks', 'audit_log', 'actividad_revision'];
 const LABORES = [
   { id: 'presidente', label: 'Presidente' },
   { id: 'audio', label: 'Audio' },
@@ -36,9 +36,9 @@ beforeEach(async () => {
 });
 
 // --- Esquema ---
-test('esquema v12 crea todos los stores', async () => {
+test('esquema v13 crea todos los stores', async () => {
   await db.listPeople(); // fuerza la apertura/creación del esquema
-  const d = await openRaw(DB_NAME, 12);
+  const d = await openRaw(DB_NAME, 13);
   const names = [...d.objectStoreNames];
   d.close();
   for (const s of STORES) assert.ok(names.includes(s), `falta el store "${s}"`);
