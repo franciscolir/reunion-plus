@@ -5331,8 +5331,8 @@ function renderLaborColumns(p, editMode) {
   return `<div class="grid grid-cols-3 gap-3 mt-3">${col('es', 'Entre semana')}${col('fs', 'Fin de semana')}${col('svc', 'Servicio')}</div>`;
 }
 
-// Fila de persona (vista Personas → tabla). Muestra avatar (número de grupo),
-// nombre, grupo, género, calificación, cargo y acciones (ver perfil / borrar).
+// Fila de persona (vista Personas → tabla). Muestra nombre, grupo, género,
+// calificación, cargo y acciones (ver perfil / borrar).
 function renderPersonCard(p, editMode, isInactive = false) {
   const gen = p.genero === 'femenino' ? 'Femenino' : p.genero === 'masculino' ? 'Masculino' : '—';
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : '—';
@@ -5345,12 +5345,9 @@ function renderPersonCard(p, editMode, isInactive = false) {
       <button data-pdel="${p.id}" data-admin class="inline-flex items-center justify-center p-1.5 rounded-lg text-error hover:bg-error-container" title="Quitar de la lista"><span class="material-symbols-outlined text-[18px]">delete</span></button>`;
   return `<tr class="person-card ${isInactive ? 'is-inactive' : ''}" data-norm="${escapeAttr(normalizeStr(p.name))}" data-genero="${escapeAttr(p.genero || '')}" data-cargo="${escapeAttr(cargoOf(p).id)}" data-pid="${p.id}">
     <td class="px-3 py-2">
-      <div class="flex items-center gap-3">
-        ${avatarHtml(p, 'w-9 h-9')}
-        <div class="min-w-0">
-          <p class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</p>
-          ${isInactive ? '<span class="text-[11px] text-error font-label-md">Desactivada</span>' : ''}
-        </div>
+      <div class="min-w-0">
+        <span class="font-body-md text-body-md font-semibold text-on-surface truncate">${escapeHtml(p.name)}</span>
+        ${isInactive ? '<span class="text-[11px] text-error font-label-md">Desactivada</span>' : ''}
       </div>
     </td>
     <td class="px-3 py-2 whitespace-nowrap font-medium text-on-surface">${escapeHtml(grupo)}</td>
@@ -5365,7 +5362,7 @@ function renderPersonCard(p, editMode, isInactive = false) {
 
 function renderUserPersonRow(p) {
   return `<tr class="person-card" data-pid="${p.id}">
-    <td class="px-3 py-3"><div class="flex items-center gap-3">${avatarHtml(p, 'w-9 h-9')}<span class="font-body-md text-body-md font-semibold text-on-surface">${escapeHtml(p.name)}</span></div></td>
+    <td class="px-3 py-3"><span class="font-body-md text-body-md font-semibold text-on-surface">${escapeHtml(p.name)}</span></td>
     <td class="px-3 py-3 text-right"><button data-user-profile="${p.id}" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-colors">Ver perfil</button></td>
   </tr>`;
 }
