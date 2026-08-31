@@ -1083,17 +1083,34 @@ async function renderActivityGroupView(gid, withBack) {
     const v = report.people?.[p.id] || {};
     const regular = p.precursorRegular === true;
     const act = regular || v.actividad === true;
-    const precBadge = regular ? `<span class="inline-block px-2 py-0.5 mt-1 bg-secondary text-on-secondary rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
+    const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
     const aux = !!v.auxiliar;
+    const borderColor = regular ? 'border-l-secondary' : 'border-l-primary';
     const auxCell = auxCellHtml(regular, aux, report.locked, p.id);
     const actCell = actCellHtml(regular, aux, act, Number(v.horas) || 0, report.locked, p.id);
-    return `<div class="border-b border-outline-variant border-opacity-50 hover:bg-surface-variant transition-colors group" data-row="${p.id}">
-      <div class="grid grid-cols-2 md:grid-cols-12 gap-2 md:gap-4 p-4 items-center">
-        <div class="col-span-2 md:col-span-4"><p class="font-body-md text-body-md font-medium text-on-surface">${escapeHtml(p.name)}</p>${precBadge}</div>
-        <div class="col-span-1 md:col-span-2 flex justify-center"><span class="md:hidden text-caption text-on-surface-variant">Auxiliar</span>${auxCell}</div>
-        <div class="col-span-1 md:col-span-2 act-cell"><span class="md:hidden text-caption text-on-surface-variant">Horas</span>${actCell}</div>
-        <div class="col-span-1 md:col-span-2"><span class="md:hidden text-caption text-on-surface-variant">Cursos</span><input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-20 px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/></div>
-        <div class="col-span-2 md:col-span-2"><span class="md:hidden text-caption text-on-surface-variant">Nota</span><input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-transparent hover:border-outline-variant focus:border-primary rounded bg-transparent focus:bg-surface focus:ring-0 font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/></div>
+    return `<div class="bg-surface-container-lowest border-l-4 ${borderColor} border border-outline-variant rounded-lg p-4 shadow-sm transition-all group" data-row="${p.id}">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+        <div class="flex items-center gap-2 min-w-0">
+          <p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p>
+          ${precBadge}
+        </div>
+        <div class="flex items-center gap-2 text-caption text-on-surface-variant shrink-0">
+          <span>Auxiliar</span>${auxCell}
+        </div>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="flex flex-col gap-1">
+          <label class="font-label-md text-label-md text-on-surface-variant text-xs">Actividad / Horas</label>
+          <div class="act-cell">${actCell}</div>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="font-label-md text-label-md text-on-surface-variant text-xs">Cursos</label>
+          <input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-full px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/>
+        </div>
+        <div class="col-span-2 flex flex-col gap-1">
+          <label class="font-label-md text-label-md text-on-surface-variant text-xs">Observación</label>
+          <input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-outline-variant hover:border-outline-variant focus:border-primary rounded bg-surface focus:bg-surface font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1112,12 +1129,7 @@ async function renderActivityGroupView(gid, withBack) {
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-tertiary-fixed-dim"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Regularidad (6 m)</p><p class="font-headline-lg text-headline-lg text-primary">${reg.percentage}%</p><p class="text-caption text-on-surface-variant mt-1">${reg.regular} de ${reg.total} regulares</p></div>
       <div class="bg-surface-container-lowest p-6 rounded-lg border border-outline-variant shadow-sm relative overflow-hidden"><div class="absolute top-0 left-0 w-1 h-full bg-outline"></div><p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Estado</p><p class="font-headline-md text-headline-md text-primary mt-1">${estado}</p></div>
     </div>
-    <div class="bg-surface-container-lowest rounded-lg border border-outline-variant shadow-sm flex flex-col overflow-hidden h-auto md:h-[600px]">
-      <div class="hidden md:grid md:grid-cols-12 gap-4 p-4 border-b border-outline-variant bg-surface-container-low font-label-md text-label-md text-on-surface-variant sticky top-0 z-10">
-        <div class="md:col-span-4">Nombre</div><div class="md:col-span-2 text-center">Auxiliar</div><div class="md:col-span-2">Actividad / Horas</div><div class="md:col-span-2">Cursos</div><div class="md:col-span-2">Observación</div>
-      </div>
-      <div class="flex-1 overflow-y-auto table-scroll p-2">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>
-    </div>`;
+    <div class="flex flex-col gap-3">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>`;
 }
 
 function bindActivityTab() {
