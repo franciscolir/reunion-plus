@@ -122,8 +122,6 @@ async function refreshCatalogs() {
     : DEFAULT_LABORES.map(r => ({ ...r }));
   state.cargos = await db.listCargos();
   state.capacidades = await db.listCapacidades();
-  state.restricciones = await db.listRestricciones();
-  state.excepciones = await db.listExcepciones();
   // Incorpora labores nuevas de versiones recientes a instalaciones existentes
   // (solo añade las que faltan; no quita ni renombra las personalizadas).
   const idsGuardados = new Set(state.labores.map(r => r.id));
@@ -3097,15 +3095,15 @@ function rolLegible(labore) {
 }
 
 async function etapaEntreSemana(month) {
-  const [midweeks, log, restricciones, excepciones, capacidades] = await Promise.all([
-    db.listMidweeks(), db.listAssignmentLog(), db.listRestricciones(), db.listExcepciones(), db.listCapacidades(),
+  const [midweeks, log, capacidades] = await Promise.all([
+    db.listMidweeks(), db.listAssignmentLog(), db.listCapacidades(),
   ]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const historial = log.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') }));
   const nombres = Object.fromEntries(state.people.map(p => [String(p.id), invertName(p.name)]));
   const out = runEngine(state.people, { midweeks: mwMes, months: [], salidas: [], atencion: [] }, {
     scope: 'entre',
-    restricciones, excepciones, capacidades,
+    capacidades,
     entreOpts: { historial, nombres },
   });
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
@@ -3120,15 +3118,15 @@ async function etapaEntreSemana(month) {
 }
 
 async function etapaAtencion(month) {
-  const [midweeks, labores, months, restricciones, excepciones, capacidades] = await Promise.all([
-    db.listMidweeks(), db.listAtencion(), db.listMonths(), db.listRestricciones(), db.listExcepciones(), db.listCapacidades(),
+  const [midweeks, labores, months, capacidades] = await Promise.all([
+    db.listMidweeks(), db.listAtencion(), db.listMonths(), db.listCapacidades(),
   ]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
   const labMes = labores.filter(p => p.id === month);
   const mesMes = months.filter(m => m.id === month);
   const out = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: [], atencion: labMes }, {
     scope: 'labores',
-    restricciones, excepciones, capacidades,
+    capacidades,
     atencionOpts: { serviceRolesOnlyMale: (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false, months: mesMes },
   });
   // Las labores de entre semana se guardan en cada week.labores del midweek.
@@ -3143,13 +3141,11 @@ async function etapaAtencion(month) {
 }
 
 async function etapaFinSemana(month) {
-  const [midweeks, months, salidas, labores, restricciones, excepciones, capacidades] = await Promise.all([
+  const [midweeks, months, salidas, labores, capacidades] = await Promise.all([
     db.listMidweeks(),
     db.listMonths(),
     db.listSalidas(),
     db.listAtencion(),
-    db.listRestricciones(),
-    db.listExcepciones(),
     db.listCapacidades(),
   ]);
   const mwMes = midweeks.filter(m => String(m.id).slice(0, 7) === month);
@@ -3159,8 +3155,8 @@ async function etapaFinSemana(month) {
 
   // Primero se completan los vacíos de entre semana (con acomodación/salidas en
   // cuenta) y después fin de semana + salidas, que usan ese contexto (E1/E2).
-  const outEntre = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'entre', restricciones, excepciones, capacidades });
-  const out = runEngine(state.people, { midweeks: outEntre.midweeks, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'fin', restricciones, excepciones, capacidades });
+  const outEntre = runEngine(state.people, { midweeks: mwMes, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'entre', capacidades });
+  const out = runEngine(state.people, { midweeks: outEntre.midweeks, months: mesMes, salidas: salMes, atencion: labMes }, { scope: 'fin', capacidades });
 
   await Promise.all(out.midweeks.map(w => db.putMidweek(w)));
   await Promise.all(out.months.map(m => db.putMonth(m)));
@@ -3518,9 +3514,9 @@ async function renderAlgoritmo() {
     btn.disabled = true;
     btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Generando…';
     try {
-      const [months, salidas, atencion, logMes, restricciones, excepciones, capacidades] = await Promise.all([
+      const [months, salidas, atencion, logMes, capacidades] = await Promise.all([
         db.listMonths(), db.listSalidas(), db.listAtencion(), db.listAssignmentLog(),
-        db.listRestricciones(), db.listExcepciones(), db.listCapacidades(),
+        db.listCapacidades(),
       ]);
       const faltSalidas = salidasFaltantes(salidas.filter(p => String(p.id) === month));
       if (faltSalidas.length) {
@@ -3550,7 +3546,7 @@ async function renderAlgoritmo() {
         atencion: atencion.filter(p => p.id === month),
         historial: logMes.map(e => ({ personId: String(e.personId || ''), date: String(e.date || ''), roleKey: String(e.roleKey || '') })),
         nombres: Object.fromEntries(people.map(p => [String(p.id), invertName(p.name)])),
-        restricciones, excepciones, capacidades,
+        capacidades,
       };
       const props = generateProposals(input, a, s);
       const caja = $('#algoResults');
@@ -4959,24 +4955,6 @@ function cargosCheckboxes(selected) {
     </label>`).join('');
 }
 
-function laborRestrChecks(set, disabled) {
-  const s = new Set(Array.from(set || []).map(String));
-  return state.labores.map(r => `
-    <label class="flex items-center gap-2 py-0.5 text-sm">
-      <input type="checkbox" data-rest="${escapeAttr(String(r.id))}" ${s.has(String(r.id)) ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
-      <span>${escapeHtml(r.label || r.id)}</span>
-    </label>`).join('');
-}
-
-function laborExcepChecks(set, disabled) {
-  const s = new Set(Array.from(set || []).map(String));
-  return state.labores.map(r => `
-    <label class="flex items-center gap-2 py-0.5 text-sm">
-      <input type="checkbox" data-exc="${escapeAttr(String(r.id))}" ${s.has(String(r.id)) ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
-      <span>${escapeHtml(r.label || r.id)}</span>
-    </label>`).join('');
-}
-
 const DEFAULT_LABORES = [
   { id: 'presidente',   label: 'Presidente (entre semana)' },
   { id: 'presidenteFin', label: 'Presidente fin de semana' },
@@ -5951,16 +5929,7 @@ async function openPersonProfile(person) {
   const p = { ...person };
   const userMode = isUserRole();
   p.labores = Array.isArray(p.labores) ? p.labores : [];
-  let restLabores = new Set();
-  let excLabores = new Set();
-  try {
-    const [restricRaw, excepRaw] = await Promise.all([
-      db.listRestriccionesByPerson(p.id),
-      db.listExcepcionesByPerson(p.id),
-    ]);
-    restLabores = new Set(restricRaw.filter(r => r.activo !== false).map(r => String(r.laborId)));
-    excLabores = new Set(excepRaw.filter(e => e.activo !== false && e.tipo === 'autorizar').map(e => String(e.laborId)));
-  } catch (_) { /* stores de v2 aún no disponibles */ }
+
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
   const genOpts = GENEROS.map(([v, l]) => `<option value="${v}" ${p.genero === v ? 'selected' : ''}>${l}</option>`).join('');
   const calOpts = CALIFICACIONES.map(c => `<option value="${c}" ${cal === c ? 'selected' : ''}>${c}${c === 'D' ? ' (enlace)' : ''}</option>`).join('');
@@ -6021,18 +5990,6 @@ async function openPersonProfile(person) {
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Labores asignadas</label>
           <div id="pfLabores">${laborCols}</div>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div class="rounded-lg border border-outline-variant bg-surface-bright p-3">
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Restricciones (no puede)</label>
-            <p class="text-on-surface-variant text-caption mb-2">Marque las labores que esta persona no debe desempeñar.</p>
-            <div class="grid grid-cols-2 gap-x-3 max-h-44 overflow-y-auto">${laborRestrChecks(restLabores, userMode)}</div>
-          </div>
-          <div class="rounded-lg border border-outline-variant bg-surface-bright p-3">
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Excepciones (autorizar)</label>
-            <p class="text-on-surface-variant text-caption mb-2">Autorice labores que normalmente no podría hacer.</p>
-            <div class="grid grid-cols-2 gap-x-3 max-h-44 overflow-y-auto">${laborExcepChecks(excLabores, userMode)}</div>
-          </div>
         </div>
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Historial de asignaciones</label>
@@ -6109,14 +6066,6 @@ const saveProfile = $('#pfSave');
     p.precursorRegular = $('#pfPrecursorRegular').checked === true;
     p.grupoId = $('#pfGrupo').value || '';
     p.labores = [...$('#pfLabores').querySelectorAll('.labor-chip.is-on')].map(c => c.dataset.plabore);
-    const checkedRest = new Set(Array.from(document.querySelectorAll('[data-rest]:checked')).map(c => String(c.dataset.rest)));
-    const checkedExc = new Set(Array.from(document.querySelectorAll('[data-exc]:checked')).map(c => String(c.dataset.exc)));
-    const restric = await db.listRestriccionesByPerson(p.id);
-    for (const r of restric) { if (!checkedRest.has(String(r.laborId))) await db.deleteRestriccion(r.id); }
-    for (const lab of checkedRest) { if (!restric.some(r => String(r.laborId) === lab)) await db.addRestriccion({ personId: p.id, laborId: lab, permanente: true }); }
-    const excep = (await db.listExcepcionesByPerson(p.id)).filter(e => e.tipo === 'autorizar');
-    for (const e of excep) { if (!checkedExc.has(String(e.laborId))) await db.deleteExcepcion(e.id); }
-    for (const lab of checkedExc) { if (!excep.some(e => String(e.laborId) === lab)) await db.addExcepcion({ personId: p.id, laborId: lab, tipo: 'autorizar' }); }
     const antesTalks = new Set();
     try {
       const prev = await db.listSpeakerTalksByPerson(p.id);
@@ -6128,8 +6077,6 @@ const saveProfile = $('#pfSave');
     audit('people', p.id, 'genero', before.genero, p.genero);
     audit('people', p.id, 'calificacion', before.calificacion, p.calificacion);
     audit('people', p.id, 'cargos', JSON.stringify(before.cargos || []), JSON.stringify(p.cargos || []));
-    audit('people', p.id, 'restricciones', JSON.stringify([...restLabores]), JSON.stringify([...checkedRest]));
-    audit('people', p.id, 'excepciones', JSON.stringify([...excLabores]), JSON.stringify([...checkedExc]));
     audit('people', p.id, 'nacimiento', before.nacimiento, p.nacimiento);
     audit('people', p.id, 'bautismo', before.bautismo, p.bautismo);
     audit('people', p.id, 'precursorRegular', before.precursorRegular, p.precursorRegular);

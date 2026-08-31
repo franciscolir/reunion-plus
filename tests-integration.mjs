@@ -15,7 +15,7 @@ import {
 } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports', 'activity', 'attendance', 'arrangements', 'cargos', 'capacidades', 'excepciones', 'restricciones', 'speaker_talks', 'audit_log'];
+const STORES = ['months', 'people', 'departments', 'settings', 'talks', 'midweeks', 'aseos', 'salidas', 'atencion', 'assignment_log', 'reports', 'activity', 'attendance', 'arrangements', 'cargos', 'capacidades', 'speaker_talks', 'audit_log'];
 const LABORES = [
   { id: 'presidente', label: 'Presidente' },
   { id: 'audio', label: 'Audio' },
@@ -298,28 +298,6 @@ test('capacidades CRUD por cargo', async () => {
   await db.clearCapacidadesByCargo(anciano.id);
   caps = await db.listCapacidadesByCargo(anciano.id);
   assert.equal(caps.length, 0);
-});
-
-test('excepciones CRUD por persona', async () => {
-  const pid = await db.addPerson({ name: 'María' });
-  await db.addExcepcion({ personId: String(pid), laborId: 'conductor1', tipo: 'autorizar', motivo: 'Capacitación especial' });
-  let excs = await db.listExcepcionesByPerson(String(pid));
-  assert.equal(excs.length, 1);
-  assert.equal(excs[0].tipo, 'autorizar');
-
-  await db.deleteExcepcion(excs[0].id);
-  assert.equal((await db.listExcepcionesByPerson(String(pid))).length, 0);
-});
-
-test('restricciones CRUD por persona', async () => {
-  const pid = await db.addPerson({ name: 'Pedro' });
-  await db.addRestriccion({ personId: String(pid), tipo: 'asignacion', laborId: 'salida', motivo: 'No disponible sábados', permanente: true });
-  let res = await db.listRestriccionesByPerson(String(pid));
-  assert.equal(res.length, 1);
-  assert.equal(res[0].permanente, true);
-
-  await db.deleteRestriccion(res[0].id);
-  assert.equal((await db.listRestriccionesByPerson(String(pid))).length, 0);
 });
 
 test('speaker_talks CRUD (orador ↔ discurso N:N)', async () => {
