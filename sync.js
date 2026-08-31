@@ -18,8 +18,8 @@
 
 import * as db from './db.js';
 import { addDays } from './logic.js';
-import { batchWrite, isSupabaseReady } from './supabase.js?v=217';
-import { isSupabaseConfigured } from './supabase-config.js?v=217';
+import { batchWrite, isSupabaseReady } from './supabase.js?v=218';
+import { isSupabaseConfigured } from './supabase-config.js?v=218';
 import { isAdmin, isAuthenticated } from './auth.js';
 
 let _enabled = false;
@@ -288,7 +288,7 @@ async function pushStore(store) {
       ]);
       // Control de versiones (spec 24): si algún mes cambió en Supabase desde la
       // última sincronización conocida, NO sobrescribir en silencio.
-      const f = await import('./supabase.js?v=217');
+      const f = await import('./supabase.js?v=218');
       const versiones = await leerVersiones();
       const conflictos = [];
       const docs = [];
@@ -513,7 +513,7 @@ export async function pullAll() {
   const estaba = _enabled;
   _enabled = false;
   try {
-    const f = await import('./supabase.js?v=217');
+    const f = await import('./supabase.js?v=218');
     const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, actividad, asistencia, arreglos, revisiones] = await Promise.all([
       f.obtenerParticipantes(),
       f.obtenerGrupos(),
@@ -680,7 +680,7 @@ export async function reconciliar() {
   if (!isAuthenticated()) return { error: 'sin-sesion' };
   if (!(await isSupabaseReady())) return { error: 'supabase-no-disponible' };
   _syncing = true;
-  const f = await import('./supabase.js?v=217');
+  const f = await import('./supabase.js?v=218');
   const puedeEscribir = isAdmin();
   let subidos = 0, bajados = 0;
   try {

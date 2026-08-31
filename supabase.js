@@ -9,7 +9,7 @@
 // Si Supabase no está configurado, todas las funciones devuelven null/[] y no
 // hacen ninguna llamada de red (la app sigue funcionando offline con IndexedDB).
 
-import { isSupabaseConfigured, getSupabase } from './supabase-config.js?v=217';
+import { isSupabaseConfigured, getSupabase } from './supabase-config.js?v=218';
 
 let _sb = null;
 let _ready = false;
