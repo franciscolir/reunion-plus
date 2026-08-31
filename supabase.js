@@ -61,6 +61,17 @@ async function writeDoc(table, id, data) {
   return id;
 }
 
+async function updateDoc(table, id, data) {
+  const sb = await initSupabase();
+  if (!sb) return null;
+  const payload = { ...data, updatedAt: Date.now() };
+  const { error } = await sb.from(table).update(
+    { data: payload, updated_at: new Date().toISOString() }
+  ).eq('id', String(id));
+  if (error) throw new Error(error.message);
+  return id;
+}
+
 async function deleteDoc(table, id) {
   const sb = await initSupabase();
   if (!sb) return null;
@@ -158,7 +169,10 @@ export const guardarDiscurso = (num, data) => writeDoc('discursos', String(num),
 // ===== Usuarios (rol admin/reader; verifica en auth.js) =====
 export const obtenerUsuario = (uid) => readDoc('usuarios', uid);
 export const obtenerUsuarios = () => readAll('usuarios');
-export const guardarUsuario = (uid, data) => writeDoc('usuarios', uid, data);
+export async function guardarUsuario(uid, data) {
+  const existing = await readDoc('usuarios', uid);
+  return existing ? updateDoc('usuarios', uid, data) : writeDoc('usuarios', uid, data);
+}
 
 // ===== Mantenimiento (borrado de datos) =====
 export async function borrarColeccionExcepto(table, exceptIds = []) {
