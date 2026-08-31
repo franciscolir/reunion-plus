@@ -1174,6 +1174,7 @@ function bindActivityTab() {
   };
   const save = $('#activitySave');
   if (save) save.onclick = async () => {
+    const month = state.reportMonth;
     const me = currentUser();
     if (me && me.rol === 'user') {
       const gid = me.grupos && me.grupos.length ? me.grupos[0] : '';
