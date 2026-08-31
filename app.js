@@ -329,6 +329,7 @@ function bindGlobal() {
   document.getElementById('settingsBtn').addEventListener('click', () => go('settings'));
   document.getElementById('sideAbout').addEventListener('click', () => go('about'));
   document.getElementById('sideNewMonth').addEventListener('click', () => go('new'));
+  document.getElementById('sideLogout').addEventListener('click', () => logout());
   document.getElementById('navToggle').addEventListener('click', () => {
     document.getElementById('sideNav').classList.toggle('hidden');
   });
@@ -358,12 +359,16 @@ function renderAuthUI() {
     badge.classList.remove('hidden');
      badge.textContent = user.rol === 'admin' ? '👑 Admin' : user.rol === 'user' ? '👁️ Usuario' : user.rol === 'ia' ? '🖼️ Imagen semanal' : '👁️ Solo lectura';
     badge.className = `text-[11px] font-label-md mt-1 ${user.rol === 'admin' ? 'text-tertiary' : 'text-on-surface-variant'}`;
+    const sideLogout = document.getElementById('sideLogout');
+    if (sideLogout) sideLogout.classList.remove('hidden');
   } else {
     btn.style.display = 'flex';
     btn.title = 'Iniciar sesión';
     label.textContent = 'Entrar';
     badge.classList.add('hidden');
     badge.textContent = '';
+    const sideLogout = document.getElementById('sideLogout');
+    if (sideLogout) sideLogout.classList.add('hidden');
   }
   // Ocultar/mostrar acciones administrativas según el rol (solo UX; la seguridad
   // real está en las políticas RLS de Supabase).
