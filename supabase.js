@@ -150,6 +150,7 @@ export const guardarConfiguracion = (data) => writeDoc('configuracion', 'general
 export const obtenerDiscursos = () => readAll('discursos');
 export const obtenerDiscurso = (num) => readDoc('discursos', String(num));
 export const obtenerActividad = () => readAll('actividad');
+export const obtenerActividadRevision = () => readAll('actividad_revision');
 export const obtenerAsistencia = () => readAll('asistencia');
 export const obtenerArreglos = () => readAll('arreglos');
 export const guardarDiscurso = (num, data) => writeDoc('discursos', String(num), data);

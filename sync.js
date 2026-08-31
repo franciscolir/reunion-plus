@@ -334,6 +334,10 @@ async function pushStore(store) {
       const docs = await db.listActivity();
       await batchWrite(docs.map(r => ({ collection: 'actividad', id: String(r.id), data: r })));
       setStatus('ok', `actividad: ${docs.length}`);
+    } else if (store === 'actividad_revision') {
+      const docs = await db.listActividadRevision();
+      await batchWrite(docs.map(r => ({ collection: 'actividad_revision', id: String(r.id), data: r })));
+      setStatus('ok', `actividad_revision: ${docs.length}`);
     } else if (store === 'attendance') {
       const docs = await db.listAttendance();
       await batchWrite(docs.map(r => ({ collection: 'asistencia', id: String(r.id), data: r })));
@@ -510,17 +514,18 @@ export async function pullAll() {
   _enabled = false;
   try {
     const f = await import('./supabase.js?v=217');
-    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, actividad, asistencia, arreglos] = await Promise.all([
+    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, actividad, asistencia, arreglos, revisiones] = await Promise.all([
       f.obtenerParticipantes(),
       f.obtenerGrupos(),
       f.obtenerReuniones(),
       f.obtenerProgramas(),
       f.obtenerAsignaciones(),
       f.obtenerConfiguracion(),
-      f.obtenerDiscursos(),
+      f.obtenerTalks(),
       f.obtenerActividad(),
       f.obtenerAsistencia(),
       f.obtenerArreglos(),
+      f.obtenerActividadRevision(),
     ]);
 
 // personas: participantes → registros people
@@ -605,6 +610,7 @@ export async function pullAll() {
     for (const d of actividad || []) await db.putActivitySilent(d);
     for (const d of asistencia || []) await db.putAttendanceSilent(d);
     for (const d of arreglos || []) await db.putArrangementsSilent(d);
+    for (const d of revisiones || []) await db.putActividadRevisionSilent(d);
     setStatus('ok', 'pull completado');
     return { ok: true, participantes: participantes.length, programas: programas.length };
   } catch (e) {

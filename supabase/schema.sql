@@ -224,6 +224,16 @@ create policy "escritura_admin" on public.actividad
 create policy "escritura_user_actividad" on public.actividad
   for all to authenticated
   using (internal.has_role('user')) with check (internal.has_role('user'));
+
+-- actividad_revision: el user puede escribir (guardar su informe pendiente).
+-- El admin confirma moviendo esa fila a actividad. La lectura es para todos
+-- (RLS ya la garantiza).
+select internal.def_policies('actividad_revision');
+-- Políticas de usuario para el escribir/copiar actividad pendiente (del user).
+-- Queda la lectura genérica y escritura solo para user de actividad_revision.
+create policy "escritura_user_revision" on public.actividad_revision
+  for all to authenticated
+  using (internal.has_role('user')) with check (internal.has_role('user'));
 select internal.def_policies('asistencia');
 select internal.def_policies('arreglos');
 select internal.def_policies('cargos');
@@ -282,7 +292,7 @@ grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
   public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
-  public.audit_log, public.usuarios
+  public.actividad_revision, public.audit_log, public.usuarios
   to authenticated;
 grant select, insert, update, delete on public.usuarios to authenticated;
 
@@ -291,7 +301,7 @@ grant select, insert, update, delete on public.usuarios to authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
   public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
-  public.audit_log, public.usuarios
+  public.actividad_revision, public.audit_log, public.usuarios
   to service_role;
 
 -- Elimina las versiones públicas obsoletas de is_admin / email_autorizado (de
