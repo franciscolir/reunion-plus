@@ -5187,8 +5187,15 @@ function openAddMemberModal() {
       `<label class="flex items-center gap-1.5 cursor-pointer text-[12px] font-label-md text-on-surface-variant"><input type="checkbox" data-mr="${r.id}" class="text-primary accent-primary" ${marcadas.has(r.id) ? 'checked' : ''}> ${r.label}</label>`
     ).join('');
   };
+  const updateCargos = () => {
+    const genero = document.querySelector('[data-attr="genero"]').value;
+    const el = document.getElementById('mdCargos');
+    if (el) el.parentElement.style.display = genero === 'femenino' ? 'none' : '';
+  };
+  const onGenero = () => { renderLabores(); updateCargos(); };
   renderLabores();
-  document.querySelector('[data-attr="genero"]').addEventListener('change', renderLabores);
+  updateCargos();
+  document.querySelector('[data-attr="genero"]').addEventListener('change', onGenero);
   $('#mdCancel2').onclick = closeModal;
   $('#mdForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -5956,13 +5963,13 @@ async function openPersonProfile(person) {
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Calificación</label>
            <select id="pfCalif" ${userMode ? 'disabled' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">${calOpts}</select>
           </div>
-          <div class="sm:col-span-3">
-            <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Cargos</label>
+          ${p.genero !== 'femenino' ? `<div class="sm:col-span-3">
+            <label class="block font-label-md test-label-md text-on-surface-variant mb-1">Cargos</label>
             <div id="pfCargos" class="rounded-lg border border-outline-variant bg-surface-bright p-3 ${userMode ? 'opacity-60 pointer-events-none' : ''}">
               ${cargosCheckboxes(p.cargos)}
             </div>
             <p class="text-on-surface-variant text-caption mt-1">Los cargos determinan las labores que la persona puede desempeñar (capacidades).</p>
-          </div>
+          </div>` : ''}
           <div>
             <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Fecha de nacimiento</label>
             <input id="pfNacimiento" type="date" value="${escapeAttr(p.nacimiento || '')}" ${userMode ? 'readonly' : ''} class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
@@ -6061,7 +6068,7 @@ const saveProfile = $('#pfSave');
     p.genero = $('#pfGenero').value;
     p.calificacion = $('#pfCalif').value;
     const selCargos = Array.from(document.querySelectorAll('#pfCargos [data-cargo]:checked')).map(c => c.dataset.cargo);
-    p.cargos = selCargos.length ? selCargos : ['publicador'];
+    p.cargos = p.genero === 'femenino' ? ['publicador'] : (selCargos.length ? selCargos : ['publicador']);
     p.cargo = p.cargos[0];
     p.nacimiento = $('#pfNacimiento').value || '';
     p.bautismo = $('#pfBautismo').value || '';
