@@ -14,7 +14,7 @@ import {
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair,
   midweekSlotsOf, camposFinSemana, automatizarEntreSemana, automatizarAtencion, automatizarFinSemana, automatizarSalidas,
-  isStudentPerson, isStudentLabore, laboreAllowedForPerson, laboreEligible,
+  isStudentPerson, isStudentLabore, laboreAllowedForPerson, laboreEligible, puedeSerOrador,
   isAssignmentLabore, isServiceLabore,
   campoFinLabore, ASIGNACION_GRUPOS, LABORE_GRUPO,
   readerLevelEligible, readerPriority,
@@ -376,6 +376,32 @@ ok('soporta predicado (labores) y excluye al asignado', eligiblePeople({ type: '
 ok('excluye mujeres de labores bloqueadas (lector)', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 5, name: 'María', genero: 'femenino', labores: [] }], 'lector', '').length === 0);
 ok('incluye mujer en presentacion (asignacion2)', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 5, name: 'María', genero: 'femenino', labores: ['asignacion2'] }], 'asignacion2', '').some(p => p.id === 5));
 ok('incluye hombre con la labor', eligiblePeople({ type: 'normal', outings: [], labores: {} }, [{ id: 6, name: 'José', genero: 'masculino', labores: ['lector'] }], 'lector', '').some(p => p.id === 6));
+
+// Capacidades por cargo en formularios: un anciano/ministerial sin la labor
+// explícita en labores[] SÍ aparece como elegible si su cargo la otorga.
+const capsTest = [
+  { cargoId: 'anciano', laborId: 'presidenteFin', activo: true },
+  { cargoId: 'anciano', laborId: 'conductor1', activo: true },
+  { cargoId: 'anciano', laborId: 'orador', activo: true },
+  { cargoId: 'anciano', laborId: 'salida', activo: true },
+  { cargoId: 'ministerial', laborId: 'orador', activo: true },
+];
+const ancianoSinLabores = { id: 7, name: 'Ramon', genero: 'masculino', labores: [], cargos: ['anciano'] };
+const ministerialSolo = { id: 8, name: 'Elías', genero: 'masculino', labores: [], cargos: ['ministerial'] };
+const wkVacia = { type: 'normal', outings: [], labores: {} };
+ok('anciano sin labor marcada es elegible para presidir fin de semana (por cargo)', eligiblePeople(wkVacia, [ancianoSinLabores], 'presidenteFin', '', null, { capacidades: capsTest }).some(p => p.id === 7));
+ok('ministerial es elegible para orador por capacidad de cargo', eligiblePeople(wkVacia, [ministerialSolo], 'orador', '', null, { capacidades: capsTest }).some(p => p.id === 8));
+ok('sin ctx de capacidades, el cargo solo no basta (compatibilidad)', eligiblePeople(wkVacia, [ancianoSinLabores], 'presidenteFin', '').length === 0);
+ok('publicador sin la labor no es elegible aunque tenga cargo publicador', eligiblePeople(wkVacia, [{ id: 9, name: 'Tom', genero: 'masculino', labores: [], cargos: ['publicador'] }], 'orador', '', null, { capacidades: capsTest }).length === 0);
+ok('mujer no es elegible para orador aunque la capacidad exista', eligiblePeople(wkVacia, [{ id: 10, name: 'Vera', genero: 'femenino', labores: [], cargos: ['anciano'] }], 'orador', '', null, { capacidades: capsTest }).length === 0);
+
+// puedeSerOrador: solo quien puede animar discursos de fin de semana o salidas.
+ok('puedeSerOrador: anciano por capacidad', puedeSerOrador(ancianoSinLabores, { capacidades: capsTest }) === true);
+ok('puedeSerOrador: ministerial por capacidad', puedeSerOrador(ministerialSolo, { capacidades: capsTest }) === true);
+ok('puedeSerOrador: quien tiene labor orador', puedeSerOrador({ id: 11, labores: ['orador'] }) === true);
+ok('puedeSerOrador: quien tiene solo salida', puedeSerOrador({ id: 12, labores: ['salida'] }) === true);
+ok('puedeSerOrador: publicador común no lo es', puedeSerOrador({ id: 13, labores: ['asignacion2'], genero: 'masculino' }, { capacidades: capsTest }) === false);
+ok('puedeSerOrador: mujer nunca (regla de género)', puedeSerOrador({ id: 14, labores: ['orador'], genero: 'femenino' }, { capacidades: capsTest }) === false);
 
 // --- Convertidores de PDF (carga de archivos) ---
 console.log('[convertPdfMidweeks]');

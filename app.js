@@ -16,7 +16,7 @@ import {
   convertPdfToData, convertPdfTalks, convertPdfPeople, convertPdfMidweeks, midweekGuideSummary, rebuildPdfWords, normalizeMidweekHeaders, personasFromXlsx,
   computeCrossConflicts, canBePair, CALIFICACIONES, midweekSlotsOf,
   collectPersonAssignments,
-  isStudentPerson, isStudentLabore, laboreAllowedForPerson, laboreEligible,
+  isStudentPerson, isStudentLabore, laboreAllowedForPerson, laboreEligible, puedeSerOrador,
   isAssignmentLabore, isServiceLabore,
   automatizarEntreSemana, automatizarAtencion, automatizarFinSemana,
   camposFinSemana, campoFinLabore, extractAssignments, assignmentMetrics,
@@ -4370,7 +4370,7 @@ function fillPeople(sel) {
   if (!state.month || !state.month.weeks[current]) return;
   const val = asId(state.month.weeks[current][field]);
   const labore = sel.dataset.labore || '';
-  const list = eligiblePeople(state.month.weeks[current], state.people, labore, val);
+  const list = eligiblePeople(state.month.weeks[current], state.people, labore, val, null, { capacidades: state.capacidades });
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(invertName(p.name))}</option>`).join('');
   fillSuggestions(sel, current, field, labore, val);
@@ -4382,7 +4382,7 @@ function fillSuggestions(sel, idx, field, labore, val) {
   if (val) { wrap.innerHTML = ''; return; }
   const week = state.month?.weeks?.[idx];
   if (!week) return;
-  const list = eligiblePeople(week, state.people, labore, val);
+  const list = eligiblePeople(week, state.people, labore, val, null, { capacidades: state.capacidades });
   wrap.innerHTML = list.slice(0, 6).map(p =>
     `<button type="button" data-fsug-pick="${idx}" data-fsug-field="${field}" data-fsug-id="${p.id}"
       class="px-2 py-0.5 rounded-full bg-primary-fixed/70 text-primary border border-primary/30 text-[11px] font-label-md hover:bg-primary hover:text-on-primary transition-colors">${escapeHtml(p.name.split(' ')[0])} ${escapeHtml((p.name.split(' ')[1] || '').slice(0, 1))}</button>`
@@ -4405,7 +4405,7 @@ function fillOutingPeople(sel) {
   const outing = state.month.weeks[wi].outings?.[oi];
   const val = outing ? asId(outing.oradorSalida) : '';
   const labore = sel.dataset.labore || 'salida';
-  const list = eligiblePeople(state.month.weeks[wi], state.people, labore, val);
+  const list = eligiblePeople(state.month.weeks[wi], state.people, labore, val, null, { capacidades: state.capacidades });
   sel.innerHTML = `<option value="">— Sin asignar —</option>` +
     list.map(p => `<option value="${p.id}" ${String(p.id) === asStr(val) ? 'selected' : ''}>${escapeHtml(invertName(p.name))}</option>`).join('');
 }
@@ -5293,6 +5293,7 @@ function renderLaborColumns(p, editMode) {
   const labores = Array.isArray(p.labores) ? p.labores : [];
   const cats = { es: [], fs: [], svc: [] };
   state.labores.forEach(r => {
+    if (!laboreAllowedForPerson(p, r.id)) return;
     const cat = LABOR_CATEGORY[r.id];
     if (cat) cats[cat].push(r);
   });
@@ -5995,6 +5996,7 @@ async function openPersonProfile(person) {
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Historial de asignaciones</label>
           <div id="pfHistory" class="max-h-52 overflow-y-auto rounded-lg border border-outline-variant bg-surface-bright px-3">Cargando…</div>
         </div>
+        ${puedeSerOrador(p, { capacidades: state.capacidades }) ? `
         <div>
           <label class="block font-label-md text-label-md text-on-surface-variant mb-2">Discursos que puede dar (conferencias)</label>
           <div class="flex gap-2 mb-2">
@@ -6005,7 +6007,7 @@ async function openPersonProfile(person) {
           </div>
           <div id="pfTalks" class="space-y-2 max-h-44 overflow-y-auto"></div>
           ${userMode ? '' : `<button id="pfSpeakerCard" class="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-secondary-container text-on-secondary-container hover:opacity-90 font-label-md text-label-md"><span class="material-symbols-outlined text-[18px]">badge</span> Ver tarjeta de orador</button>`}
-        </div>
+        </div>` : ''}
       </div>
       <div class="flex gap-3 justify-end mt-5">
         <button id="pfCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
@@ -8944,7 +8946,7 @@ async function renderConflictos(mes) {
       const male = (state.config && state.config.algorithm && state.config.algorithm.serviceRolesOnlyMale) !== false;
       pred = (p) => isAtencionPerson(p) && (!male || p.genero !== 'femenino') && (Array.isArray(p.labores) && p.labores.some(r => req.includes(r)));
     } else pred = res.labore;
-    return eligiblePeople(res.week ? res.week : {}, state.people, pred, cur, res.collector || null);
+    return eligiblePeople(res.week ? res.week : {}, state.people, pred, cur, res.collector || null, { capacidades: state.capacidades });
   };
 
   const persistir = async (res) => {

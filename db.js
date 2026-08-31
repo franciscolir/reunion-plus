@@ -486,14 +486,14 @@ export async function addPerson(payload) {
   if (typeof payload === 'string') {
     const name = payload.trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, labores: [], cargos: [], genero: '', calificacion: '', phone: '', email: '', prioridad: 0, activo: true, createdAt: Date.now() };
+    record = { name, labores: [], cargos: ['publicador'], genero: '', calificacion: '', phone: '', email: '', prioridad: 0, activo: true, createdAt: Date.now() };
   } else {
     const name = (payload.name || '').trim();
     if (!name) throw new Error('Nombre vacío');
     record = {
       name,
       labores: Array.isArray(payload.labores) ? payload.labores : (Array.isArray(payload.roles) ? payload.roles : []),
-      cargos: payload.cargo ? [payload.cargo] : (Array.isArray(payload.cargos) ? payload.cargos : (typeof payload.cargos === 'string' && payload.cargos ? payload.cargos.split(',').map(s => s.trim()).filter(Boolean) : [])),
+      cargos: payload.cargo ? [payload.cargo] : (Array.isArray(payload.cargos) && payload.cargos.length ? payload.cargos : (typeof payload.cargos === 'string' && payload.cargos ? payload.cargos.split(',').map(s => s.trim()).filter(Boolean) : ['publicador'])),
       genero: payload.genero || '',
       calificacion: payload.calificacion || '',
       enlace: payload.enlace || '',
