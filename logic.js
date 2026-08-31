@@ -673,11 +673,12 @@ export function assignedIds(week, collector) {
 // Personas elegibles para un puesto: deben cumplir el rol/predicado y NO estar ya
 // asignadas en la misma semana, salvo la que ya ocupa ese puesto (currentId).
 // `labore` puede ser un id de labor o una función predicado (p.ej. isAtencionPerson).
-export function eligiblePeople(week, people, labore, currentId, collector) {
+// `ctx` (opcional) habilita el modelo v2 con capacidades otorgadas por cargo.
+export function eligiblePeople(week, people, labore, currentId, collector, ctx) {
   const assigned = assignedIds(week, collector);
   const match = typeof labore === 'function'
     ? labore
-    : (labore ? (p) => laboreEligible(p, labore) : () => true);
+    : (labore ? (p) => laboreEligible(p, labore, ctx) : () => true);
   return people.filter(p => match(p) && (!assigned.has(String(p.id)) || String(p.id) === asStr(currentId)));
 }
 
@@ -1897,6 +1898,13 @@ export function isStudentPerson(p) {
 export function laboreAllowedForPerson(person, labore) {
   if (person && person.genero === 'femenino') return labore === 'asignacion2';
   return true;
+}
+
+// ¿La persona puede predicar discursos (orador de reunión o de salida)?
+// Lo decide su lista de labores o las capacidades que le otorga su cargo
+// (anciano / siervo ministerial los habilitan por defecto).
+export function puedeSerOrador(p, ctx) {
+  return laboreEligible(p, 'orador', ctx) || laboreEligible(p, 'salida', ctx);
 }
 
 /* ---------- Estructura de partes de entre semana ---------- */
