@@ -1233,7 +1233,7 @@ async function computeServiceYearMetrics(year) {
   const months = serviceYearMonths(year);
   const reports = (await db.listActivity()).filter(r => months.includes(r.id));
   const byPerson = {};
-  state.people.forEach(p => byPerson[p.id] = { name: p.name, active: 0, courses: 0, aux: 0, hours: 0 });
+  state.people.forEach(p => byPerson[p.id] = { id: p.id, name: p.name, active: 0, courses: 0, aux: 0, hours: 0 });
   reports.forEach(r => {
     Object.entries(r.people || {}).forEach(([pid, v]) => {
       const bp = byPerson[pid];
@@ -2412,9 +2412,11 @@ async function renderGroupSummary() {
   const me = currentUser();
   const year = currentServiceYear();
   const groups = (me?.grupos || []).length ? me.grupos : [];
-  const members = state.people.filter(p => groups.length ? groups.includes(p.grupoId) : false);
+  const gruposId = new Set(groups.map(String));
+  const members = state.people.filter(p => gruposId.size && gruposId.has(String(p.grupoId)));
   const { rows, totals } = await computeServiceYearMetrics(year);
-  const groupRows = rows.filter(r => members.some(m => m.name === r.name));
+  const memberIds = new Set(members.map(m => m.id));
+  const groupRows = rows.filter(r => memberIds.has(r.id));
   const history = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(); d.setMonth(d.getMonth() - i);
@@ -2424,6 +2426,17 @@ async function renderGroupSummary() {
     history.push({ mid, active });
   }
   const histRows = history.map(h => `<tr class="border-b border-outline-variant/40"><td class="p-2">${MONTHS_ES[Number(h.mid.slice(5)) - 1]} ${h.mid.slice(0, 4)}</td><td class="p-2 text-center">${h.active}</td></tr>`).join('');
+  const membersHtml = groupRows.map(r => {
+    const member = state.people.find(p => String(p.id) === String(r.id));
+    const badge = member && member.precursorRegular ? `<span class="ml-1 text-[10px] uppercase font-bold bg-secondary text-on-secondary px-1.5 py-0.5 rounded">Precursor</span>` : '';
+    return `<tr class="border-b border-outline-variant/40 hover:bg-surface-container">
+
+      <td class="p-3">${escapeHtml(r.name)}${badge}</td>
+      <td class="p-3 text-center">${r.active > 0 ? r.active : '—'}</td>
+      <td class="p-3 text-center">${r.hours || '—'}</td>
+      <td class="p-3 text-center">${r.courses || '—'}</td>
+    </tr>`;
+  }).join('');
   const app = $('#app');
   app.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Mi grupo</h1><p class="text-on-surface-variant font-body-lg">Actividad, métricas e historial de los últimos 6 meses.</p></div>
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -2431,6 +2444,10 @@ async function renderGroupSummary() {
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${groupRows.filter(r => r.active > 0).length}</div><div class="font-label-sm text-label-sm text-on-surface-variant">Activos (año)</div></div>
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${groupRows.reduce((s, r) => s + r.courses, 0)}</div><div class="font-label-sm text-label-sm text-on-surface-variant">Cursos</div></div>
       <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 text-center"><div class="font-display-sm text-display-sm text-primary">${groupRows.reduce((s, r) => s + r.hours, 0)}</div><div class="font-label-sm text-label-sm text-on-surface-variant">Horas</div></div>
+    </div>
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 mb-6 overflow-x-auto">
+      <h3 class="font-title-md text-title-md text-primary mb-3">Miembros del grupo</h3>
+      ${membersHtml ? `<table class="w-full text-left min-w-[420px]"><thead><tr class="bg-surface-container border-b border-outline-variant"><th class="p-3">Nombre</th><th class="p-3 text-center">Meses activos</th><th class="p-3 text-center">Horas</th><th class="p-3 text-center">Cursos</th></tr></thead><tbody>${membersHtml}</tbody></table>` : '<p class="text-on-surface-variant text-sm">Sin publicadores asignados a este grupo.</p>'}
     </div>
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4 mb-6">
       <h3 class="font-title-md text-title-md text-primary mb-3">Historial (6 meses)</h3>
