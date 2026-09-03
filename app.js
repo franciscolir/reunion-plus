@@ -1084,6 +1084,7 @@ async function renderActivityGroupView(gid, withBack) {
   const rows = members.map(p => {
     const v = report.people?.[p.id] || {};
     const regular = p.precursorRegular === true;
+    if (typeof console !== 'undefined') console.log('[DIAG] informe', p.id, p.name, 'precursorRegular=', p.precursorRegular, 'regular=', regular);
     const horas = Number(v.horas) || 0;
     const act = horas > 0 || v.actividad === true;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
