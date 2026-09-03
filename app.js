@@ -978,7 +978,7 @@ function actCellHtml(regular, aux, act, horas, disabled, pid) {
 }
 
 function auxCellHtml(regular, aux, disabled, pid) {
-  if (regular) return `<span class="text-label-md text-label-md text-on-surface-variant">Regular</span>`;
+  if (regular) return `<span class="inline-block px-2 py-0.5 bg-secondary text-on-secondary rounded-full text-[10px] uppercase font-bold tracking-wide">Regular</span>`;
   return `<input type="checkbox" data-act="auxiliar" data-pid="${pid}" ${aux ? 'checked' : ''} ${disabled ? 'disabled' : ''} class="form-checkbox text-primary rounded border-outline-variant cursor-pointer"/>`;
 }
 
@@ -1094,7 +1094,7 @@ async function renderActivityGroupView(gid, withBack) {
           ${precBadge}
         </div>
         <div class="flex items-center gap-2 text-caption text-on-surface-variant shrink-0">
-          <span>Auxiliar</span>${auxCell}
+          ${regular ? '' : '<span>Auxiliar</span>'}${auxCell}
         </div>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1182,9 +1182,11 @@ function bindActivityTab() {
       let totalCursos = 0, totalHoras = 0, activos = 0;
       personRows.forEach(row => {
         const pid = row.dataset.row;
+        const person = state.people.find(p => String(p.id) === String(pid)) || {};
+        const regular = person.precursorRegular === true;
         const get = (sel) => row.querySelector(`[data-act="${sel}"]`);
-        const act = get('actividad')?.checked ?? false;
-        const aux = get('auxiliar')?.checked ?? false;
+        const aux = regular ? false : !!get('auxiliar')?.checked;
+        const act = regular || (get('actividad')?.checked ?? false);
         const cursos = parseInt(get('cursos')?.value, 10) || 0;
         const horas = parseInt(get('horas')?.value, 10) || 0;
         entries.push({ personId: pid, actividad: act, auxiliar: aux, cursos, horas, notas: get('notas')?.value || '' });
