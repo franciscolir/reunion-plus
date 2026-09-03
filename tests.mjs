@@ -2111,10 +2111,14 @@ console.log('[computeRegularity]');
   const r3fixed = months.map(m => ({ id: m, people: { 1: { actividad: true }, 3: { actividad: true }, 4: { actividad: true }, 5: { actividad: true } } }));
   eq('ausente 6 meses cuenta una vez = 80%', computeRegularity(people, r3fixed, months), { total: 5, regular: 4, irregular: 1, percentage: 80 });
 
-  // Precursor regular siempre cuenta como entregado aunque no tenga registro
+  // Precursor regular sin horas no cuenta como entregado
   const peopleP = [{ id: 7, precursorRegular: true }, { id: 8 }];
   const repP = months.map(m => ({ id: m, people: { 8: { actividad: true } } }));
-  eq('precursor regular siempre regular', computeRegularity(peopleP, repP, months), { total: 2, regular: 2, irregular: 0, percentage: 100 });
+  eq('precursor regular sin horas es irregular', computeRegularity(peopleP, repP, months), { total: 2, regular: 1, irregular: 1, percentage: 50 });
+
+  // Precursor regular con horas cuenta como entregado
+  const repPH = months.map(m => ({ id: m, people: { 7: { horas: 10 }, 8: { actividad: true } } }));
+  eq('precursor regular con horas es regular', computeRegularity(peopleP, repPH, months), { total: 2, regular: 2, irregular: 0, percentage: 100 });
 
   // Sin participantes → 0% sin división por cero
   eq('sin participantes = 0%', computeRegularity([], [], months), { total: 0, regular: 0, irregular: 0, percentage: 0 });

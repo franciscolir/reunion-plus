@@ -1069,7 +1069,8 @@ async function renderActivityGroupView(gid, withBack) {
   let sinActividad = 0;
   members.forEach(p => {
     const v = report.people?.[p.id] || {};
-    const act = p.precursorRegular === true || v.actividad === true;
+    const horas = Number(v.horas) || 0;
+    const act = horas > 0 || v.actividad === true;
     totalCursos += Number(v.cursos) || 0;
     if (!act) sinActividad++;
   });
@@ -1083,7 +1084,8 @@ async function renderActivityGroupView(gid, withBack) {
   const rows = members.map(p => {
     const v = report.people?.[p.id] || {};
     const regular = p.precursorRegular === true;
-    const act = regular || v.actividad === true;
+    const horas = Number(v.horas) || 0;
+    const act = horas > 0 || v.actividad === true;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
     const aux = !!v.auxiliar;
     const borderColor = regular ? 'border-l-secondary' : 'border-l-primary';
@@ -1161,7 +1163,7 @@ function bindActivityTab() {
       const auxiliar = regular ? false : !!auxChk?.checked;
       const isNumber = regular || auxiliar;
       const horas = isNumber ? (parseInt(get('horas')?.value, 10) || 0) : 0;
-      const actividad = regular || (isNumber ? true : !!get('actividad')?.checked);
+      const actividad = isNumber ? horas > 0 : !!get('actividad')?.checked;
       people[p.id] = {
         actividad,
         auxiliar,
@@ -1188,9 +1190,10 @@ function bindActivityTab() {
         const regular = person.precursorRegular === true;
         const get = (sel) => row.querySelector(`[data-act="${sel}"]`);
         const aux = regular ? false : !!get('auxiliar')?.checked;
-        const act = regular || (get('actividad')?.checked ?? false);
         const cursos = parseInt(get('cursos')?.value, 10) || 0;
         const horas = parseInt(get('horas')?.value, 10) || 0;
+        const isNumber = regular || aux;
+        const act = isNumber ? horas > 0 : (get('actividad')?.checked ?? false);
         entries.push({ personId: pid, actividad: act, auxiliar: aux, cursos, horas, notas: get('notas')?.value || '' });
         if (act) { activos++; totalCursos += cursos; totalHoras += horas; }
       });

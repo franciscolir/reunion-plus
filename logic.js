@@ -234,7 +234,7 @@ export function lastMonths(monthId, n = 6) {
 // Un participante es IRREGULAR si en al menos uno de los meses evaluados no
 // entregó su informe; lo es una sola vez aunque falte en varios meses. La
 // unidad de cálculo es siempre el participante único.
-//   entregó(mes, pid) = precursorRegular || actividad === true
+//   entregó(mes, pid) = (precursorRegular || auxiliar) ? horas > 0 : actividad === true
 //   regularidad = (regulares / total) × 100
 // `reports` = documentos de actividad [{ id: "YYYY-MM", people: { [pid]: { actividad } } }]
 // `months`  = lista de ids "YYYY-MM" a evaluar (p.ej. lastMonths(...)).
@@ -248,7 +248,9 @@ export function computeRegularity(people, reports, months) {
     let missed = false;
     for (const m of months) {
       const v = byMonth[m] && byMonth[m][p.id];
-      const delivered = pioneer || (v && v.actividad === true);
+      const horas = Number(v?.horas) || 0;
+      const isPrecursor = pioneer || (v && v.auxiliar === true);
+      const delivered = isPrecursor ? horas > 0 : (v && v.actividad === true);
       if (!delivered) { missed = true; break; }
     }
     if (missed) irregular.add(String(p.id));
