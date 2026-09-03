@@ -88,6 +88,12 @@ create table if not exists public.audit_log (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.actividad_revision (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 -- Tabla de usuarios (rol admin/reader/user/ia). El usuario crea SU fila con rol reader
 -- en el primer login; solo un admin puede cambiar/borrar roles.
 create table if not exists public.usuarios (
