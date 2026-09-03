@@ -864,13 +864,21 @@ export async function reconciliar() {
 
 // Si la base local está vacía, descarga los datos desde Supabase. Se usa al
 // iniciar y después de iniciar sesión (en un segundo dispositivo con la cuenta
-// ya creada, los datos llegan automáticamente).
+// ya creada, los datos llegan automáticamente). Además re-descarga cuando la
+// versión de datos esperada cambia (p.ej. al introducir el campo
+// `precursorRegular`), para que los dispositivos con datos antiguos se actualicen.
+const SETTING_DATA_VERSION = 'dataVersion';
+const DATA_VERSION = 2;
 export async function pullSiVacio() {
   if (!_enabled) return;
   const [people, programas] = await Promise.all([db.listPeople(), db.listMonths()]);
-  if (people.length === 0 && programas.length === 0) {
-    setStatus('syncing', 'descargando datos de Supabase…');
+  const dataVersion = await db.getSetting(SETTING_DATA_VERSION, null);
+  const vacio = people.length === 0 && programas.length === 0;
+  if (vacio || dataVersion !== DATA_VERSION) {
+    const msj = vacio ? 'descargando datos de Supabase…' : 'actualizando datos de Supabase…';
+    setStatus('syncing', msj);
     await pullAll();
-    setStatus('ok', 'datos descargados de Supabase');
+    await db.setSetting(SETTING_DATA_VERSION, DATA_VERSION);
+    setStatus('ok', vacio ? 'datos descargados de Supabase' : 'datos actualizados de Supabase');
   }
 }
