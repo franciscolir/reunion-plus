@@ -227,6 +227,7 @@ create policy "escritura_admin" on public.actividad
   for all to authenticated
   using (internal.is_admin())
   with check (internal.is_admin());
+drop policy if exists "escritura_user_actividad" on public.actividad;
 create policy "escritura_user_actividad" on public.actividad
   for all to authenticated
   using (internal.has_role('user')) with check (internal.has_role('user'));
@@ -237,6 +238,7 @@ create policy "escritura_user_actividad" on public.actividad
 select internal.def_policies('actividad_revision');
 -- Políticas de usuario para el escribir/copiar actividad pendiente (del user).
 -- Queda la lectura genérica y escritura solo para user de actividad_revision.
+drop policy if exists "escritura_user_revision" on public.actividad_revision;
 create policy "escritura_user_revision" on public.actividad_revision
   for all to authenticated
   using (internal.has_role('user')) with check (internal.has_role('user'));
