@@ -8,7 +8,7 @@
 // devuelve false y las funciones de sesión no hacen nada (la app sigue offline).
 
 import { isSupabaseConfigured, getSupabase } from './supabase-config.js?v=218';
-import { obtenerUsuario, guardarUsuario, obtenerConfiguracion } from './supabase.js?v=218';
+import { obtenerUsuario, guardarUsuario, obtenerConfiguracion } from './supabase.js?v=219';
 
 let _sb = null;
 let _currentUser = null;      // { uid, email, rol }

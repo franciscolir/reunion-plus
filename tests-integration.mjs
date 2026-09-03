@@ -349,3 +349,22 @@ test('activity con estado', async () => {
   const act = await db.getActivity('2026-11');
   assert.equal(act.estado, 'borrador');
 });
+
+test('actividad_revision: id determinístico y reenvío no duplica', async () => {
+  await db.addActividadRevision({ grupoId: 'g1', monthId: '2026-09', personId: '7', actividad: true, horas: 5 });
+  const l1 = await db.listActividadRevision();
+  assert.equal(l1.length, 1);
+  assert.equal(l1[0].id, '2026-09|g1|7');
+  assert.equal(l1[0].horas, 5);
+  await db.addActividadRevision({ grupoId: 'g1', monthId: '2026-09', personId: '7', actividad: true, horas: 10 });
+  const l2 = await db.listActividadRevision();
+  assert.equal(l2.length, 1);
+  assert.equal(l2[0].horas, 10);
+  await db.addActividadRevision({ grupoId: 'g2', monthId: '2026-09', personId: '7', actividad: false });
+  const l3 = await db.listActividadRevision();
+  assert.equal(l3.length, 2);
+  await db.clearActividadRevision('g1', '2026-09');
+  const l4 = await db.listActividadRevision();
+  assert.equal(l4.length, 1);
+  assert.equal(l4[0].grupoId, 'g2');
+});

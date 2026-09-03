@@ -1241,7 +1241,7 @@ export async function listActivity() {
 // El user escribe aquí; solo el admin la copia a actividad definitiva.
 export async function addActividadRevision(entry) {
   const db = await openDB();
-  return commit(STORE_ACT_REVISION, (store) => reqToPromise(store.add({
+  return commit(STORE_ACT_REVISION, (store) => reqToPromise(store.put({
     grupoId: entry.grupoId,
     monthId: entry.monthId,
     personId: entry.personId,
@@ -1253,6 +1253,7 @@ export async function addActividadRevision(entry) {
     notas: entry.notas || '',
     createdAt: Date.now(),
     ...entry,
+    id: `${entry.monthId}|${entry.grupoId}|${entry.personId}`,
   })));
 }
 

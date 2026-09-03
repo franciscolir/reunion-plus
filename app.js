@@ -1,7 +1,7 @@
 // app.js - Lógica principal de Reunión+
 import * as db from './db.js';
 import { isSupabaseConfigured } from './supabase-config.js?v=218';
-import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones, obtenerUsuarios, guardarUsuario } from './supabase.js?v=218';
+import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones, obtenerUsuarios, guardarUsuario } from './supabase.js?v=219';
 import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
 import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate, setCurrentPersonaId } from './auth.js';
 import {
@@ -1053,6 +1053,10 @@ export async function openRevisionModal(grupoId) {
     await db.clearActividadRevision(grupoId, monthId);
     closeModal();
     toast(`Informe del ${gName} guardado`, 'success');
+    try {
+      const f = await import('./supabase.js?v=219');
+      await Promise.all(revs.map(r => f.eliminarActividadRevision(String(r.id))));
+    } catch (e) { /* sin Supabase: solo local */ }
     try { await subirStores(['activity', 'actividad_revision']); } catch (e) { /* sync error tolerable */ }
     renderInformes();
   };
@@ -1084,7 +1088,6 @@ async function renderActivityGroupView(gid, withBack) {
   const rows = members.map(p => {
     const v = report.people?.[p.id] || {};
     const regular = p.precursorRegular === true;
-    if (typeof console !== 'undefined') console.log('[DIAG] informe', p.id, p.name, 'precursorRegular=', p.precursorRegular, 'regular=', regular);
     const horas = Number(v.horas) || 0;
     const act = horas > 0 || v.actividad === true;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';

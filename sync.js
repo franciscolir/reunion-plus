@@ -18,7 +18,7 @@
 
 import * as db from './db.js';
 import { addDays } from './logic.js';
-import { batchWrite, isSupabaseReady } from './supabase.js?v=218';
+import { batchWrite, isSupabaseReady } from './supabase.js?v=219';
 import { isSupabaseConfigured } from './supabase-config.js?v=218';
 import { isAdmin, isAuthenticated } from './auth.js';
 
@@ -288,7 +288,7 @@ async function pushStore(store) {
       ]);
       // Control de versiones (spec 24): si algún mes cambió en Supabase desde la
       // última sincronización conocida, NO sobrescribir en silencio.
-      const f = await import('./supabase.js?v=218');
+      const f = await import('./supabase.js?v=219');
       const versiones = await leerVersiones();
       const conflictos = [];
       const docs = [];
@@ -488,7 +488,7 @@ export async function sincronizarAhora() {
   if (_syncing) return { error: 'ocupado' };
   if (!_enabled) await iniciarSync();
   setStatus('syncing', 'subiendo cambios…');
-  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings', 'activity', 'attendance', 'arrangements'];
+  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings', 'activity', 'actividad_revision', 'attendance', 'arrangements'];
   for (const store of stores) await pushStore(store);
   // Si algún store falló por cupo de Supabase, informarlo (no dar éxito).
   if (_lastStatus && _lastStatus.state === 'error') {
@@ -513,7 +513,7 @@ export async function pullAll() {
   const estaba = _enabled;
   _enabled = false;
   try {
-    const f = await import('./supabase.js?v=218');
+    const f = await import('./supabase.js?v=219');
     const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, actividad, asistencia, arreglos, revisiones] = await Promise.all([
       f.obtenerParticipantes(),
       f.obtenerGrupos(),
@@ -680,7 +680,7 @@ export async function reconciliar() {
   if (!isAuthenticated()) return { error: 'sin-sesion' };
   if (!(await isSupabaseReady())) return { error: 'supabase-no-disponible' };
   _syncing = true;
-  const f = await import('./supabase.js?v=218');
+  const f = await import('./supabase.js?v=219');
   const puedeEscribir = isAdmin();
   let subidos = 0, bajados = 0;
   try {
@@ -829,6 +829,19 @@ export async function reconciliar() {
         roleLabel: String(a.rol || ''),
         updatedAt: a.createdAt || Date.now(),
       });
+      bajados++;
+    }
+
+    // ---- actividad_revision ↔ actividad_revision (revisiones del user) ----
+    const revsLocales = await db.listActividadRevision();
+    const revsRemotas = await f.obtenerActividadRevision();
+    const idsRevLocal = new Set(revsLocales.map(r => String(r.id)));
+    const idsRevRemota = new Set(revsRemotas.map(r => String(r.id)));
+    const revsASubir = revsLocales.filter(r => !idsRevRemota.has(String(r.id)));
+    if (revsASubir.length) { await batchWrite(revsASubir.map(r => ({ collection: 'actividad_revision', id: String(r.id), data: r }))); subidos += revsASubir.length; }
+    for (const r of revsRemotas) {
+      if (idsRevLocal.has(String(r.id))) continue;
+      await db.putActividadRevisionSilent(r);
       bajados++;
     }
 
