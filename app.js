@@ -489,7 +489,7 @@ function router() {
     location.hash = '#/ia';
     return;
   }
-  if (isUserRole() && !['home', 'lists', 'grupo', 'informes'].includes(view)) {
+  if (isUserRole() && !['home', 'grupo', 'informes'].includes(view)) {
     location.hash = '#/home';
     return;
   }
@@ -645,7 +645,6 @@ function renderSide() {
   const items = isUserRole() ? [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'grupo', icon: 'group_work', label: 'Mi grupo', view: 'grupo' },
-    { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
     { id: 'informes', icon: 'assignment', label: 'Informes', view: 'informes' },
   ] : [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
