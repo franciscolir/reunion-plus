@@ -472,6 +472,8 @@ function isIaRole() {
 }
 
 function router() {
+  const loader = document.getElementById('app-loader');
+  if (loader) loader.remove();
   const hash = location.hash.replace(/^#\/?/, '') || 'home';
   const [path, query] = hash.split('?');
   const segs = path.split('/').filter(Boolean);

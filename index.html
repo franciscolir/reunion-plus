@@ -143,7 +143,12 @@
   </aside>
 
   <!-- Main -->
-  <main class="lg:ml-64 pt-20 px-margin-mobile md:px-margin-desktop pb-24 max-w-container-max-width mx-auto" id="app"></main>
+  <main class="lg:ml-64 pt-20 px-margin-mobile md:px-margin-desktop pb-24 max-w-container-max-width mx-auto" id="app">
+    <div id="app-loader" class="flex flex-col items-center justify-center py-32 gap-4">
+      <div class="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      <p class="text-on-surface-variant text-sm">Cargando información...</p>
+    </div>
+  </main>
 
   <!-- Modal contendores dinámicos -->
   <div id="modalRoot" class="hidden fixed inset-0 z-[70] flex items-center justify-center p-4">
