@@ -2583,7 +2583,7 @@ function buildPubRegHtml(person, year, d) {
     </section>
     <section class="overflow-x-auto"><table class="w-full text-center border-collapse text-sm md:text-base">
       <thead><tr class="font-bold table-header-bg">
-        <th class="table-cell-border p-2 w-1/6 row-bg-light">Año de servicio</th>
+        <th class="table-cell-border p-2 w-1/6 row-bg-light">Año de servicio ${year}</th>
         <th class="table-cell-border p-2 w-1/6">Participación en el ministerio</th>
         <th class="table-cell-border p-2 w-1/12">Cursos bíblicos</th>
         <th class="table-cell-border p-2 w-1/12">Precursor auxiliar</th>
@@ -2609,7 +2609,7 @@ function buildPubRegSvg(person, year, d) {
   if (person.precursorRegular === true) roles.push('Precursor regular');
   P.push(`<text x="40" y="138" font-family="sans-serif" font-size="13" fill="#000">${roles.join(', ')}</text>`);
   const cols = [150, 90, 80, 80, 80, 200];
-  const labels = ['Mes', 'Part.', 'Cursos', 'Aux.', 'Horas', 'Notas'];
+  const labels = [`Año de servicio ${year}`, 'Part.', 'Cursos', 'Aux.', 'Horas', 'Notas'];
   const totalW = cols.reduce((a, b) => a + b, 0);
   let x = 40, y = 165;
   P.push(`<rect x="40" y="${y}" width="${totalW}" height="26" fill="none" stroke="#000"/>`);
