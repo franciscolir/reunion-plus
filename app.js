@@ -2472,7 +2472,7 @@ function buildAsistenciaMesSvg(month, d, cfg) {
     P.push(`<rect x="50" y="${y}" width="${tableW}" height="${rowH}" fill="none" stroke="#000"/>`);
     P.push(`<text x="56" y="${y + 36}" font-family="sans-serif" font-size="14" fill="#000">${lab}</text>`);
     let cxp = 50 + cols[0];
-    r.cells.forEach(c => { P.push(`<text x="${cxp + 45}" y="${y + 36}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${c}</text>`); cxp += cols[r.cells.indexOf(c) + 1]; });
+    r.cells.forEach((c, i) => { P.push(`<text x="${cxp + 45}" y="${y + 36}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${c}</text>`); cxp += cols[i + 1]; });
     P.push(`<text x="${50 + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] + cols[5] + 45}" y="${y + 36}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${r.total}</text>`);
     P.push(`<text x="${50 + cols[0] + cols[1] + cols[2] + cols[3] + cols[4] + cols[5] + cols[6] + 45}" y="${y + 36}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="700" fill="#000">${r.promedio}</text>`);
     y += rowH;
@@ -2532,8 +2532,9 @@ function buildPubRegHtml(person, year, d) {
   const name = escapeHtml(person.name || '');
   const nac = escapeHtml(person.nacimiento || '');
   const bau = escapeHtml(person.bautismo || '');
-  const hombre = person.sexo === 'M' || person.sexo === 'H';
-  const mujer = person.sexo === 'F';
+  const sexo = (person.sexo || '').toString().toLowerCase();
+  const hombre = sexo === 'm' || sexo === 'h' || sexo === 'masculino' || sexo === 'male';
+  const mujer = sexo === 'f' || sexo === 'femenino' || sexo === 'female';
   const anciano = /anciano/i.test(person.cargo || '');
   const siervo = /siervo/i.test(person.cargo || '');
   const precReg = person.precursorRegular === true;
@@ -2568,7 +2569,7 @@ function buildPubRegHtml(person, year, d) {
           <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(mujer)} disabled/><span class="ml-2">Mujer</span></label>
         </div>
         <div class="flex space-x-8">
-          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Otras ovejas</span></label>
+          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" checked disabled/><span class="ml-2">Otras ovejas</span></label>
           <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Ungido</span></label>
         </div>
       </div>
@@ -2590,7 +2591,7 @@ function buildPubRegHtml(person, year, d) {
         <th class="table-cell-border p-2 w-1/4">Notas</th>
       </tr></thead>
       <tbody>${rows}
-        <tr class="h-8 font-bold"><td class="text-right pr-2" colspan="4">Total</td><td class="table-cell-border p-1 bg-white text-center">${d.totalHoras}</td><td class="table-cell-border p-1 bg-white"></td></tr>
+        <tr class="h-8 font-bold"><td class="text-right pr-2" colspan="2">Total</td><td class="table-cell-border p-1 bg-white text-center">${d.totalCursos || 0}</td><td class="table-cell-border p-1 bg-white text-center"></td><td class="table-cell-border p-1 bg-white text-center">${d.totalHoras}</td><td class="table-cell-border p-1 bg-white"></td></tr>
       </tbody>
     </table></section>
   </main>`;
