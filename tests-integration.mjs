@@ -316,23 +316,21 @@ test('speaker_talks CRUD (orador ↔ discurso N:N)', async () => {
 
 test('audit_log CRUD', async () => {
   await db.addAuditEntry({ entity: 'people', entityId: '1', action: 'update', field: 'name', oldValue: 'Ana', newValue: 'Ana María' });
-  await db.addAuditEntry({ entity: 'people', entityId: '1', action: 'update', field: 'phone', oldValue: '', newValue: '555-1234' });
+  await db.addAuditEntry({ entity: 'people', entityId: '1', action: 'update', field: 'prioridad', oldValue: '0', newValue: '1' });
   let log = await db.listAuditLog();
   assert.equal(log.length, 2);
   const fields = log.map(e => e.field);
   assert.ok(fields.includes('name'));
-  assert.ok(fields.includes('phone'));
+  assert.ok(fields.includes('prioridad'));
 
   let byEntity = await db.listAuditLogByEntity('people', '1');
   assert.equal(byEntity.length, 2);
 });
 
-test('personas con phone/email/prioridad se guardan correctamente', async () => {
-  const id = await db.addPerson({ name: 'Test', phone: '555-0000', email: 'test@test.com', prioridad: 5 });
+test('personas con prioridad se guardan correctamente', async () => {
+  const id = await db.addPerson({ name: 'Test', prioridad: 5 });
   const list = await db.listPeople();
   const p = list.find(x => x.id === id);
-  assert.equal(p.phone, '555-0000');
-  assert.equal(p.email, 'test@test.com');
   assert.equal(p.prioridad, 5);
 });
 

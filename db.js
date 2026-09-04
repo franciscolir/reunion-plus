@@ -160,7 +160,7 @@ function openDB() {
 
       // Migración v10→v11: Nuevo modelo de datos mejorado.
       // 1. Semilla de catálogo de cargos por defecto
-      // 2. Campos nuevos en personas (phone, email, prioridad)
+      // 2. Campos nuevos en personas (prioridad)
       // 3. Campo encargadoId en departments
       // 4. Agregar estado a informes de actividad
       if (e.oldVersion < 11) {
@@ -184,8 +184,6 @@ function openDB() {
             if (!c) return;
             const p = c.value || {};
             let changed = false;
-            if (!('phone' in p)) { p.phone = ''; changed = true; }
-            if (!('email' in p)) { p.email = ''; changed = true; }
             if (!('prioridad' in p)) { p.prioridad = 0; changed = true; }
             if (changed) c.update(p);
             c.continue();
@@ -490,7 +488,7 @@ export async function addPerson(payload) {
   if (typeof payload === 'string') {
     const name = payload.trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, labores: [], cargos: ['publicador'], genero: '', calificacion: '', phone: '', email: '', prioridad: 0, activo: true, createdAt: Date.now() };
+    record = { name, labores: [], cargos: ['publicador'], genero: '', calificacion: '', prioridad: 0, activo: true, createdAt: Date.now() };
   } else {
     const name = (payload.name || '').trim();
     if (!name) throw new Error('Nombre vacío');
@@ -501,8 +499,6 @@ export async function addPerson(payload) {
       genero: payload.genero || '',
       calificacion: payload.calificacion || '',
       enlace: payload.enlace || '',
-      phone: payload.phone || '',
-      email: payload.email || '',
       prioridad: payload.prioridad || 0,
       nacimiento: payload.nacimiento || '',
       bautismo: payload.bautismo || '',
@@ -565,8 +561,6 @@ export async function replaceAllPeople(data) {
       genero: p.genero || '',
       calificacion: p.calificacion || '',
       enlace: p.enlace || '',
-      phone: p.phone || '',
-      email: p.email || '',
       prioridad: p.prioridad || 0,
       grupoId: p.grupoId || '',
       activo: p.activo !== false,
