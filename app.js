@@ -2595,9 +2595,9 @@ function buildPubRegHtml(person, year, d) {
 <section class="mt-1">
 <table class="table-sheet">
 <colgroup><col class="w-[18%]"/><col class="w-[14%]"/><col class="w-[13%]"/><col class="w-[14%]"/><col class="w-[18%]"/><col class="w-[23%]"/></colgroup>
-<thead>
+  <thead>
 <tr class="text-center font-bold text-[11px] sm:text-[12px] bg-white text-black leading-tight">
-<th class="py-2 header-tint font-bold align-middle">Año de servicio</th>
+<th class="py-2 header-tint font-bold align-middle">Año de servicio ${year}</th>
 <th class="py-2 align-middle">Participación<br/>en el<br/>ministerio</th>
 <th class="py-2 align-middle">Cursos<br/>bíblicos</th>
 <th class="py-2 align-middle">Precursor<br/>auxiliar</th>
