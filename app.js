@@ -61,6 +61,7 @@ const state = {
   reportMonth: null,
   aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
   atencionWeeks: [],      // labores de atención del mes activo (vista previa)
+  activityEditId: null,
 };
 
 /* ---------- INIT ---------- */
@@ -1003,6 +1004,18 @@ async function renderActivityGroupView(gid, withBack) {
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
   const members = state.people.filter(p => String(p.grupoId) === String(gid));
+  const me = currentUser();
+  const isUser = me && me.rol === 'user';
+  const nowMonth = isoDate(new Date()).slice(0,7);
+  const reportDate = new Date(month+'-01');
+  const nowDate = new Date(nowMonth+'-01');
+  const monthsDiff = (nowDate.getFullYear() - reportDate.getFullYear())*12 + (nowDate.getMonth() - reportDate.getMonth());
+  const canEditUser = isUser && monthsDiff >=0 && monthsDiff <=1;
+  let revisionMap = {};
+  if (isUser && canEditUser) {
+    const revs = await db.listActividadRevision(gid, month);
+    revisionMap = Object.fromEntries(revs.map(r => [String(r.personId), r]));
+  }
   let totalCursos = 0;
   let sinActividad = 0;
   members.forEach(p => {
@@ -1020,15 +1033,39 @@ async function renderActivityGroupView(gid, withBack) {
   const sinActLabel = todosInformaron ? 'Todos informaron' : 'Sin actividad';
   const sinActValue = todosInformaron ? '✓' : sinActividad;
   const rows = members.map(p => {
-    const v = report.people?.[p.id] || {};
     const regular = p.precursorRegular === true;
+    const rev = revisionMap[p.id];
+    const vReport = report.people?.[p.id] || {};
+    const v = (isUser && canEditUser && rev) ? rev : vReport;
     const horas = Number(v.horas) || 0;
     const act = horas > 0 || v.actividad === true;
+    const hasSentActivity = isUser && canEditUser && rev && (Number(rev.horas) > 0 || rev.actividad === true);
+    const isEditing = state.activityEditId === p.id;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
     const aux = !!v.auxiliar;
     const borderColor = regular ? 'border-l-secondary' : 'border-l-primary';
-    const auxCell = auxCellHtml(regular, aux, report.locked, p.id);
-    const actCell = actCellHtml(regular, aux, act, Number(v.horas) || 0, report.locked, p.id);
+    const disabled = isUser ? !canEditUser : report.locked;
+    const auxCell = auxCellHtml(regular, aux, disabled, p.id);
+    const actCell = actCellHtml(regular, aux, act, Number(v.horas) || 0, disabled, p.id);
+    if (isUser && canEditUser && hasSentActivity && !isEditing) {
+      const fecha = rev.createdAt ? new Date(rev.createdAt).toLocaleString('es-ES', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
+      return `<div class="bg-surface-container-lowest border-l-4 ${borderColor} border border-outline-variant rounded-lg p-4 shadow-sm" data-row="${p.id}">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p>
+            ${precBadge}
+          </div>
+          <button data-edit-activity="${p.id}" class="px-3 py-1 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90">Editar</button>
+        </div>
+        <div class="text-sm text-on-surface-variant space-y-1">
+          <p><strong>Actividad:</strong> ${act ? 'Sí' : 'No'} ${regular || aux ? ` / ${horas} h` : ''}</p>
+          <p><strong>Cursos:</strong> ${Number(v.cursos)||0}</p>
+          <p><strong>Auxiliar:</strong> ${regular ? 'Regular' : (v.auxiliar ? 'Sí' : 'No')}</p>
+          <p><strong>Notas:</strong> ${escapeHtml(v.notas||'—')}</p>
+          <p class="text-caption"><strong>Enviado:</strong> ${fecha}</p>
+        </div>
+      </div>`;
+    }
     return `<div class="bg-surface-container-lowest border-l-4 ${borderColor} border border-outline-variant rounded-lg p-4 shadow-sm transition-all group" data-row="${p.id}">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div class="flex items-center gap-2 min-w-0">
@@ -1046,11 +1083,11 @@ async function renderActivityGroupView(gid, withBack) {
         </div>
         <div class="flex flex-col gap-1">
           <label class="font-label-md text-label-md text-on-surface-variant text-xs">Cursos</label>
-          <input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${report.locked ? 'disabled' : ''} class="w-full px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/>
+          <input type="number" min="0" step="1" data-act="cursos" data-pid="${p.id}" value="${Number(v.cursos) || 0}" ${disabled ? 'disabled' : ''} class="w-full px-2 py-1 border border-outline-variant rounded bg-surface focus:border-primary text-center font-body-md"/>
         </div>
         <div class="col-span-2 flex flex-col gap-1">
           <label class="font-label-md text-label-md text-on-surface-variant text-xs">Observación</label>
-          <input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${report.locked ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-outline-variant hover:border-outline-variant focus:border-primary rounded bg-surface focus:bg-surface font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/>
+          <input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${disabled ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-outline-variant hover:border-outline-variant focus:border-primary rounded bg-surface focus:bg-surface font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/>
         </div>
       </div>
     </div>`;
@@ -1077,6 +1114,7 @@ function bindActivityTab() {
   const back = $('#activityBack');
   if (back) back.onclick = () => { state.reportGroup = null; renderInformes(); };
   document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { state.reportGroup = b.dataset.groupCard; renderInformes(); });
+  document.querySelectorAll('[data-edit-activity]').forEach(b => b.onclick = () => { state.activityEditId = b.dataset.editActivity; renderInformes(); });
   // Admin: ir a revisar un grupo específico.
   document.querySelectorAll('[data-vg]').forEach(b => b.onclick = () => {
     state.reportGroup = b.dataset.vg; renderInformes(); openRevisionModal(b.dataset.vg);
@@ -1119,6 +1157,8 @@ function bindActivityTab() {
     const me = currentUser();
     if (me && me.rol === 'user') {
       const gid = me.grupos && me.grupos.length ? me.grupos[0] : '';
+      const revs = await db.listActividadRevision(gid, month);
+      const revMap = Object.fromEntries(revs.map(r => [String(r.personId), r]));
       const personRows = document.querySelectorAll('[data-row]');
       const entries = [];
       let totalCursos = 0, totalHoras = 0, activos = 0;
@@ -1127,15 +1167,40 @@ function bindActivityTab() {
         const person = state.people.find(p => String(p.id) === String(pid)) || {};
         const regular = person.precursorRegular === true;
         const get = (sel) => row.querySelector(`[data-act="${sel}"]`);
-        const aux = regular ? false : !!get('auxiliar')?.checked;
-        const cursos = parseInt(get('cursos')?.value, 10) || 0;
-        const horas = parseInt(get('horas')?.value, 10) || 0;
-        const isNumber = regular || aux;
-        const act = isNumber ? horas > 0 : (get('actividad')?.checked ?? false);
-        entries.push({ personId: pid, actividad: act, auxiliar: aux, cursos, horas, notas: get('notas')?.value || '' });
-        if (act) { activos++; totalCursos += cursos; totalHoras += horas; }
+        const hasForm = !!get('cursos');
+        let actividad, auxiliar, cursos, horas, notas;
+        if (hasForm) {
+          const aux = regular ? false : !!get('auxiliar')?.checked;
+          const crs = parseInt(get('cursos')?.value, 10) || 0;
+          const hrs = parseInt(get('horas')?.value, 10) || 0;
+          const isNumber = regular || aux;
+          const act = isNumber ? hrs > 0 : (get('actividad')?.checked ?? false);
+          actividad = act;
+          auxiliar = aux;
+          cursos = crs;
+          horas = hrs;
+          notas = get('notas')?.value || '';
+        } else {
+          const existing = revMap[pid];
+          if (existing) {
+            actividad = !!existing.actividad;
+            auxiliar = !!existing.auxiliar;
+            cursos = Number(existing.cursos) || 0;
+            horas = Number(existing.horas) || 0;
+            notas = existing.notas || '';
+          } else {
+            actividad = false;
+            auxiliar = false;
+            cursos = 0;
+            horas = 0;
+            notas = '';
+          }
+        }
+        entries.push({ personId: pid, actividad, auxiliar, cursos, horas, notas });
+        if (actividad) { activos++; totalCursos += cursos; totalHoras += horas; }
       });
       for (const e of entries) await db.addActividadRevision({ grupoId: gid, monthId: month, ...e });
+      state.activityEditId = null;
       toast('Actividad enviada para revisión', 'success');
       try { await subirStores(['actividad_revision']); } catch (e) { /* sin Supabase: solo local */ }
       renderInformes();
