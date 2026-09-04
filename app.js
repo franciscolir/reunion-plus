@@ -88,7 +88,8 @@ async function init() {
     if (user && isAuthenticated()) pullSiVacio().catch(() => {});
     if (user && isAuthenticated()) reconciliar().catch(() => {});
   });
-  restoreSession().catch(() => {}).finally(renderAuthUI);
+  await restoreSession().catch(() => {});
+  renderAuthUI();
   window.addEventListener('hashchange', router);
   initSyncIndicator();
   router();
