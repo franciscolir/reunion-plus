@@ -427,10 +427,6 @@ function isCompactViewport() {
   return window.matchMedia('(max-width: 767px)').matches;
 }
 
-function isUserRole() {
-  return false;
-}
-
 function isIaRole() {
   const user = currentUser();
   return !!user && user.rol === 'ia';
@@ -453,7 +449,7 @@ function router() {
     location.hash = '#/ia';
     return;
   }
-  if (isUserRole() && !['home', 'grupo', 'informes'].includes(view)) {
+  if (false && !['home', 'grupo', 'informes'].includes(view)) {
     location.hash = '#/home';
     return;
   }
@@ -576,7 +572,7 @@ function renderTop() {
   // El menú superior se elimina; la navegación vive en la barra lateral (sidebar).
   // Sin sesión: ocultar la navegación, solo queda la bienvenida.
   if (appBloqueada()) { $('#settingsBtn').style.display = 'none'; $('#topTitle').textContent = 'Reunión+'; $('#topBadge').classList.add('hidden'); return; }
-  $('#settingsBtn').style.display = (isUserRole() || isIaRole()) ? 'none' : 'flex';
+  $('#settingsBtn').style.display = (false || isIaRole()) ? 'none' : 'flex';
 
   const badge = $('#topBadge');
   if (state.month) {
@@ -598,19 +594,15 @@ function renderSide() {
     $('#sideAbout').style.display = 'none';
     return;
   }
-  $('#sideNewMonth').style.display = isUserRole() ? 'none' : '';
-  $('#sideAbout').style.display = isUserRole() ? 'none' : '';
+  $('#sideNewMonth').style.display = false ? 'none' : '';
+  $('#sideAbout').style.display = false ? 'none' : '';
   if (isIaRole()) {
     nav.innerHTML = '';
     $('#sideNewMonth').style.display = 'none';
     $('#sideAbout').style.display = 'none';
     return;
   }
-  const items = isUserRole() ? [
-    { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
-    { id: 'grupo', icon: 'group_work', label: 'Mi grupo', view: 'grupo' },
-    { id: 'informes', icon: 'assignment', label: 'Informes', view: 'informes' },
-  ] : [
+  const items = [
     { id: 'home', icon: 'calendar_month', label: 'Tablero', view: 'home' },
     { id: 'new', icon: 'add_circle', label: 'Programa', view: 'new' },
     { id: 'lists', icon: 'groups', label: 'Congregación', view: 'lists' },
@@ -824,9 +816,7 @@ async function renderInformes() {
     state.reportMonth = months.includes(prevKey) ? prevKey : months[months.length - 1];
   }
   const tab = state.reportTab || 'actividad';
-  const tabs = isUserRole()
-    ? [['actividad', 'Actividad', 'assignment']]
-    : [
+  const tabs = [
         ['actividad', 'Actividad', 'assignment'],
         ['asistencia', 'Asistencia', 'groups'],
         ['arreglos', 'Arreglos', 'swap_horiz'],
@@ -861,7 +851,7 @@ async function renderActivityTab() {
   if (me && me.rol === 'user' && me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
   // Solo el admin ve el banner de revisiones pendientes.
   let pendingMap = {};
-  if (!isUserRole()) {
+  if (true) {
     const pend = await db.listActividadRevision();
     const pendMonth = pend.filter(r => r.monthId === mes);
     if (pendMonth.length) {
@@ -900,13 +890,13 @@ async function renderActivityTab() {
   }
   if (state.reportGroup) return banner + await renderActivityGroupView(state.reportGroup, true);
   const cardsHtml = renderActivityCards(pendingMap);
-  const metricsHtml = !isUserRole() ? await renderActivityMetrics() : '';
+  const metricsHtml = await renderActivityMetrics();
   return banner + cardsHtml + metricsHtml;
 }
 
 function renderActivityCards(pendingMap = {}) {
   const deps = state.departments || [];
-  const isAdmin = !isUserRole();
+  const isAdmin = true;
   const cards = deps.map(dep => {
     const members = state.people.filter(p => String(p.grupoId) === String(dep.id));
     const pendCount = pendingMap[String(dep.id)] || 0;
@@ -2736,7 +2726,7 @@ async function renderHome() {
     homeWeekImgBtn.disabled = true;
     try {
       const cur = String(generalWeek.monday || generalWeek.saturday || isoDate(new Date())).slice(0, 7);
-      const blob = await svgToPngBlob(generalWeekExportSvg(generalWeek, cur, { mobile: isUserRole() || isIaRole() }));
+      const blob = await svgToPngBlob(generalWeekExportSvg(generalWeek, cur, { mobile: false || isIaRole() }));
       const compartido = await compartirPng(blob, `semana-${cur}-${homeWeekOffset + 1}.png`);
       if (!compartido) toast('Imagen descargada: adjúntala en WhatsApp.', 'success');
     } catch (err) {
@@ -5404,7 +5394,6 @@ async function renderLists() {
   renderTop();
   await refreshCatalogs();
   const app = $('#app');
-  if (isUserRole() && !['personas', 'grupos', 'departamentos'].includes(state.listsTab)) state.listsTab = 'personas';
   const tab = state.listsTab;
   const isPersonas = tab === 'personas';
   const isGrupos = tab === 'grupos';
@@ -5423,11 +5412,11 @@ async function renderLists() {
         <button data-tab="grupos" class="${tabCls('grupos')}">Grupos</button>
         <button data-tab="departamentos" class="${tabCls('departamentos')}">Labores</button>
         <button data-tab="asignaciones" class="${tabCls('asignaciones')}">Asignaciones</button>
-        ${isUserRole() ? '' : `<button data-tab="historial" class="${tabCls('historial')}">Historial</button>`}
+        <button data-tab="historial" class="${tabCls('historial')}">Historial</button>
       </div>
     </div>
 
-    ${isPersonas && !isUserRole() ? `
+    ${isPersonas ? `
     <div class="flex flex-col sm:flex-row items-center gap-4 mb-4 flex-wrap">
       <div class="relative w-full sm:w-64">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">search</span>
@@ -5509,11 +5498,9 @@ async function renderLists() {
     const empty = $('#pEmpty');
     if (empty) empty.classList.toggle('hidden', !hasCards || anyVisible);
   };
-  if (!isUserRole()) {
-    search.addEventListener('input', applyFilter);
-    genderFilter.addEventListener('change', applyFilter);
-    cargoFilter.addEventListener('change', applyFilter);
-  }
+  search.addEventListener('input', applyFilter);
+  genderFilter.addEventListener('change', applyFilter);
+  cargoFilter.addEventListener('change', applyFilter);
 
   const pList = $('#pList');
   pList.className = 'overflow-auto max-h-[68vh] p-0';
@@ -5522,7 +5509,7 @@ async function renderLists() {
     ...state.people.map(p => renderPersonCard(p, false, false)),
     ...inactivos.map(p => renderPersonCard(p, false, true)),
   ];
-  if (isUserRole()) {
+  if (false) {
     pList.innerHTML = `<div class="overflow-x-auto">
       <table class="w-full text-left border-collapse min-w-[420px]">
         <thead><tr class="bg-surface-container border-b border-outline-variant">
@@ -6336,7 +6323,7 @@ async function applyEnlace(person, newEnlace) {
 // enlace, labores conmutables e historial de asignaciones.
 async function openPersonProfile(person) {
   const p = { ...person };
-  const userMode = isUserRole();
+  const userMode = false;
   p.labores = Array.isArray(p.labores) ? p.labores : [];
 
   const cal = CALIFICACIONES.includes(p.calificacion) ? p.calificacion : 'A';
@@ -8950,7 +8937,7 @@ function generalWeekBox({ fin, mw, i, aseoGroup, outings, sinSalida, finLabores,
         <span class="px-3 py-1 bg-secondary-container text-on-secondary-container font-label-md text-label-md rounded-full">${escapeHtml(header)}</span>
         ${mw ? estadoBadge(mw.estado) : ''}
         ${fin ? estadoBadge(fin.estado) : ''}
-        ${dashboard ? `<button data-home-week-next class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed" title="Semana siguiente"><span class="material-symbols-outlined">chevron_right</span></button>${isUserRole() ? `<button data-home-week-img class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Descargar imagen de esta semana"><span class="material-symbols-outlined text-[16px]">image</span> Imagen</button>` : ''}` : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
+        ${dashboard ? `<button data-home-week-next class="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-outline-variant text-primary hover:bg-primary-fixed" title="Semana siguiente"><span class="material-symbols-outlined">chevron_right</span></button>${true ? `<button data-home-week-img class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Descargar imagen de esta semana"><span class="material-symbols-outlined text-[16px]">image</span> Imagen</button>` : ''}` : `<button data-week-img="${i}" class="no-print inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary text-primary font-label-md text-label-md hover:bg-primary-fixed transition-all active:scale-95" title="Enviar imagen de esta semana">
           <span class="material-symbols-outlined text-[16px]">image</span> Imagen
         </button>`}
       </div>
