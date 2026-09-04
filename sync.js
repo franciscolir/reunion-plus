@@ -124,6 +124,7 @@ function personaADocumento(p) {
       bautismo: p.bautismo || '',
       precursorRegular: p.precursorRegular === true,
       activo: p.activo !== false,
+      inactivo: p.inactivo === true,
       createdAt: p.createdAt || Date.now(),
     },
   };
@@ -541,6 +542,7 @@ export async function pullAll() {
       precursorRegular: p.precursorRegular === true,
       grupoId: p.grupoId || '',
       activo: p.activo !== false,
+      inactivo: p.inactivo === true,
       createdAt: p.createdAt || Date.now(),
     }));
     await db.replaceAllPeopleSilent(personasDesdeCloud);

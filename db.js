@@ -4,7 +4,7 @@
 import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots, addDays } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 13;
+const DB_VERSION = 14;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -275,6 +275,21 @@ function openDB() {
         migrarWeeks(STORE_SALIDAS);
         migrarWeeks(STORE_ATENCION);
       }
+
+      // Migración v13→v14: campo inactivo en personas
+      if (e.oldVersion < 14) {
+        const t = e.target.transaction;
+        if (t.objectStoreNames.contains(STORE_PEOPLE)) {
+          const cur = t.objectStore(STORE_PEOPLE).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const p = c.value || {};
+            if (!('inactivo' in p)) { p.inactivo = false; c.update(p); }
+            c.continue();
+          };
+        }
+      }
     };
 
     req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
@@ -488,7 +503,7 @@ export async function addPerson(payload) {
   if (typeof payload === 'string') {
     const name = payload.trim();
     if (!name) throw new Error('Nombre vacío');
-    record = { name, labores: [], cargos: ['publicador'], genero: '', calificacion: '', prioridad: 0, activo: true, createdAt: Date.now() };
+    record = { name, labores: [], cargos: ['publicador'], genero: '', calificacion: '', prioridad: 0, activo: true, inactivo: false, createdAt: Date.now() };
   } else {
     const name = (payload.name || '').trim();
     if (!name) throw new Error('Nombre vacío');
@@ -504,6 +519,7 @@ export async function addPerson(payload) {
       bautismo: payload.bautismo || '',
       precursorRegular: payload.precursorRegular === true,
       activo: payload.activo !== false,
+      inactivo: payload.inactivo === true,
       createdAt: Date.now(),
     };
   }

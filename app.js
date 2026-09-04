@@ -852,24 +852,77 @@ async function renderActivityTab() {
     return await renderActivityGroupView(gid, false);
   }
   if (state.reportGroup) return await renderActivityGroupView(state.reportGroup, true);
-  const cardsHtml = renderActivityCards();
+  const cardsHtml = await renderActivityCards();
   const metricsHtml = await renderActivityMetrics();
   return cardsHtml + metricsHtml;
 }
 
-function renderActivityCards() {
+async function renderActivityCards() {
   const deps = state.departments || [];
-  const cards = deps.map(dep => {
+  const allActivity = await db.listActivity();
+  const lastActiveMap = {};
+  allActivity.forEach(a => {
+    const people = a.people || {};
+    Object.entries(people).forEach(([pid, v]) => {
+      const active = v.actividad || Number(v.horas) > 0;
+      if (active) lastActiveMap[pid] = a.id;
+    });
+  });
+  const now = new Date();
+  const nowMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const monthsDiff = (id1, id2) => {
+    const [y1,m1] = id1.split('-').map(Number);
+    const [y2,m2] = id2.split('-').map(Number);
+    return (y2 - y1)*12 + (m2 - m1);
+  };
+  // actualizar flag inactivo en background
+  const updates = [];
+  state.people.forEach(p => {
+    const last = lastActiveMap[p.id];
+    if (!last) return;
+    const diff = monthsDiff(last, nowMonth);
+    const shouldBeInactive = diff >= 6;
+    if (p.inactivo !== shouldBeInactive) {
+      const upd = { ...p, inactivo: shouldBeInactive };
+      updates.push(db.updatePerson(upd));
+      p.inactivo = shouldBeInactive;
+    }
+  });
+  await Promise.all(updates);
+  const cards = await Promise.all(deps.map(async dep => {
     const members = state.people.filter(p => String(p.grupoId) === String(dep.id));
+    let alertCount = 0;
+    let missingGroup = 0;
+    members.forEach(p => {
+      if (!p.grupoId) missingGroup++;
+      const last = lastActiveMap[p.id];
+      if (last) {
+        const diff = monthsDiff(last, nowMonth);
+        if (diff >= 2 && diff < 6) alertCount++;
+      } else {
+        alertCount++;
+      }
+    });
+    const alertBadge = alertCount > 0 ? `<span class="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-warning-container text-on-warning-container rounded-full text-xs font-bold"><span class="material-symbols-outlined text-[14px]">warning</span>${alertCount}</span>` : '';
     return `<div class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary transition-colors">
       <button data-group-card="${dep.id}" class="w-full text-left">
-        <div class="flex items-center gap-3 mb-3"><span class="material-symbols-outlined text-primary">groups</span><h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(dep.name || 'Grupo')}</h3></div>
-        <p class="font-body-md text-body-md text-on-surface-variant">${members.length} publicadores</p>
+        <div class="flex items-center gap-3 mb-3"><span class="material-symbols-outlined text-primary">groups</span><h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(dep.name || 'Grupo')}${alertBadge}</h3></div>
+        <p class="font-body-md text-body-md text-on-surface-variant">${members.length} publicadores${missingGroup ? ' <span class="text-warning">sin grupo</span>' : ''}</p>
       </button>
     </div>`;
-  }).join('');
-  return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Grupos</h2>
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards || '<p class="text-on-surface-variant">No hay grupos.</p>'}</div>`;
+  }));
+  const alertList = [];
+  state.people.forEach(p => {
+    if (!p.grupoId) return;
+    const last = lastActiveMap[p.id];
+    if (!last) return;
+    const diff = monthsDiff(last, nowMonth);
+    if (diff >= 2 && diff < 6) alertList.push(p);
+  });
+  const alertHtml = alertList.length ? `<div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-warning mb-3">Alerta de inactividad ≥2 meses</h3><div class="flex flex-wrap gap-2">${alertList.map(p => `<span class="px-3 py-1 bg-warning-container text-on-warning-container rounded-full text-sm">${escapeHtml(p.name)}</span>`).join('')}</div></div>` : '';
+  const cardsJoined = cards.join('');
+  return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Grupos</h2>${alertHtml}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cardsJoined || '<p class="text-on-surface-variant">No hay grupos.</p>'}</div>`;
 }
 
 async function renderActivityMetrics() {
@@ -2017,6 +2070,7 @@ async function renderFormsTab() {
     card('registro', 'Registro de Asistencia (2 años)', 'Registro de asistencia a las reuniones, dos años de servicio.', `<p class="text-on-surface-variant text-body-md">Año de servicio: ${serviceYearLabel(currentServiceYear())} y ${serviceYearLabel(currentServiceYear() + 1)}</p>`, pdfPng('registro')),
     card('asistenciaMes', 'Informe de Asistencia Mensual (S-3-S)', 'Asistencia mensual por semanas (entre semana / fin de semana).', `<select id="fAsistMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('asistenciaMes')),
     card('pubreg', 'Registro de Publicador', 'Formulario anual por publicador con su actividad del año de servicio.', `<select id="fPubPerson" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${peopleOpts}</select><select id="fPubYear" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${yearOpts}</select>`, pdfPng('pubreg')),
+    card('pubreg-masivo', 'Registro de Publicador Masivo', 'Generar todos los registros de publicadores en PDF organizados por activos/inactivos y grupos.', `<select id="fPubYearMasivo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${yearOpts}</select><p class="text-on-surface-variant text-body-sm mt-2">Se crea un ZIP con estructura: activos / inactivos, publicadores por grupo, precursores regulares.</p>`, `<button data-form="pubreg-masivo" class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined">download</span> Descargar ZIP</button>`),
   ].join('');
   return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Formularios descargables</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${cards}</div>`;
@@ -2031,6 +2085,7 @@ function bindFormsTab() {
       else if (kind === 'registro') downloadRegistro(currentServiceYear(), fmt);
       else if (kind === 'asistenciaMes') downloadAsistenciaMes($('#fAsistMes').value, fmt);
       else if (kind === 'pubreg') downloadPubReg($('#fPubPerson').value, fmt, $('#fPubYear').value);
+      else if (kind === 'pubreg-masivo') downloadAllPubReg($('#fPubYearMasivo').value);
     };
   });
 }
@@ -2440,6 +2495,57 @@ async function downloadPubReg(pid, fmt, year) {
   } else {
     printHtmlWindow(buildPubRegHtml(person, Number(year), d), `Registro de publicador ${person.name}`);
   }
+}
+
+async function downloadAllPubReg(year) {
+  toast('Generando registros masivos...', 'info');
+  const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
+  const jsPDFMod = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm');
+  const { jsPDF } = jsPDFMod;
+  const people = (state.people || []).filter(p => p.activo !== false);
+  if (!people.length) { toast('No hay publicadores', 'error'); return; }
+  const zip = new JSZip();
+  const normalize = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w\s-]/g,'').replace(/\s+/g,'_');
+  for (const p of people) {
+    const d = await computePubReg(p, Number(year));
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text('Registro de Publicador de la Congregación', 105, 20, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Nombre: ${p.name || ''}`, 20, 40);
+    doc.text(`Fecha de nacimiento: ${p.nacimiento || ''}`, 20, 50);
+    doc.text(`Fecha de bautismo: ${p.bautismo || ''}`, 20, 60);
+    let y = 80;
+    doc.text('Mes', 20, y); doc.text('Actividad', 60, y); doc.text('Cursos', 100, y); doc.text('Horas', 130, y);
+    y += 10;
+    d.months.forEach(m => {
+      if (y > 270) { doc.addPage(); y = 20; }
+      doc.text(m.label, 20, y);
+      doc.text(m.actividad ? 'X' : '', 60, y);
+      doc.text(String(m.cursos || ''), 100, y);
+      doc.text(String(m.horas || ''), 130, y);
+      y += 8;
+    });
+    const pdfBytes = doc.output('arraybuffer');
+    let folder;
+    if (p.inactivo === true) {
+      folder = 'inactivos/';
+    } else if (p.precursorRegular === true) {
+      folder = 'activos/precursores_regulares/';
+    } else {
+      const gid = p.grupoId || 'sin_grupo';
+      folder = `activos/publicadores/grupo${gid}/`;
+    }
+    const fileName = `${normalize(p.name || 'sin_nombre')}_${year}.pdf`;
+    zip.file(`${folder}${fileName}`, pdfBytes);
+    if (!p.grupoId) toast(`Persona sin grupo: ${p.name}`, 'warning');
+  }
+  const content = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(content);
+  a.download = `registros_publicadores_${year}.zip`;
+  a.click();
+  toast('ZIP listo para descargar', 'info');
 }
 
 async function renderGroupSummary() {
