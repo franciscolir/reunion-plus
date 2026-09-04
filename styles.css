@@ -143,18 +143,27 @@ input[type="checkbox"].role-checkbox:disabled:checked::before { background-color
   /* Cabecera del preview compacta */
   .editorial-line, .no-print { display: none !important; }
 
-  /* Tabla del programa: tipografía compacta para que quepa */
-  .tabla-programa { overflow: visible !important; }
-  .tabla-programa table {
-    min-width: 0 !important;
-    width: 100% !important;
-    font-size: 9px !important;
-  }
-  .tabla-programa th,
-  .tabla-programa td {
-    padding: 3px 5px !important;
-    line-height: 1.25 !important;
-  }
+ /* Tabla del programa: tipografía compacta para que quepa */
+.tabla-programa {
+  overflow: visible !important;
+}
+
+.tabla-programa table {
+  min-width: 0 !important;
+  width: 100% !important;
+  table-layout: fixed !important;
+  font-size: 9px !important;
+}
+
+.tabla-programa th,
+.tabla-programa td {
+  padding: 3px 5px !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+  overflow-wrap: break-word !important;
+  word-break: normal !important;
+  vertical-align: top !important;
+}
   /* Evitar saltos de página entre filas */
   .tabla-programa tr { page-break-inside: avoid !important; }
   .tabla-programa thead { display: table-header-group !important; }
