@@ -84,9 +84,6 @@ async function registrarGuardado() {
 // El indicador de "Cambios sin guardar" aparece automáticamente al encolar.
 function marcarLocal(store) {
   encolarPendienteAsync(store).then(() => marcarDirty());
-  if (navigator.onLine) {
-    drenarPendientes().catch(() => {});
-  }
 }
 
 // Sube explícitamente un conjunto de stores (al pulsar Guardar en un editor).

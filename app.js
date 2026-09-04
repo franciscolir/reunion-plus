@@ -6406,6 +6406,7 @@ const saveProfile = $('#pfSave');
     const orig = state.people.find(x => String(x.id) === String(p.id));
     if (orig) Object.assign(orig, p);
     await db.updatePerson(p);
+    try { await subirStores(['people']); } catch (e) {}
     state.people = await db.listPeople();
     closeModal();
     toast('Perfil actualizado', 'success');
