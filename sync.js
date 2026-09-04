@@ -694,7 +694,16 @@ export async function reconciliar() {
     const personasASubir = personas.filter(p => !idsParticipantes.has(String(p.id)));
     if (puedeEscribir && personasASubir.length) { await batchWrite(personasASubir.map(personaADocumento)); subidos += personasASubir.length; }
     for (const pr of participantes) {
-      if (idsPersonas.has(String(pr.id))) continue;
+      const idStr = String(pr.id);
+      if (idsPersonas.has(idStr)) {
+        const local = personas.find(p => String(p.id) === idStr);
+        if (local && local.precursorRegular === undefined && pr.precursorRegular !== undefined) {
+          const updated = { ...local, precursorRegular: pr.precursorRegular === true };
+          await db.putPersonSilent(updated);
+          bajados++;
+        }
+        continue;
+      }
       await db.putPersonSilent({
         id: Number(pr.id) || String(pr.id),
         name: pr.nombre || '',
