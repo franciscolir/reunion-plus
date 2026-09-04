@@ -2532,9 +2532,10 @@ function buildPubRegHtml(person, year, d) {
   const name = escapeHtml(person.name || '');
   const nac = escapeHtml(person.nacimiento || '');
   const bau = escapeHtml(person.bautismo || '');
-  const sexo = (person.sexo || '').toString().toLowerCase();
-  const hombre = sexo === 'm' || sexo === 'h' || sexo === 'masculino' || sexo === 'male';
-  const mujer = sexo === 'f' || sexo === 'femenino' || sexo === 'female';
+  const sexoRaw = ((person.sexo || person.genero) || '').toString().toLowerCase().trim();
+  const sexoNorm = sexoRaw.replace(/\s+/g, '');
+  const hombre = /(^m$|^h$|masculino|male|hombre)/.test(sexoNorm);
+  const mujer = /(^f$|femenino|female|mujer)/.test(sexoNorm);
   const anciano = /anciano/i.test(person.cargo || '');
   const siervo = /siervo/i.test(person.cargo || '');
   const precReg = person.precursorRegular === true;
