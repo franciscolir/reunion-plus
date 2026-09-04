@@ -895,7 +895,9 @@ async function renderActivityTab() {
     return banner + await renderActivityReviewView(state.reportReviewGroup);
   }
   if (state.reportGroup) return banner + await renderActivityGroupView(state.reportGroup, true);
-  return banner + renderActivityCards(pendingMap);
+  const cardsHtml = renderActivityCards(pendingMap);
+  const metricsHtml = !isUserRole() ? await renderActivityMetrics() : '';
+  return banner + cardsHtml + metricsHtml;
 }
 
 function renderActivityCards(pendingMap = {}) {
@@ -915,6 +917,68 @@ function renderActivityCards(pendingMap = {}) {
   }).join('');
   return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Grupos</h2>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">${cards || '<p class="text-on-surface-variant">No hay grupos.</p>'}</div>`;
+}
+
+async function renderActivityMetrics() {
+  const month = state.reportMonth;
+  if (!month) return '';
+  const report = await db.getActivity(month) || { id: month, people: {} };
+  const months6 = lastMonths(month, 6);
+  const allActivity = await db.listActivity();
+  const activityMap = {};
+  months6.forEach(m => {
+    const r = allActivity.find(a => a.id === m);
+    if (r) activityMap[m] = r;
+  });
+  const activeSet = new Set();
+  months6.forEach(m => {
+    const r = activityMap[m];
+    if (!r || !r.people) return;
+    Object.entries(r.people).forEach(([pid, v]) => {
+      if (v.actividad || Number(v.horas) > 0) activeSet.add(String(pid));
+    });
+  });
+  const publicadoresActivos = activeSet.size;
+  let pubCount = 0, pubCursos = 0;
+  let auxCount = 0, auxHoras = 0, auxCursos = 0;
+  let regCount = 0, regHoras = 0, regCursos = 0;
+  Object.entries(report.people || {}).forEach(([pid, v]) => {
+    const p = state.people.find(pp => String(pp.id) === String(pid));
+    if (!p) return;
+    const reported = v.actividad || Number(v.horas) > 0;
+    if (!reported) return;
+    const regular = p.precursorRegular === true;
+    const auxiliar = !regular && !!v.auxiliar;
+    if (regular) {
+      regCount++;
+      regHoras += Number(v.horas) || 0;
+      regCursos += Number(v.cursos) || 0;
+    } else if (auxiliar) {
+      auxCount++;
+      auxHoras += Number(v.horas) || 0;
+      auxCursos += Number(v.cursos) || 0;
+    } else {
+      pubCount++;
+      pubCursos += Number(v.cursos) || 0;
+    }
+  });
+  const cards = [
+    { label: 'Publicadores activos', value: publicadoresActivos, icon: 'group' },
+    { label: 'Publicadores', value: pubCount, icon: 'person' },
+    { label: 'Cursos publicadores', value: pubCursos, icon: 'menu_book' },
+    { label: 'Auxiliares', value: auxCount, icon: 'support_agent' },
+    { label: 'Horas auxiliares', value: auxHoras, icon: 'schedule' },
+    { label: 'Cursos auxiliares', value: auxCursos, icon: 'school' },
+    { label: 'Regulares', value: regCount, icon: 'verified_user' },
+    { label: 'Horas regulares', value: regHoras, icon: 'hourglass' },
+    { label: 'Cursos regulares', value: regCursos, icon: 'auto_stories' },
+  ];
+  const grid = cards.map(c => `
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4">
+      <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-primary text-xl">${c.icon}</span><p class="font-label-md text-label-md text-on-surface-variant">${c.label}</p></div>
+      <p class="font-headline-md text-headline-md text-primary">${c.value}</p>
+    </div>`).join('');
+  return `<div class="mt-8"><h2 class="font-headline-md text-headline-md text-primary mb-4">Resumen mensual ${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0,4)}</h2><div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">${grid}</div></div>`;
 }
 
 function actCellHtml(regular, aux, act, horas, disabled, pid) {
