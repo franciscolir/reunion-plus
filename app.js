@@ -818,7 +818,12 @@ async function renderInformes() {
   state.month = null;
   renderTop();
   const months = availableReportMonths();
-  if (!state.reportMonth || !months.includes(state.reportMonth)) state.reportMonth = months[months.length - 1];
+  if (!state.reportMonth || !months.includes(state.reportMonth)) {
+    const now = new Date();
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevKey = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    state.reportMonth = months.includes(prevKey) ? prevKey : months[months.length - 1];
+  }
   const tab = state.reportTab || 'actividad';
   const tabs = isUserRole()
     ? [['actividad', 'Actividad', 'assignment']]
