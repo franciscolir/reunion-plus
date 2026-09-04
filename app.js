@@ -836,6 +836,7 @@ async function renderInformes() {
   const ms = $('#reportMonth');
   if (ms) ms.onchange = e => { state.reportMonth = e.target.value; renderInformes(); };
   document.querySelectorAll('[data-report-tab]').forEach(b => b.onclick = () => { state.reportTab = b.dataset.reportTab; renderInformes(); });
+  document.querySelectorAll('[data-group-id]').forEach(el => { el.onclick = () => { state.reportGroup = el.dataset.groupId; renderInformes(); }; });
   if (tab === 'actividad') bindActivityTab();
   else if (tab === 'asistencia') bindAttendanceTab();
   else if (tab === 'arreglos') bindArrangementsTab();
@@ -906,7 +907,7 @@ async function renderInformesDashboard(){
     const status = pct===100?'Completado':pct===0?'Pendiente':'En revisión';
     const statusCls = pct===100?'bg-emerald-100 text-emerald-800':pct===0?'bg-amber-100 text-amber-900 border border-amber-300':'bg-primary-fixed text-on-primary-fixed';
     const encargado = people.find(p=>String(p.id)===String(d.encargadoId));
-    return `<article data-group-id="${d.id}" onclick="state.reportGroup='${d.id}'; renderInformes();" class="bg-surface rounded-xl border border-outline-variant/30 p-5 flex flex-col justify-between group cursor-pointer hover:border-primary transition-colors">
+    return `<article data-group-id="${d.id}" class="bg-surface rounded-xl border border-outline-variant/30 p-5 flex flex-col justify-between group cursor-pointer hover:border-primary transition-colors">
       <div>
         <div class="flex justify-between items-start mb-3">
           <div>
@@ -2484,66 +2485,91 @@ function buildPubRegHtml(person, year, d) {
   const sexoNorm = sexoRaw.replace(/\s+/g, '');
   const hombre = /(^m$|^h$|masculino|male|hombre)/.test(sexoNorm);
   const mujer = /(^f$|femenino|female|mujer)/.test(sexoNorm);
-  const anciano = /anciano/i.test(person.cargo || '');
-  const siervo = /siervo/i.test(person.cargo || '');
+  const cargos = Array.isArray(person.cargos) ? person.cargos : [];
+  const anciano = cargos.some(c => /anciano/i.test(c));
+  const siervo = cargos.some(c => /siervo/i.test(c));
   const precReg = person.precursorRegular === true;
   const chk = (b) => b ? 'checked' : '';
-  const rows = d.months.map(m => `<tr class="h-8">
-<td class="table-cell-border p-1 text-left pl-2 font-semibold bg-white">${m.label}</td>
-<td class="table-cell-border p-1 text-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(m.actividad)} disabled/></td>
-<td class="table-cell-border p-1 text-center">${m.cursos || ''}</td>
-<td class="table-cell-border p-1 text-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(m.auxiliar)} disabled/></td>
-<td class="table-cell-border p-1 text-center">${m.horas || ''}</td>
-<td class="table-cell-border p-1 text-left pl-2">${escapeHtml(m.notas || '')}</td>
+  const monthRows = d.months.map(m => `
+<tr>
+<td class="font-normal pl-2">${escapeHtml(m.label)}</td>
+<td class="text-center align-middle"><input class="form-box-check" type="checkbox" ${chk(m.actividad)} disabled/></td>
+<td>${escapeHtml(String(m.cursos || ''))}</td>
+<td class="text-center align-middle"><input class="form-box-check" type="checkbox" ${chk(m.auxiliar)} disabled/></td>
+<td>${escapeHtml(String(m.horas || ''))}</td>
+<td>${escapeHtml(m.notas || '')}</td>
 </tr>`).join('');
-  const style = `<style>
-    body{font-family:'Playfair Display',serif;background:#f9f9f9;color:#1a1c18}
-    .form-checkbox{border-radius:0;border-color:#74796d;color:#1a3636}
-    .table-cell-border{border:1px solid #74796d}
-    .table-header-bg{background:#fff}
-    .row-bg-light{background:#f4f8fe}
-    @media print{body{background:#fff;padding:0}}
-  </style>`;
-  return `${FORM_HEAD}${style}<main class="w-full max-w-4xl bg-white shadow-md rounded-lg p-6 md:p-10 border border-surface-dim">
-    <header class="text-center mb-6"><h1 class="text-xl md:text-2xl font-bold uppercase tracking-wider text-primary">Registro de Publicador de la Congregación</h1></header>
-    <section class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm md:text-base font-semibold">
-      <div class="space-y-2 bg-[#f4f8fe] p-2 rounded">
-        <div class="flex items-center"><label class="w-40 shrink-0">Nombre:</label><div class="flex-grow border-b border-surface-dim">${name}</div></div>
-        <div class="flex items-center"><label class="w-40 shrink-0">Fecha de nacimiento:</label><div class="flex-grow border-b border-surface-dim">${nac}</div></div>
-        <div class="flex items-center"><label class="w-40 shrink-0">Fecha de bautismo:</label><div class="flex-grow border-b border-surface-dim">${bau}</div></div>
-      </div>
-      <div class="flex flex-col justify-center space-y-2 bg-[#f4f8fe] p-2 rounded">
-        <div class="flex space-x-8">
-          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(hombre)} disabled/><span class="ml-2">Hombre</span></label>
-          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(mujer)} disabled/><span class="ml-2">Mujer</span></label>
-        </div>
-        <div class="flex space-x-8">
-          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" checked disabled/><span class="ml-2">Otras ovejas</span></label>
-          <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Ungido</span></label>
-        </div>
-      </div>
-    </section>
-    <section class="mb-6 flex flex-wrap gap-4 text-sm md:text-base font-semibold">
-      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(anciano)} disabled/><span class="ml-2">Anciano</span></label>
-      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(siervo)} disabled/><span class="ml-2">Siervo ministerial</span></label>
-      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" ${chk(precReg)} disabled/><span class="ml-2">Precursor regular</span></label>
-      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Precursor especial</span></label>
-      <label class="inline-flex items-center"><input class="form-checkbox h-4 w-4" type="checkbox" disabled/><span class="ml-2">Misionero que sirve en el campo</span></label>
-    </section>
-    <section class="overflow-x-auto"><table class="w-full text-center border-collapse text-sm md:text-base">
-      <thead><tr class="font-bold table-header-bg">
-        <th class="table-cell-border p-2 w-1/6 row-bg-light">Año de servicio ${year}</th>
-        <th class="table-cell-border p-2 w-1/6">Participación en el ministerio</th>
-        <th class="table-cell-border p-2 w-1/12">Cursos bíblicos</th>
-        <th class="table-cell-border p-2 w-1/12">Precursor auxiliar</th>
-        <th class="table-cell-border p-2 w-1/4">Horas<span class="font-normal text-xs"><br/>(Si es precursor o misionero que sirve en el campo)</span></th>
-        <th class="table-cell-border p-2 w-1/4">Notas</th>
-      </tr></thead>
-      <tbody>${rows}
-        <tr class="h-8 font-bold"><td class="text-right pr-2" colspan="2">Total</td><td class="table-cell-border p-1 bg-white text-center">${d.totalCursos || 0}</td><td class="table-cell-border p-1 bg-white text-center"></td><td class="table-cell-border p-1 bg-white text-center">${d.totalHoras}</td><td class="table-cell-border p-1 bg-white"></td></tr>
-      </tbody>
-    </table></section>
-  </main>`;
+  const totalHoras = escapeHtml(String(d.totalHoras || ''));
+  return `<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>REGISTRO DE PUBLICADOR DE LA CONGREGACIÓN</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>tailwind.config={theme:{extend:{fontFamily:{sans:['Arial','Helvetica','sans-serif']}}}}</script>
+<style>
+@media print{body{background:#fff!important;padding:0!important}.no-print{display:none!important}}
+.header-tint{background-color:#f1f5fa}
+.form-box-check{width:14px;height:14px;border:1.2px solid #334155;border-radius:1px;appearance:none;outline:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;background:#fff;flex-shrink:0}
+.form-box-check:checked{background:#fff;position:relative}
+.form-box-check:checked::after{content:"✓";font-size:11px;font-weight:900;color:#0f172a}
+.table-sheet{border:2px solid #000;border-collapse:collapse;width:100%}
+.table-sheet th,.table-sheet td{border:1px solid #000;height:25px;padding:2px 4px}
+.table-sheet th{border-bottom:2px solid #000}
+</style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans text-slate-900 antialiased min-h-screen flex flex-col items-center justify-start">
+<main class="w-full max-w-[850px] bg-white p-6 sm:p-9 shadow-md rounded-none border border-gray-200">
+<header class="mb-4"><h1 class="text-center font-extrabold text-[15px] sm:text-[17px] tracking-wide text-black uppercase">REGISTRO DE PUBLICADOR DE LA CONGREGACIÓN</h1></header>
+<section class="mb-3 text-[12px] sm:text-[13px] leading-tight">
+<div class="grid grid-cols-12 gap-y-2 relative">
+<div class="col-span-8 flex flex-col gap-y-2 pr-2">
+<div class="flex items-center"><span class="font-bold min-w-[70px]">Nombre:</span><div class="flex-grow header-tint h-5 border-b border-transparent ml-1"><input class="w-full h-full bg-transparent border-0 px-2 py-0 text-xs" type="text" value="${name}" disabled/></div></div>
+<div class="flex items-center"><span class="font-bold min-w-[145px]">Fecha de nacimiento:</span><div class="flex-grow h-5 border-b border-transparent"><input class="w-full h-full bg-transparent border-0 px-2 py-0 text-xs" type="text" value="${nac}" disabled/></div></div>
+<div class="flex items-center"><span class="font-bold min-w-[145px]">Fecha de bautismo:</span><div class="flex-grow h-5 border-b border-transparent"><input class="w-full h-full bg-transparent border-0 px-2 py-0 text-xs" type="text" value="${bau}" disabled/></div></div>
+</div>
+<div class="col-span-4 flex flex-col justify-center space-y-2 pl-4">
+<div class="flex items-center justify-start gap-8">
+<label class="flex items-center gap-2 cursor-pointer font-bold select-none"><input class="form-box-check" name="gender" type="checkbox" ${chk(hombre)} disabled/><span>Hombre</span></label>
+<label class="flex items-center gap-2 cursor-pointer font-bold select-none"><input class="form-box-check" name="gender" type="checkbox" ${chk(mujer)} disabled/><span>Mujer</span></label>
+</div>
+<div class="flex items-center justify-start gap-5">
+<label class="flex items-center gap-2 cursor-pointer font-bold select-none"><input class="form-box-check" name="hope" type="checkbox" checked disabled/><span>Otras ovejas</span></label>
+<label class="flex items-center gap-2 cursor-pointer font-bold select-none"><input class="form-box-check" name="hope" type="checkbox" disabled/><span>Ungido</span></label>
+</div>
+</div>
+</div>
+<div class="mt-2.5 pt-1 flex flex-wrap items-center justify-between text-[11px] sm:text-[12.5px] font-bold">
+<label class="flex items-center gap-1.5 cursor-pointer py-1 select-none"><input class="form-box-check" type="checkbox" ${chk(anciano)} disabled/><span>Anciano</span></label>
+<label class="flex items-center gap-1.5 cursor-pointer py-1 select-none"><input class="form-box-check" type="checkbox" ${chk(siervo)} disabled/><span>Siervo ministerial</span></label>
+<label class="flex items-center gap-1.5 cursor-pointer py-1 select-none"><input class="form-box-check" type="checkbox" ${chk(precReg)} disabled/><span>Precursor regular</span></label>
+<label class="flex items-center gap-1.5 cursor-pointer py-1 select-none"><input class="form-box-check" type="checkbox" disabled/><span>Precursor especial</span></label>
+<label class="flex items-center gap-1.5 cursor-pointer py-1 select-none text-left leading-tight"><input class="form-box-check" type="checkbox" disabled/><span>Misionero que sirve<br class="hidden sm:inline"/> en el campo</span></label>
+</div>
+</section>
+<section class="mt-1">
+<table class="table-sheet">
+<colgroup><col class="w-[18%]"/><col class="w-[14%]"/><col class="w-[13%]"/><col class="w-[14%]"/><col class="w-[18%]"/><col class="w-[23%]"/></colgroup>
+<thead>
+<tr class="text-center font-bold text-[11px] sm:text-[12px] bg-white text-black leading-tight">
+<th class="py-2 header-tint font-bold align-middle">Año de servicio</th>
+<th class="py-2 align-middle">Participación<br/>en el<br/>ministerio</th>
+<th class="py-2 align-middle">Cursos<br/>bíblicos</th>
+<th class="py-2 align-middle">Precursor<br/>auxiliar</th>
+<th class="py-2 align-middle px-1">Horas<br/><span class="text-[9.5px] sm:text-[10px] font-normal block leading-tight">(Si es precursor o misionero que sirve en el campo)</span></th>
+<th class="py-2 align-middle">Notas</th>
+</tr>
+</thead>
+<tbody class="text-[12px] sm:text-[13px]">${monthRows}</tbody>
+</table>
+<div class="w-full flex text-[12px] sm:text-[13px] h-7">
+<div class="w-[59%] flex items-center justify-end pr-3"><span class="font-bold">Total</span></div>
+<div class="w-[18%] border-b-2 border-l-2 border-r border-black flex items-center justify-center bg-white"><input class="w-full h-full text-center border-0 p-0 text-xs font-bold" type="text" value="${totalHoras}" disabled/></div>
+<div class="w-[23%] border-b-2 border-r-2 border-black flex items-center bg-white"><input class="w-full h-full px-1 border-0 p-0 text-xs" type="text" disabled/></div>
+</div>
+</section>
+</main>
+</body></html>`;
 }
 
 function buildPubRegSvg(person, year, d) {
@@ -2601,23 +2627,23 @@ async function downloadAllPubReg(year) {
   const normalize = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w\s-]/g,'').replace(/\s+/g,'_');
   for (const p of people) {
     const d = await computePubReg(p, Number(year));
-    const doc = new jsPDF();
-    doc.setFontSize(14);
-    doc.text('Registro de Publicador de la Congregación', 105, 20, { align: 'center' });
-    doc.setFontSize(12);
-    doc.text(`Nombre: ${p.name || ''}`, 20, 40);
-    doc.text(`Fecha de nacimiento: ${p.nacimiento || ''}`, 20, 50);
-    doc.text(`Fecha de bautismo: ${p.bautismo || ''}`, 20, 60);
-    let y = 80;
-    doc.text('Mes', 20, y); doc.text('Actividad', 60, y); doc.text('Cursos', 100, y); doc.text('Horas', 130, y);
-    y += 10;
-    d.months.forEach(m => {
-      if (y > 270) { doc.addPage(); y = 20; }
-      doc.text(m.label, 20, y);
-      doc.text(m.actividad ? 'X' : '', 60, y);
-      doc.text(String(m.cursos || ''), 100, y);
-      doc.text(String(m.horas || ''), 130, y);
-      y += 8;
+    const html = buildPubRegHtml(p, Number(year), d);
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+    const tempDiv = document.createElement('div');
+    tempDiv.style.position = 'fixed';
+    tempDiv.style.left = '-9999px';
+    tempDiv.style.width = '850px';
+    tempDiv.innerHTML = html;
+    document.body.appendChild(tempDiv);
+    await new Promise(res => setTimeout(res, 200));
+    await new Promise((resolve, reject) => {
+      doc.html(tempDiv, {
+        x: 20,
+        y: 20,
+        width: 560,
+        windowWidth: 850,
+        callback: () => { document.body.removeChild(tempDiv); resolve(); }
+      });
     });
     const pdfBytes = doc.output('arraybuffer');
     let folder;
