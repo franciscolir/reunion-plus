@@ -962,23 +962,31 @@ async function renderActivityMetrics() {
       pubCursos += Number(v.cursos) || 0;
     }
   });
-  const cards = [
+  const pubCards = [
     { label: 'Publicadores activos', value: publicadoresActivos, icon: 'group' },
     { label: 'Publicadores', value: pubCount, icon: 'person' },
     { label: 'Cursos publicadores', value: pubCursos, icon: 'menu_book' },
+  ];
+  const auxCards = [
     { label: 'Auxiliares', value: auxCount, icon: 'support_agent' },
     { label: 'Horas auxiliares', value: auxHoras, icon: 'schedule' },
     { label: 'Cursos auxiliares', value: auxCursos, icon: 'school' },
+  ];
+  const regCards = [
     { label: 'Regulares', value: regCount, icon: 'verified_user' },
     { label: 'Horas regulares', value: regHoras, icon: 'hourglass' },
     { label: 'Cursos regulares', value: regCursos, icon: 'auto_stories' },
   ];
-  const grid = cards.map(c => `
+  const cardHtml = (list) => list.map(c => `
     <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4">
       <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-primary text-xl">${c.icon}</span><p class="font-label-md text-label-md text-on-surface-variant">${c.label}</p></div>
       <p class="font-headline-md text-headline-md text-primary">${c.value}</p>
     </div>`).join('');
-  return `<div class="mt-8"><h2 class="font-headline-md text-headline-md text-primary mb-4">Resumen mensual ${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0,4)}</h2><div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">${grid}</div></div>`;
+  return `<div class="mt-8"><h2 class="font-headline-md text-headline-md text-primary mb-4">Resumen mensual ${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0,4)}</h2>
+    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Publicadores</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(pubCards)}</div></div>
+    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Auxiliares</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(auxCards)}</div></div>
+    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Regulares</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(regCards)}</div></div>
+  </div>`;
 }
 
 function actCellHtml(regular, aux, act, horas, disabled, pid) {
