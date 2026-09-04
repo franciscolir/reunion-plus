@@ -3,7 +3,7 @@ import * as db from './db.js';
 import { isSupabaseConfigured } from './supabase-config.js?v=218';
 import { borrarSoloParticipantes, borrarSoloReuniones, borrarSoloProgramas, limpiarTodasLasColecciones, obtenerUsuarios, guardarUsuario } from './supabase.js?v=219';
 import { iniciarSync, pullSiVacio, pullAll, reconciliar, syncStatus, hayCambiosPendientes, sincronizarAhora, subirStores, lastSavedAt, descartarLocal } from './sync.js';
-import { login, logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate, setCurrentPersonaId } from './auth.js';
+import { logout, restoreSession, currentUser, isAuthenticated, onAuthChange, reauthenticate, setCurrentPersonaId } from './auth.js';
 import {
   MONTHS_ES, WEEK_TYPES, isEventWeek, FIELD_LABORE, FIELD_LABELS,
   normalizeStr, searchTalks, saturdaysOf, mondaysOf, weekMondayOf,
@@ -76,6 +76,11 @@ async function init() {
   // Autenticación: restaurar sesión persistente y actualizar la UI.
   onAuthChange((user) => {
     renderAuthUI();
+    // Al cerrarse la sesión (logout o expiración), volver a la página de login.
+    if (isSupabaseConfigured() && !isAuthenticated()) {
+      window.location.replace('./login.html');
+      return;
+    }
     // Al cambiar la sesión, refrescar la vista Inicio (bienvenida ↔ tablero).
     if (state.view === 'home') router();
     // Al iniciar sesión en un dispositivo sin datos locales, traer de Supabase.
@@ -329,7 +334,7 @@ function bindGlobal() {
   document.getElementById('settingsBtn').addEventListener('click', () => go('settings'));
   document.getElementById('sideAbout').addEventListener('click', () => go('about'));
   document.getElementById('sideNewMonth').addEventListener('click', () => go('new'));
-  document.getElementById('sideLogout').addEventListener('click', () => logout());
+  document.getElementById('sideLogout').addEventListener('click', async () => { await logout(); window.location.replace('./login.html'); });
   document.getElementById('navToggle').addEventListener('click', () => {
     document.getElementById('sideNav').classList.toggle('hidden');
   });
@@ -383,55 +388,12 @@ async function onClickAuthBtn() {
   const user = currentUser();
   if (user) {
     await logout();
-    toast('Sesión cerrada', 'success');
-    renderAuthUI();
-    // Con la sesión cerrada, la app vuelve a la bienvenida (bloqueo real).
-    if (location.hash.replace(/^#\/?/, '') !== 'home') location.hash = '#/home';
-    renderWelcome();
+    window.location.replace('./login.html');
     return;
   }
-  openLoginModal();
+  window.location.replace('./login.html');
 }
 
-// Modal de inicio de sesión (email + contraseña).
-function openLoginModal() {
-  openModal(`
-    <div class="text-center">
-      <span class="material-symbols-outlined text-6xl text-primary mb-2">lock</span>
-      <h3 class="font-headline-md text-headline-md text-primary mb-1">Iniciar sesión</h3>
-      <p class="text-on-surface-variant text-sm mb-4">Acceso con la cuenta de la congregación.</p>
-      <form id="loginForm" class="space-y-4 text-left">
-        <div>
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Correo electrónico</label>
-          <input id="loginEmail" type="email" required placeholder="usuario@ejemplo.com" autocomplete="email" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-        </div>
-        <div>
-          <label class="block font-label-md text-label-md text-on-surface-variant mb-1">Contraseña</label>
-          <input id="loginPass" type="password" required placeholder="••••••••" autocomplete="current-password" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md focus:border-primary">
-        </div>
-        <div class="flex gap-3 justify-end pt-2">
-          <button type="button" id="loginCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cancelar</button>
-          <button type="submit" class="px-5 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Entrar</button>
-        </div>
-      </form>
-      <p class="text-on-surface-variant text-xs mt-3">Acceso restringido a los correos autorizados por la congregación.</p>
-    </div>`);
-  $('#loginCancel').onclick = closeModal;
-  $('#loginForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const email = $('#loginEmail').value.trim();
-    const pass = $('#loginPass').value;
-    if (!email || !pass) { toast('Completa correo y contraseña', 'error'); return; }
-    try {
-      await login(email, pass);
-      closeModal();
-      toast('Sesión iniciada', 'success');
-      renderAuthUI();
-    } catch (err) {
-      toast('No se pudo iniciar sesión: ' + (err.message || err), 'error');
-    }
-  };
-}
 function updateOnline() {
   const btn = document.getElementById('onlineBtn');
   if (navigator.onLine) {
@@ -478,13 +440,10 @@ function router() {
   const [path, query] = hash.split('?');
   const segs = path.split('/').filter(Boolean);
   const view = segs[0] || 'home';
-  // Arquitectura segura: sin sesión, la única pantalla accesible es la
-  // bienvenida; cualquier vista interna queda bloqueada.
+  // Arquitectura segura: sin sesión se redirige a la página de login separada;
+  // cualquier vista interna queda bloqueada.
   if (appBloqueada()) {
-    state.view = 'home';
-    renderTop();
-    renderSide();
-    renderWelcome();
+    window.location.replace('./login.html');
     return;
   }
   if (isIaRole() && view !== 'ia') {
@@ -667,31 +626,6 @@ function renderSide() {
 }
 
 /* ---------- HOME: Tablero principal ---------- */
-// Página de bienvenida a la app: se muestra en la vista Inicio cuando no hay
-// sesión activa. Ofrece el botón de inicio de sesión de la congregación.
-function renderWelcome() {
-  const app = $('#app');
-  app.innerHTML = `
-    <div class="flex flex-col items-center justify-center text-center py-16 md:py-24">
-      <div class="w-20 h-20 rounded-2xl bg-primary text-on-primary flex items-center justify-center mb-6 shadow-lg">
-        <span class="material-symbols-outlined text-5xl">auto_stories</span>
-      </div>
-      <h1 class="font-display-lg text-display-lg text-primary mb-3">Bienvenido a Reunión+</h1>
-      <p class="font-body-lg text-body-lg text-on-surface-variant max-w-md mb-8">
-        Organiza el programa mensual de las reuniones de la congregación: asignaciones,
-        reuniones de entre semana, atención y salidas, todo en un solo lugar.
-      </p>
-      <button id="welcomeLogin" class="flex items-center gap-2 bg-primary text-on-primary px-8 py-3.5 rounded-xl font-label-lg text-label-lg hover:opacity-90 hover:shadow-lg transition-all active:scale-95">
-        <span class="material-symbols-outlined text-[22px]">login</span>
-        Entrar
-      </button>
-      <button id="welcomeMore" class="mt-3 text-on-surface-variant text-sm underline hover:text-primary transition-colors">¿Qué es esto?</button>
-    </div>
-  `;
-  $('#welcomeLogin').onclick = openLoginModal;
-  $('#welcomeMore').onclick = () => go('about');
-}
-
 async function renderIa() {
   state.month = null;
   renderTop();
@@ -2468,7 +2402,7 @@ async function renderGroupSummary() {
 
 async function renderHome() {
   state.month = null;
-  if (isSupabaseConfigured() && !isAuthenticated()) { renderWelcome(); return; }
+  if (isSupabaseConfigured() && !isAuthenticated()) { window.location.replace('./login.html'); return; }
   const months = await db.listMonths();
   months.sort((a, b) => b.id.localeCompare(a.id));
   _homeMonths = months;
