@@ -9260,11 +9260,12 @@ function generalWeekExportSvg(data, cur, opts = {}) {
     P.push(`<rect x="${PAD}" y="78" width="${cw}" height="150" rx="14" fill="${groupRow.fill}" stroke="${C.line}" stroke-width="1"/>`);
     P.push(svgT(W / 2, 112, 'GRUPO DE LA SEMANA', 18, 700, C.sub, 'middle'));
     P.push(svgT(W / 2, 198, groupRow.lines[0].t, 92, 700, C.title, 'middle'));
+    const mobileTextMaxW = cw - 36;
     const card = (row, x, y, width, height) => {
       P.push(`<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="12" fill="${row.fill}" stroke="${C.line}" stroke-width="1"/>`);
       P.push(svgT(x + 18, y + 30, row.label, 14, 700, C.sub));
       let yy = y + 58;
-      row.lines.forEach(line => { P.push(svgT(x + 18, yy, line.t, 13, line.w, line.f)); yy += 18; });
+      row.lines.forEach(line => { svgTextLines(line.t, line.s, mobileTextMaxW).forEach(vl => { P.push(svgT(x + 18, yy, vl, 13, line.w, line.f)); yy += 18; }); });
     };
     card(bodyRows[0], PAD, 250, cw, 300);
     card(bodyRows[1], PAD, 590, cw, 280);
@@ -9272,8 +9273,13 @@ function generalWeekExportSvg(data, cur, opts = {}) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
   }
 
+  const textMaxW = cw - 32;
   let H = PAD + 32 + 20 + 10;
-  rows.forEach(r => H += 44 + r.lines.length * 24 + 12);
+  rows.forEach(r => {
+    let linesH = 0;
+    r.lines.forEach(ln => { linesH += svgTextLines(ln.t, ln.s, textMaxW).length * 24; });
+    H += 44 + linesH + 12;
+  });
   H += PAD;
 
   const P = [];
@@ -9286,11 +9292,13 @@ function generalWeekExportSvg(data, cur, opts = {}) {
   P.push(`<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
   y += 10;
   rows.forEach(r => {
-    const bh = 44 + r.lines.length * 24 + 12;
+    let linesH = 0;
+    r.lines.forEach(ln => { linesH += svgTextLines(ln.t, ln.s, textMaxW).length * 24; });
+    const bh = 44 + linesH + 12;
     P.push(`<rect x="${PAD}" y="${y}" width="${cw}" height="${bh}" rx="10" fill="${r.fill}" stroke="${C.line}" stroke-width="1"/>`);
     P.push(svgT(PAD + 16, y + 26, r.label, 12, 700, C.sub));
     let yy = y + 44;
-    r.lines.forEach(ln => { P.push(svgT(PAD + 16, yy, ln.t, ln.s, ln.w, ln.f)); yy += 24; });
+    r.lines.forEach(ln => { svgTextLines(ln.t, ln.s, textMaxW).forEach(vl => { P.push(svgT(PAD + 16, yy, vl, ln.s, ln.w, ln.f)); yy += 24; }); });
     y += bh + 12;
   });
 
@@ -10491,7 +10499,8 @@ function outingsExportSvg() {
     else if (outs.length) {
       let oh = 0, dh = 0;
       outs.forEach(o => {
-        oh += 24;
+        const orLines = svgTextLines(personNameOf(o.oradorSalida), 17, 300 - 22);
+        oh += orLines.length * 24;
         dh += svgTextLines(o.tituloDiscurso || '—', 16, cw - 150 - 300 - 22).length * 21;
       });
       rh = Math.max(rh, Math.max(oh, dh) + 18);
@@ -10555,8 +10564,10 @@ function outingsExportSvg() {
       } else if (r.outs.length) {
         let oy = y + 26, dy = y + 26;
         r.outs.forEach(o => {
-          P.push(svgT(x2 + 12, oy, personNameOf(o.oradorSalida), 17, 600, C.name));
-          oy += 24;
+          svgTextLines(personNameOf(o.oradorSalida), 17, col2 - 22).forEach(ln => {
+            P.push(svgT(x2 + 12, oy, ln, 17, 600, C.name));
+            oy += 24;
+          });
           svgTextLines(o.tituloDiscurso || '—', 16, w3).forEach(ln => {
             P.push(svgT(x3 + 12, dy, ln, 16, 400, C.sub));
             dy += 21;
@@ -10614,22 +10625,23 @@ function midweekSvgLayout(w, y0) {
   const C = { title: '#3f3a2e', sub: '#6b6454', name: '#2f2a20', line: '#d8d4cc' };
   const P = [];
   let y = y0;
-  P.push(svgT(W / 2, y + 24, w.header || w.id, 20, 700, C.title, 'middle'));
-  y += 30;
+  svgTextLines(w.header || w.id, 20, cw - 8).forEach(ln => { P.push(svgT(W / 2, y + 24, ln, 20, 700, C.title, 'middle')); y += 26; });
+  y += 4;
   if (w.type === 'commemoration') {
-    P.push(svgT(W / 2, y + 14, 'Conmemoración · reunión de entre semana suspendida', 13, 400, C.sub, 'middle'));
-    y += 22;
-    P.push(svgT(PAD, y + 14, `Presidente: ${personNameOf(w.presidente)}`, 14, 700, C.name)); y += 20;
-    P.push(svgT(PAD, y + 14, `Orador (Discurso): ${w.orador || '—'}`, 14, 400, C.name)); y += 20;
-    P.push(svgT(PAD, y + 14, `Oración por el Pan: ${personNameOf(w.oracionPan)}`, 14, 400, C.name)); y += 20;
-    P.push(svgT(PAD, y + 14, `Oración por el Vino: ${personNameOf(w.oracionVino)}`, 14, 400, C.name)); y += 24;
+    svgTextLines('Conmemoración · reunión de entre semana suspendida', 13, cw - 8).forEach(ln => { P.push(svgT(W / 2, y + 14, ln, 13, 400, C.sub, 'middle')); y += 18; });
+    y += 4;
+    svgTextLines(`Presidente: ${personNameOf(w.presidente)}`, 14, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 14, 700, C.name)); y += 20; });
+    svgTextLines(`Orador (Discurso): ${w.orador || '—'}`, 14, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 14, 400, C.name)); y += 20; });
+    svgTextLines(`Oración por el Pan: ${personNameOf(w.oracionPan)}`, 14, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 14, 400, C.name)); y += 20; });
+    svgTextLines(`Oración por el Vino: ${personNameOf(w.oracionVino)}`, 14, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 14, 400, C.name)); y += 20; });
+    y += 4;
     return { parts: P, nextY: y, W };
   }
   const isSup = w.type === 'supervisor';
-  P.push(svgT(W / 2, y + 14, `Lectura: ${w.reading || '—'}`, 13, 400, C.sub, 'middle'));
-  y += 20;
-  P.push(svgT(W / 2, y + 16, `Presidente: ${personNameOf(w.presidente)}`, 15, 700, C.name, 'middle'));
-  y += 26;
+  svgTextLines(`Lectura: ${w.reading || '—'}`, 13, cw - 8).forEach(ln => { P.push(svgT(W / 2, y + 14, ln, 13, 400, C.sub, 'middle')); y += 18; });
+  y += 2;
+  svgTextLines(`Presidente: ${personNameOf(w.presidente)}`, 15, cw - 8).forEach(ln => { P.push(svgT(W / 2, y + 16, ln, 15, 700, C.name, 'middle')); y += 20; });
+  y += 6;
   (w.sections || []).forEach(sec => {
     P.push(svgT(PAD, y + 14, sec.title, 13, 700, C.sub));
     y += 18;
@@ -10646,15 +10658,14 @@ function midweekSvgLayout(w, y0) {
   ATENCION_DEF.forEach(({ key, label, count }) => {
     const arr = Array.isArray(l[key]) ? l[key] : [l[key] || ''];
     const names = Array.from({ length: count }, (_, si) => { const v = asId(arr[si]); return v ? personNameOf(v) : null; }).filter(Boolean);
-    P.push(svgT(PAD, y + 14, `${label}: ${names.length ? names.join(' · ') : '—'}`, 12, 400, C.name));
-    y += 17;
+    svgTextLines(`${label}: ${names.length ? names.join(' · ') : '—'}`, 12, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 12, 400, C.name)); y += 17; });
   });
   P.push(`<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="${C.line}" stroke-width="1"/>`);
   y += 14;
-  P.push(svgT(PAD, y + 14, `${w.closingTitle || 'Palabras de conclusión'} (${w.closingMins || 3} mins.)`, 13, 400, C.name));
-  y += 18;
-  P.push(svgT(PAD, y + 14, `Oración final: ${(isSup ? (w.nombreSupervisor || 'Superintendente de Circuito') : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico'))}`, 13, 600, C.name));
-  y += 24;
+  svgTextLines(`${w.closingTitle || 'Palabras de conclusión'} (${w.closingMins || 3} mins.)`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 400, C.name)); y += 18; });
+  y += 2;
+  svgTextLines(`Oración final: ${(isSup ? (w.nombreSupervisor || 'Superintendente de Circuito') : (mwConductorEstudio(w) || 'el conductor del Estudio Bíblico'))}`, 13, cw - 8).forEach(ln => { P.push(svgT(PAD, y + 14, ln, 13, 600, C.name)); y += 18; });
+  y += 6;
   return { parts: P, nextY: y, W };
 }
 
@@ -10760,49 +10771,23 @@ function programaExportSvg() {
   g: '',
   rh: 50
 };
-    if (!isEventWeek(w)) {
-      
-      //celdas.p = personNameOf(w.presidente);
-      //celdas.d = svgTextLines(w.tituloDiscurso || '—', 15, ws[2] - 22);
-      //celdas.o = w.orador || '—';
-      //celdas.e = personNameOf(w.conductor);
-      //celdas.l = personNameOf(w.lector);
-      //celdas.g = grupoTxt(w);./
-      //celdas.p = svgTextLines(personNameOf(w.presidente), 16, ws[1] - 22);
-
-celdas.d = svgTextLines(
-  w.tituloDiscurso || '—',
-  15,
-  ws[2] - 22
-);
-
-celdas.o = svgTextLines(
-  w.orador || '—',
-  16,
-  ws[3] - 22
-);
-
-celdas.e = svgTextLines(
-  personNameOf(w.conductor),
-  16,
-  ws[4] - 22
-);
-
-celdas.l = svgTextLines(
-  personNameOf(w.lector),
-  16,
-  ws[5] - 22
-);
+     if (!isEventWeek(w)) {
+      celdas.p = svgTextLines(personNameOf(w.presidente), 16, ws[1] - 22);
+      celdas.d = svgTextLines(w.tituloDiscurso || '—', 15, ws[2] - 22);
+      celdas.o = svgTextLines(w.orador || '—', 16, ws[3] - 22);
+      celdas.e = svgTextLines(personNameOf(w.conductor), 16, ws[4] - 22);
+      celdas.l = svgTextLines(personNameOf(w.lector), 16, ws[5] - 22);
+      celdas.g = svgTextLines(grupoTxt(w), 15, ws[6] - 22);
     } else if (w.type === 'supervisor') {
-      celdas.p = personNameOf(w.presidente);
+      celdas.p = svgTextLines(personNameOf(w.presidente), 16, ws[1] - 22);
       celdas.d = svgTextLines(w.discursoSupervisor1 || '—', 15, ws[2] - 22)
         .concat(w.discursoSupervisor2 ? ['', ...svgTextLines(w.discursoSupervisor2 || '—', 15, ws[2] - 22)] : []);
-      celdas.o = w.nombreSupervisor || '—';
-      celdas.e = personNameOf(w.estudioSinLectura);
-      celdas.l = 'Sin lectura';
-      celdas.g = grupoTxt(w);
+      celdas.o = svgTextLines(w.nombreSupervisor || '—', 16, ws[3] - 22);
+      celdas.e = svgTextLines(personNameOf(w.estudioSinLectura), 16, ws[4] - 22);
+      celdas.l = svgTextLines('Sin lectura', 16, ws[5] - 22);
+      celdas.g = svgTextLines(grupoTxt(w), 15, ws[6] - 22);
     }
-    celdas.rh = Math.max(50, celdas.d.length * 20 + 34);
+    celdas.rh = Math.max(50, Math.max(celdas.p.length, celdas.d.length, celdas.o.length, celdas.e.length, celdas.l.length, celdas.g.length) * 20 + 34);
     return celdas;
   });
 
@@ -10834,12 +10819,12 @@ celdas.l = svgTextLines(
       }
     const y0 = y;
     P.push(svgT(xs[0] + 12, y0 + 26, r.f, 22, 700, C.title));
-    P.push(svgT(xs[1] + 12, y0 + 26, r.p, 16, 400, C.name));
+    r.p.forEach((ln, li) => P.push(svgT(xs[1] + 12, y0 + 26 + li * 20, ln, 16, 400, C.name)));
     r.d.forEach((ln, li) => P.push(svgT(xs[2] + 12, y0 + 26 + li * 20, ln, 15, 400, C.title)));
-    P.push(svgT(xs[3] + 12, y0 + 26, r.o, 16, 600, C.name));
-    P.push(svgT(xs[4] + 12, y0 + 26, r.e, 16, 400, C.name));
-    P.push(svgT(xs[5] + 12, y0 + 26, r.l, 16, 400, C.name));
-    P.push(svgT(xs[6] + 12, y0 + 26, r.g, 15, 700, C.title));
+    r.o.forEach((ln, li) => P.push(svgT(xs[3] + 12, y0 + 26 + li * 20, ln, 16, 600, C.name)));
+    r.e.forEach((ln, li) => P.push(svgT(xs[4] + 12, y0 + 26 + li * 20, ln, 16, 400, C.name)));
+    r.l.forEach((ln, li) => P.push(svgT(xs[5] + 12, y0 + 26 + li * 20, ln, 16, 400, C.name)));
+    r.g.forEach((ln, li) => P.push(svgT(xs[6] + 12, y0 + 26 + li * 20, ln, 15, 700, C.title)));
     P.push(`<line x1="${PAD}" y1="${y0 + r.rh}" x2="${W - PAD}" y2="${y0 + r.rh}" stroke="${C.line}" stroke-width="1"/>`);
     y += r.rh;
   });
@@ -10890,7 +10875,19 @@ async function laboresExportSvg(cur) {
     return lines;
   };
 
-  const H = PAD + 34 + 12 + 40 + laborRows.length * 46 + PAD;
+  const cellMaxW = colW - 8;
+  const rowHeights = laborRows.map((lr) => {
+    let maxLines = 1;
+    colLabels.forEach((_, ci) => {
+      const lines = cellLines(sundays[ci], lr.key, lr.si);
+      if (!lines.length) return;
+      let visLines = 0;
+      lines.forEach(ln => { visLines += svgTextLines(ln, 13, cellMaxW).length; });
+      maxLines = Math.max(maxLines, visLines);
+    });
+    return Math.max(46, maxLines * 18 + 14);
+  });
+  const H = PAD + 34 + 12 + 40 + rowHeights.reduce((a, b) => a + b, 0) + PAD;
   const P = [];
   P.push(`<rect width="${W}" height="${H}" fill="#ffffff"/>`);
   let y = PAD;
@@ -10908,17 +10905,19 @@ async function laboresExportSvg(cur) {
     P.push(svgT(cx + colW / 2, y + 32, cl.b, 10, 400, C.sub, 'middle'));
   });
   y += 38;
-  laborRows.forEach((lr) => {
+  laborRows.forEach((lr, ri) => {
     const y0 = y;
+    const rh = rowHeights[ri];
     P.push(svgT(PAD + 12, y0 + 28, lr.label, 14, 600, C.name));
     colLabels.forEach((_, ci) => {
       const cx = PAD + firstW + ci * colW;
       const lines = cellLines(sundays[ci], lr.key, lr.si);
       if (!lines.length) { P.push(svgT(cx + colW / 2, y0 + 28, '—', 13, 400, C.sub, 'middle')); return; }
-      lines.forEach((ln, li) => P.push(svgT(cx + colW / 2, y0 + 26 + li * 18, ln, 13, 400, C.name, 'middle')));
+      let ty = y0 + 26;
+      lines.forEach(ln => { svgTextLines(ln, 13, cellMaxW).forEach(vl => { P.push(svgT(cx + colW / 2, ty, vl, 13, 400, C.name, 'middle')); ty += 18; }); });
     });
-    P.push(`<line x1="${PAD}" y1="${y0 + 46}" x2="${W - PAD}" y2="${y0 + 46}" stroke="${C.line}" stroke-width="1"/>`);
-    y += 46;
+    P.push(`<line x1="${PAD}" y1="${y0 + rh}" x2="${W - PAD}" y2="${y0 + rh}" stroke="${C.line}" stroke-width="1"/>`);
+    y += rh;
   });
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${P.join('')}</svg>`;
