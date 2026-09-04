@@ -258,6 +258,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.evaluate(() => { location.hash = '#/algoritmo'; });
     await expect(page.locator('#algoGenerate')).toBeVisible();
+    await page.fill('#algoMonth', '2026-08');
 
     await page.click('#algoGenerate');
     // El programa de salidas del seed está incompleto → pregunta antes de generar.
@@ -309,6 +310,7 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.evaluate(() => { location.hash = '#/algoritmo'; });
     await expect(page.locator('#algoGenerate')).toBeVisible();
+    await page.fill('#algoMonth', '2026-08');
 
     await page.click('#algoGenerate');
     await expect(page.locator('h3:has-text("Programa de salidas incompleto")')).toBeVisible();
@@ -672,11 +674,11 @@ test.describe('Reunión+ PWA (modo offline)', () => {
     await expect(page.locator('#modalCard')).toContainText('7 de 7 asignados');
     await expect(page.locator('#modalCard')).toContainText('Volver a asignar');
 
-    // Cerrar: en Personas, el avatar de la primera persona muestra el número de grupo.
+    // Cerrar: en Personas, el grupo de la primera persona se muestra en la columna Grupo.
     await page.click('#gaClose');
     await page.click('[data-tab="personas"]');
     const card = page.locator('.person-card').first();
-    await expect(card.locator('.rounded-full').first()).toContainText('1');
+    await expect(card.locator('td:nth-child(2)')).toHaveText('Grupo 1');
   });
 
   test('personas: carpetas de grupos y departamentos (interior y métricas)', async ({ page }) => {
