@@ -2186,9 +2186,13 @@ function speakerCardSvg(person, talks = []) {
 }
 
 async function renderFormsTab() {
-  const months = serviceYearMonths(currentServiceYear());
+  const monthsBase = serviceYearMonths(currentServiceYear());
   const now = new Date(); now.setMonth(now.getMonth() - 1);
   const prevMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  let months = [...monthsBase];
+  if (!months.includes(prevMonth)) {
+    months = [prevMonth, ...months];
+  }
   const defaultMonth = months.includes(prevMonth) ? prevMonth : months[months.length - 1];
   const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : defaultMonth;
   const monthOpts = months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('');
