@@ -2344,13 +2344,58 @@ function registroHtmlTable(title, rows, promedio) {
 }
 
 function buildRegistroHtml(year, data, data2) {
-  const avg = (arr) => { const t = arr.reduce((s, r) => s + r.total, 0); return arr.length ? Math.round(t / arr.length) : 0; };
-  const css = `<style>.custom-table th,.custom-table td{border:1px solid #d1d5db;padding:.5rem;text-align:center}.custom-table th{background:#f9fafb;font-weight:600;font-size:.8rem}.custom-table td{font-size:.8rem;height:1.6rem}.custom-table td:first-child{text-align:left;font-weight:600;width:25%}</style>`;
-  return `${FORM_HEAD}${css}<main class="bg-white w-full max-w-5xl p-8 shadow-lg border border-gray-200">
-<header class="mb-8 text-center"><h1 class="text-2xl font-serif font-bold uppercase">Registro de Asistencia a las Reuniones de Congregación</h1></header>
-<section class="mb-12"><h2 class="text-xl font-bold mb-4">Reunión de entre semana</h2><div class="grid grid-cols-2 gap-0 border border-gray-300">${registroHtmlTable('Año de servicio', data.midweek, avg(data.midweek))}${registroHtmlTable('', data2.midweek, avg(data2.midweek))}</div></section>
-<section><h2 class="text-xl font-bold mb-4">Reunión del fin de semana</h2><div class="grid grid-cols-2 gap-0 border border-gray-300">${registroHtmlTable('Año de servicio', data.weekend, avg(data.weekend))}${registroHtmlTable('', data2.weekend, avg(data2.weekend))}</div></section>
-</main></body></html>`;
+  const monthsNames = ['Septiembre','Octubre','Noviembre','Diciembre','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto'];
+  const avgMonthly = (arr) => {
+    if (!arr?.length) return 0;
+    const prom = arr.reduce((s,r)=>s+(r.promedio||0),0);
+    return Math.round(prom/arr.length);
+  };
+  const buildTable = (sectionTitle, rows1, rows2) => {
+    const year1Val = year;
+    const year2Val = year + 1;
+    const head = `<tr class="h-9">
+<th class="p-1 align-middle text-center font-bold"><div class="flex items-center justify-center space-x-1"><span class="whitespace-nowrap">Año de servicio</span><input class="w-10 border-b border-black text-center font-bold text-[11px] p-0 focus:outline-none focus:border-blue-600 bg-transparent" maxlength="4" type="text" value="${year1Val}"/></div></th>
+<th class="p-1 align-middle text-center font-bold">Número de<br/>reuniones</th>
+<th class="p-1 align-middle text-center font-bold">Asistencia<br/>total</th>
+<th class="p-1 align-middle text-center font-bold thick-right">Promedio de<br/>asistencia<br/>semanal</th>
+<th class="p-1 align-middle text-center font-bold"><div class="flex items-center justify-center space-x-1"><span class="whitespace-nowrap">Año de servicio</span><input class="w-10 border-b border-black text-center font-bold text-[11px] p-0 focus:outline-none focus:border-blue-600 bg-transparent" maxlength="4" type="text" value="${year2Val}"/></div></th>
+<th class="p-1 align-middle text-center font-bold">Número de<br/>reuniones</th>
+<th class="p-1 align-middle text-center font-bold">Asistencia<br/>total</th>
+<th class="p-1 align-middle text-center font-bold">Promedio de<br/>asistencia<br/>semanal</th>
+</tr>`;
+    const rowsHtml = monthsNames.map((m,i)=> {
+      const r1 = rows1[i]||{reuniones:'',total:'',promedio:''};
+      const r2 = rows2[i]||{reuniones:'',total:'',promedio:''};
+      return `<tr class="h-[21px]">
+<td class="px-1.5 font-normal">${m}</td>
+<td class="p-0"><input class="form-cell-input" type="text" value="${r1.reuniones||''}"/></td>
+<td class="p-0"><input class="form-cell-input" type="text" value="${r1.total||''}"/></td>
+<td class="p-0 thick-right"><input class="form-cell-input" type="text" value="${r1.promedio||''}"/></td>
+<td class="px-1.5 font-normal">${m}</td>
+<td class="p-0"><input class="form-cell-input" type="text" value="${r2.reuniones||''}"/></td>
+<td class="p-0"><input class="form-cell-input" type="text" value="${r2.total||''}"/></td>
+<td class="p-0"><input class="form-cell-input" type="text" value="${r2.promedio||''}"/></td>
+</tr>`;
+    }).join('');
+    const prom1 = avgMonthly(rows1);
+    const prom2 = avgMonthly(rows2);
+    const foot = `<tr class="h-[22px]">
+<td class="px-2 text-center font-bold" colspan="3">Promedio de asistencia mensual</td>
+<td class="p-0 thick-right"><input class="form-cell-input font-bold" type="text" value="${prom1}"/></td>
+<td class="px-2 text-center font-bold" colspan="3">Promedio de asistencia mensual</td>
+<td class="p-0"><input class="form-cell-input font-bold" type="text" value="${prom2}"/></td>
+</tr>`;
+    return `<section class="mb-7"><div class="mb-1"><h2 class="text-[14px] sm:text-[15px] font-bold tracking-tight text-left">${sectionTitle}</h2></div><table class="table-bordered text-[11px] leading-tight"><colgroup><col style="width:17%"/><col style="width:11%"/><col style="width:11%"/><col style="width:11%"/><col style="width:17%"/><col style="width:11%"/><col style="width:11%"/><col style="width:11%"/></colgroup><thead>${head}</thead><tbody>${rowsHtml}</tbody><tfoot>${foot}</tfoot></table></section>`;
+  };
+  const headHtml = `<!DOCTYPE html><html lang="es"><head>
+<meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Registro de Asistencia a las Reuniones de Congregación</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style>body{font-family:"Times New Roman",Times,Georgia,serif;-webkit-font-smoothing:antialiased}.font-sans-ui{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}.table-bordered{border-collapse:collapse;width:100%}.table-bordered th,.table-bordered td{border:1px solid #1a1a1a}.table-bordered th.thick-right,.table-bordered td.thick-right{border-right:1.5px solid #000000}.form-cell-input{width:100%;height:100%;background:transparent;border:none;outline:none;box-shadow:none;text-align:center;padding:2px 3px;font-family:inherit;font-size:11px;line-height:1.1;color:#000}.form-cell-input:focus{background-color:rgba(239,246,255,.7);outline:none;box-shadow:inset 0 0 0 1px #3b82f6}@media print{body{background:#fff!important;padding:0!important}.no-print{display:none!important}.print-shadow-none{box-shadow:none!important;border:none!important;margin:0!important;padding:0!important;width:100%!important;max-width:100%!important}@page{size:letter portrait;margin:10mm 12mm 10mm 12mm}}</style>
+</head><body class="bg-gray-100 text-black min-h-screen py-6 px-2 sm:px-4 flex flex-col items-center">
+<main class="w-full max-w-[820px] bg-white border border-gray-300 print-shadow-none shadow-md px-6 sm:px-10 py-7 box-border"><header class="text-center mb-5"><h1 class="text-[17px] sm:text-[18px] font-bold tracking-tight uppercase leading-tight">REGISTRO DE ASISTENCIA A LAS REUNIONES DE CONGREGACIÓN</h1></header><form autocomplete="off" id="attendance-form">`;
+  const footHtml = `</form></main></body></html>`;
+  return headHtml + buildTable('Reunión de entre semana', data.midweek, data2.midweek) + buildTable('Reunión del fin de semana', data.weekend, data2.weekend) + footHtml;
 }
 
 function buildRegistroSvg(year, data, data2) {
