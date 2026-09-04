@@ -906,7 +906,7 @@ async function renderInformesDashboard(){
     const status = pct===100?'Completado':pct===0?'Pendiente':'En revisión';
     const statusCls = pct===100?'bg-emerald-100 text-emerald-800':pct===0?'bg-amber-100 text-amber-900 border border-amber-300':'bg-primary-fixed text-on-primary-fixed';
     const encargado = people.find(p=>String(p.id)===String(d.encargadoId));
-    return `<article class="bg-surface rounded-xl border border-outline-variant/30 p-5 flex flex-col justify-between group">
+    return `<article data-group-id="${d.id}" onclick="state.reportGroup='${d.id}'; renderInformes();" class="bg-surface rounded-xl border border-outline-variant/30 p-5 flex flex-col justify-between group cursor-pointer hover:border-primary transition-colors">
       <div>
         <div class="flex justify-between items-start mb-3">
           <div>
