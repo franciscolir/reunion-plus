@@ -9,6 +9,24 @@ export function isSupabaseConfigured() { return false; }
 export const getSupabase = async () => null;
 `;
 
+// Simula Supabase configurado pero sin sesión: auth queda "activo" y getSupabase
+// devuelve un cliente falso que no autentica. Sirve para probar que, sin login,
+// la app redirige a login.html en lugar de exponer datos.
+export const MOCK_SUPABASE_CONFIGURED = `
+export const SUPABASE_URL = 'https://fake.supabase.co';
+export const SUPABASE_ANON_KEY = 'fake-anon-key';
+export function isSupabaseConfigured() { return true; }
+export const getSupabase = async () => ({
+  auth: {
+    getSession: async () => ({ data: { session: null }, error: null }),
+    signInWithPassword: async () => ({ data: {}, error: { message: 'invalid_credentials' } }),
+    signOut: async () => ({}),
+    onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+  },
+  from: () => ({ select: () => ({ data: [], error: null }), upsert: async () => ({ error: null }), delete: async () => ({ error: null }), update: async () => ({ error: null }) }),
+});
+`;
+
 // Aplica el mock de Supabase y abre la app esperando a que la navegación
 // lateral esté disponible (app desbloqueada).
 export async function openApp(page) {
@@ -16,6 +34,14 @@ export async function openApp(page) {
     route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE }));
   await page.goto('/');
   await page.waitForSelector('#sideNavItems button[data-go="lists"]', { state: 'visible' });
+}
+
+// Abre la app con Supabase "configurado" pero sin sesión. Espera la navegación a
+// login.html (o el render del formulario de login).
+export async function openAppConSupabase(page) {
+  await page.route('**/supabase-config.js*', route =>
+    route.fulfill({ contentType: 'application/javascript', body: MOCK_SUPABASE_CONFIGURED }));
+  await page.goto('/');
 }
 
 // Navega a la vista Congregación y espera a que cargue.

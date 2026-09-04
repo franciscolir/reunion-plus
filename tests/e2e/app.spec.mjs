@@ -3,7 +3,7 @@
 // de modo que IndexedDB es la única fuente de datos. Cada test usa un
 // contexto de navegador nuevo (base de datos vacía).
 import { test, expect } from '@playwright/test';
-import { openApp, gotoLabores, seedProposalData, seedAtencionSelects, MOCK_SUPABASE } from './helpers.mjs';
+import { openApp, openAppConSupabase, gotoLabores, seedProposalData, seedAtencionSelects, MOCK_SUPABASE } from './helpers.mjs';
 
 test.describe('Reunión+ PWA (modo offline)', () => {
 
@@ -1492,6 +1492,39 @@ test.describe('Reunión+ PWA (modo offline)', () => {
 
     await page.evaluate(() => { location.hash = '#/general'; });
     await expect(page.locator('#app')).toContainText('Hermano Gómez');
+  });
+
+});
+
+test.describe('Seguridad: intentos de saltarse el login', () => {
+
+  test('sin sesión, el index redirige a login.html y no renderiza el tablero', async ({ page }) => {
+    await openAppConSupabase(page);
+    await page.waitForURL(/login\.html/);
+    await expect(page.locator('#loginStart')).toBeVisible();
+    await expect(page.locator('#sideNavItems')).toHaveCount(0);
+    await expect(page.locator('#app')).toHaveCount(0);
+  });
+
+  test('acceso directo por hash a vistas internas siempre redirige a login', async ({ page }) => {
+    await openAppConSupabase(page);
+    await page.waitForURL(/login\.html/);
+    const rutas = ['#/edit', '#/lists', '#/settings', '#/uploads', '#/algoritmo', '#/informes', '#/midweeks', '#/general'];
+    for (const ruta of rutas) {
+      await page.goto('/' + ruta);
+      await page.waitForURL(/login\.html/);
+      await expect(page.locator('#loginStart')).toBeVisible();
+      await expect(page.locator('#sideNavItems')).toHaveCount(0);
+    }
+  });
+
+  test('login.html con sesión inexistente muestra el formulario, no redirige a index', async ({ page }) => {
+    await openAppConSupabase(page);
+    await page.waitForURL(/login\.html/);
+    await page.click('#loginStart');
+    await expect(page.locator('#loginForm')).toBeVisible();
+    await expect(page.locator('#loginEmail')).toBeVisible();
+    await expect(page.locator('#loginPass')).toBeVisible();
   });
 
 });
