@@ -1019,6 +1019,7 @@ async function renderActivityGroupView(gid, withBack) {
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
   const members = state.people.filter(p => String(p.grupoId) === String(gid));
+  console.log('[DEBUG actividad] renderActivityGroupView gid', gid, 'month', month, 'members', members.length, 'sample', members.slice(0,2).map(p=>({id:p.id,name:p.name,precursorRegular:p.precursorRegular})));
   const me = currentUser();
   const isUser = me && me.rol === 'user';
   const nowMonth = isoDate(new Date()).slice(0,7);
@@ -1048,8 +1049,10 @@ async function renderActivityGroupView(gid, withBack) {
   const sinActLabel = todosInformaron ? 'Todos informaron' : 'Sin actividad';
   const sinActValue = todosInformaron ? '✓' : sinActividad;
   const rows = members.map(p => {
-    const regular = p.precursorRegular === true;
+    console.log('[DEBUG actividad] pid', p.id, 'name', p.name, 'precursorRegular=', p.precursorRegular, 'type=', typeof p.precursorRegular);
     const rev = revisionMap[p.id];
+    console.log('[DEBUG actividad] rev=', rev, 'regular computed later');
+    const regular = p.precursorRegular === true;
     const vReport = report.people?.[p.id] || {};
     const v = (isUser && canEditUser && rev) ? rev : vReport;
     const horas = Number(v.horas) || 0;
