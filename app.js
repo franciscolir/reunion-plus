@@ -2619,8 +2619,6 @@ async function downloadPubReg(pid, fmt, year) {
 async function downloadAllPubReg(year) {
   toast('Generando registros masivos...', 'info');
   const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
-  const jsPDFMod = await import('https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm');
-  const { jsPDF } = jsPDFMod;
   const people = (state.people || []).filter(p => p.activo !== false);
   if (!people.length) { toast('No hay publicadores', 'error'); return; }
   const zip = new JSZip();
@@ -2628,24 +2626,6 @@ async function downloadAllPubReg(year) {
   for (const p of people) {
     const d = await computePubReg(p, Number(year));
     const html = buildPubRegHtml(p, Number(year), d);
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-    const tempDiv = document.createElement('div');
-    tempDiv.style.position = 'fixed';
-    tempDiv.style.left = '-9999px';
-    tempDiv.style.width = '850px';
-    tempDiv.innerHTML = html;
-    document.body.appendChild(tempDiv);
-    await new Promise(res => setTimeout(res, 200));
-    await new Promise((resolve, reject) => {
-      doc.html(tempDiv, {
-        x: 20,
-        y: 20,
-        width: 560,
-        windowWidth: 850,
-        callback: () => { document.body.removeChild(tempDiv); resolve(); }
-      });
-    });
-    const pdfBytes = doc.output('arraybuffer');
     let folder;
     if (p.inactivo === true) {
       folder = 'inactivos/';
@@ -2655,8 +2635,8 @@ async function downloadAllPubReg(year) {
       const gid = p.grupoId || 'sin_grupo';
       folder = `activos/publicadores/grupo${gid}/`;
     }
-    const fileName = `${normalize(p.name || 'sin_nombre')}_${year}.pdf`;
-    zip.file(`${folder}${fileName}`, pdfBytes);
+    const fileName = `${normalize(p.name || 'sin_nombre')}_${year}.html`;
+    zip.file(`${folder}${fileName}`, html);
     if (!p.grupoId) toast(`Persona sin grupo: ${p.name}`, 'warning');
   }
   const content = await zip.generateAsync({ type: 'blob' });
