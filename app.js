@@ -844,17 +844,110 @@ async function renderInformes() {
 
 async function renderActivityTab() {
   const me = currentUser();
-  if (me && me.rol === 'user' && me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
   if (me && me.rol === 'user') {
+    if (me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
     const grupos = (me.grupos && me.grupos.length) ? me.grupos : [];
     const gid = (state.reportGroup && grupos.includes(state.reportGroup)) ? state.reportGroup : grupos[0];
     if (!gid) return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No tienes un grupo asignado.</div>`;
     return await renderActivityGroupView(gid, false);
   }
   if (state.reportGroup) return await renderActivityGroupView(state.reportGroup, true);
-  const cardsHtml = await renderActivityCards();
-  const metricsHtml = await renderActivityMetrics();
-  return cardsHtml + metricsHtml;
+  return await renderInformesDashboard();
+}
+
+async function renderInformesDashboard(){
+  const month = state.reportMonth;
+  const monthLabel = `${MONTHS_ES[Number(month.slice(5))-1]} ${month.slice(0,4)}`;
+  const report = await db.getActivity(month) || {people:{}};
+  const deps = state.departments||[];
+  const people = state.people||[];
+  const totalPub = people.filter(p=>p.activo!==false).length;
+  const activos = Object.keys(report.people||{}).filter(id=>{ const v=report.people[id]; return v.actividad||Number(v.horas)>0; }).length;
+  const regs = people.filter(p=>p.precursorRegular===true).length;
+  const auxs = people.filter(p=>{ const v=report.people[p.id]||{}; return v.auxiliar; }).length;
+  const horasReg = people.filter(p=>p.precursorRegular===true).reduce((s,p)=>s+Number((report.people[p.id]||{}).horas)||0,0);
+  const horasAux = people.filter(p=>{ const v=report.people[p.id]||{}; return v.auxiliar; }).reduce((s,p)=>s+Number((report.people[p.id]||{}).horas)||0,0);
+  const cursosReg = people.filter(p=>p.precursorRegular===true).reduce((s,p)=>s+Number((report.people[p.id]||{}).cursos)||0,0);
+  const cursosAux = people.filter(p=>{ const v=report.people[p.id]||{}; return v.auxiliar; }).reduce((s,p)=>s+Number((report.people[p.id]||{}).cursos)||0,0);
+  const gruposRecibidos = deps.filter(d=>{
+    const members = people.filter(p=>String(p.grupoId)===String(d.id));
+    if(!members.length) return false;
+    return members.every(p=>report.people[p.id]?.actividad);
+  }).length;
+
+  const kpiCard = (title, value, sub, extra, icon, primary=false) => `
+  <div class="bg-surface rounded-xl border border-outline-variant/30 p-5 soft-shadow-lvl1 flex flex-col justify-between ${primary?'bg-primary-container text-white':''}">
+    <div>
+      <div class="flex items-center justify-between">
+        <span class="text-xs uppercase font-semibold tracking-wider ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${title}</span>
+        <span class="material-symbols-outlined text-lg ${primary?'text-primary-fixed-dim':'text-secondary'}">${icon}</span>
+      </div>
+      <div class="my-3">
+        <div class="flex items-baseline gap-2">
+          <span class="font-display-lg text-3xl font-bold ${primary?'text-white':'text-primary'}">${value}</span>
+          <span class="text-xs ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${sub||''}</span>
+        </div>
+        <p class="text-xs ${primary?'text-primary-fixed-dim':'text-on-surface-variant'} mt-1.5">${extra||''}</p>
+      </div>
+    </div>
+  </div>`;
+
+  const kpis = [
+    kpiCard('Publicadores', activos, `/ ${totalPub} activos`, `Total neto: ${totalPub} publ. de congregación`, 'group'),
+    kpiCard('Prec. Auxiliares', auxs, 'auxiliares', `Horas acumuladas: ${horasAux} hrs`, 'directions_walk'),
+    kpiCard('Prec. Regulares', regs, 'regulares', `Horas totales: ${horasReg} hrs`, 'award_star'),
+    kpiCard('Grupos Recibidos', `${gruposRecibidos}`, `/ ${deps.length}`, `${Math.round(deps.length?gruposRecibidos/deps.length*100:0)}% consolidado`, 'inventory_2', true)
+  ].join('');
+
+  const groupsHtml = deps.map(d=>{
+    const members = people.filter(p=>String(p.grupoId)===String(d.id));
+    const entregados = members.filter(p=>report.people[p.id]?.actividad).length;
+    const pct = members.length?Math.round(entregados/members.length*100):0;
+    const status = pct===100?'Completado':pct===0?'Pendiente':'En revisión';
+    const statusCls = pct===100?'bg-emerald-100 text-emerald-800':pct===0?'bg-amber-100 text-amber-900 border border-amber-300':'bg-primary-fixed text-on-primary-fixed';
+    const encargado = people.find(p=>String(p.id)===String(d.encargadoId));
+    return `<article class="bg-surface rounded-xl border border-outline-variant/30 p-5 flex flex-col justify-between group">
+      <div>
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-headline-md text-xl text-primary font-bold">${escapeHtml(d.name||'Grupo')}</h3>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${statusCls}">${status}</span>
+            </div>
+          </div>
+        </div>
+        <div class="text-xs text-on-surface-variant mt-1">Encargado: <strong>${escapeHtml(encargado?.name||'—')}</strong></div>
+      </div>
+      <div class="mt-5 pt-3 border-t border-outline-variant/20 flex justify-between items-center">
+        <span class="text-xs font-semibold">${members.length} publicadores</span>
+        <span class="text-xs font-semibold">${entregados}/${members.length} (${pct}%)</span>
+      </div>
+    </article>`;
+  }).join('');
+
+  return `
+  <header class="mb-6">
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-outline-variant/30">
+      <div>
+        <span class="text-xs uppercase tracking-widest text-secondary">Congregación Central · Secretaría</span>
+        <h1 class="font-headline-lg text-primary">Informes de Servicio</h1>
+        <p class="text-on-surface-variant">Resumen general mensual y consolidación por grupos de servicio de campo.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="inline-flex items-center bg-surface-container-low border rounded-lg p-1 text-sm">
+          <span class="px-3 font-semibold text-xs uppercase">${monthLabel}</span>
+        </div>
+      </div>
+    </div>
+  </header>
+  <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">${kpis}</section>
+  <section>
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="font-headline-md text-primary">Grupos de Servicio</h2>
+      <p class="text-xs text-on-surface-variant">${deps.length} grupos · ${totalPub} publicadores</p>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">${groupsHtml||'<p class="text-on-surface-variant">Sin grupos.</p>'}</div>
+  </section>`;
 }
 
 async function renderActivityCards() {
