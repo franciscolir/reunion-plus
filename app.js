@@ -10749,14 +10749,50 @@ function programaExportSvg() {
         : '';
       return { band: true, label: `${label} — ${fechaLarga}`, sub };
     }
-    const celdas = { f: dia, p: '', d: [], o: '', e: '', l: '', g: '', rh: 50 };
+   // const celdas = { f: dia, p: '', d: [], o: '', e: '', l: '', g: '', rh: 50 };
+    const celdas = {
+  f: dia,
+  p: [],
+  d: [],
+  o: [],
+  e: [],
+  l: [],
+  g: '',
+  rh: 50
+};
     if (!isEventWeek(w)) {
-      celdas.p = personNameOf(w.presidente);
-      celdas.d = svgTextLines(w.tituloDiscurso || '—', 15, ws[2] - 22);
-      celdas.o = w.orador || '—';
-      celdas.e = personNameOf(w.conductor);
-      celdas.l = personNameOf(w.lector);
-      celdas.g = grupoTxt(w);
+      
+      //celdas.p = personNameOf(w.presidente);
+      //celdas.d = svgTextLines(w.tituloDiscurso || '—', 15, ws[2] - 22);
+      //celdas.o = w.orador || '—';
+      //celdas.e = personNameOf(w.conductor);
+      //celdas.l = personNameOf(w.lector);
+      //celdas.g = grupoTxt(w);./
+      //celdas.p = svgTextLines(personNameOf(w.presidente), 16, ws[1] - 22);
+
+celdas.d = svgTextLines(
+  w.tituloDiscurso || '—',
+  15,
+  ws[2] - 22
+);
+
+celdas.o = svgTextLines(
+  w.orador || '—',
+  16,
+  ws[3] - 22
+);
+
+celdas.e = svgTextLines(
+  personNameOf(w.conductor),
+  16,
+  ws[4] - 22
+);
+
+celdas.l = svgTextLines(
+  personNameOf(w.lector),
+  16,
+  ws[5] - 22
+);
     } else if (w.type === 'supervisor') {
       celdas.p = personNameOf(w.presidente);
       celdas.d = svgTextLines(w.discursoSupervisor1 || '—', 15, ws[2] - 22)
