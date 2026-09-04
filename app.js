@@ -1017,11 +1017,22 @@ async function renderActivityGroupView(gid, withBack) {
   const groupName = dep ? (dep.name || 'Grupo') : 'Grupo';
   const month = state.reportMonth;
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
-  const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
-  const members = state.people.filter(p => String(p.grupoId) === String(gid));
-  console.log('[DEBUG actividad] renderActivityGroupView gid', gid, 'month', month, 'members', members.length, 'sample', members.slice(0,2).map(p=>({id:p.id,name:p.name,precursorRegular:p.precursorRegular})));
   const me = currentUser();
   const isUser = me && me.rol === 'user';
+  let report = await db.getActivity(month) || { id: month, people: {}, locked: false };
+  if (isUser) {
+    try {
+      const f = await import('./supabase.js?v=219');
+      if (f.isAuthenticated && f.isAuthenticated()) {
+        const acts = await f.obtenerActividad();
+        const rem = acts.find(a => String(a.id) === String(month));
+        if (rem) report = rem;
+      }
+    } catch (e) { /* fallback local */ }
+  }
+  const members = state.people.filter(p => String(p.grupoId) === String(gid));
+  console.log('[DEBUG actividad] renderActivityGroupView gid', gid, 'month', month, 'members', members.length, 'sample', members.slice(0,2).map(p=>({id:p.id,name:p.name,precursorRegular:p.precursorRegular})));
+
   const nowMonth = isoDate(new Date()).slice(0,7);
   const reportDate = new Date(month+'-01');
   const nowDate = new Date(nowMonth+'-01');
