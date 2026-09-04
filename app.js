@@ -428,8 +428,7 @@ function isCompactViewport() {
 }
 
 function isUserRole() {
-  const user = currentUser();
-  return !!user && user.rol === 'user';
+  return false;
 }
 
 function isIaRole() {
