@@ -2161,7 +2161,7 @@ async function renderFormsTab() {
       <button data-form="${kind}" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-surface-container-high text-primary font-label-md text-label-md border border-outline-variant hover:bg-surface-variant"><span class="material-symbols-outlined">image</span> PNG</button>`;
   const cards = [
     card('predicacion', 'Informe de Predicación (S-1-S)', 'Informe de predicación y asistencia a las reuniones de la congregación.', `<select id="fPredMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('predicacion')),
-    card('registro', 'Registro de Asistencia (2 años)', 'Registro de asistencia a las reuniones, dos años de servicio.', `<p class="text-on-surface-variant text-body-md">Año de servicio: ${serviceYearLabel(currentServiceYear())} y ${serviceYearLabel(currentServiceYear() + 1)}</p>`, pdfPng('registro')),
+    card('registro', 'Registro de Asistencia (2 años)', 'Registro de asistencia a las reuniones, dos años de servicio.', `<p class="text-on-surface-variant text-body-md">Año de servicio: ${serviceYearLabel(2026)} y ${serviceYearLabel(2027)}</p>`, pdfPng('registro')),
     card('asistenciaMes', 'Informe de Asistencia Mensual (S-3-S)', 'Asistencia mensual por semanas (entre semana / fin de semana).', `<select id="fAsistMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('asistenciaMes')),
     card('pubreg', 'Registro de Publicador', 'Formulario anual por publicador con su actividad del año de servicio.', `<select id="fPubPerson" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${peopleOpts}</select><select id="fPubYear" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${yearOpts}</select>`, pdfPng('pubreg')),
     card('pubreg-masivo', 'Registro de Publicador Masivo', 'Generar todos los registros de publicadores en PDF organizados por activos/inactivos y grupos.', `<select id="fPubYearMasivo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${yearOpts}</select><p class="text-on-surface-variant text-body-sm mt-2">Se crea un ZIP con estructura: activos / inactivos, publicadores por grupo, precursores regulares.</p>`, `<button data-form="pubreg-masivo" class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined">download</span> Descargar ZIP</button>`),
@@ -2176,7 +2176,7 @@ function bindFormsTab() {
     b.onclick = () => {
       const kind = b.dataset.form, fmt = b.dataset.fmt;
       if (kind === 'predicacion') downloadPredicacion($('#fPredMes').value, fmt);
-      else if (kind === 'registro') downloadRegistro(currentServiceYear(), fmt);
+      else if (kind === 'registro') downloadRegistro(2026, fmt);
       else if (kind === 'asistenciaMes') downloadAsistenciaMes($('#fAsistMes').value, fmt);
       else if (kind === 'pubreg') downloadPubReg($('#fPubPerson').value, fmt, $('#fPubYear').value);
       else if (kind === 'pubreg-masivo') downloadAllPubReg($('#fPubYearMasivo').value);
