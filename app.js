@@ -60,10 +60,8 @@ const state = {
   reportTab: 'actividad',
   reportMonth: null,
   reportGroup: null,
-  reportReviewGroup: null,
   aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
   atencionWeeks: [],      // labores de atención del mes activo (vista previa)
-  activityEditId: null,
 };
 
 /* ---------- INIT ---------- */
@@ -846,67 +844,28 @@ async function renderInformes() {
 
 async function renderActivityTab() {
   const me = currentUser();
-  const mes = state.reportMonth;
-  let banner = '';
   if (me && me.rol === 'user' && me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
-  // Solo el admin ve el banner de revisiones pendientes.
-  let pendingMap = {};
-  if (true) {
-    const pend = await db.listActividadRevision();
-    const pendMonth = pend.filter(r => r.monthId === mes);
-    if (pendMonth.length) {
-      const porGrupo = {};
-      pendMonth.forEach(r => {
-        const dep = (state.departments || []).find(d => String(d.id) === String(r.grupoId));
-        const gName = dep ? (dep.name || String(r.grupoId)) : String(r.grupoId);
-        const entry = porGrupo[r.grupoId] || { grupoId: r.grupoId, gName, count: 0 };
-        entry.count++;
-        porGrupo[r.grupoId] = entry;
-        pendingMap[r.grupoId] = entry.count;
-      });
-      const items = Object.values(porGrupo).map(g => `
-        <button data-vg="${escapeAttr(String(g.grupoId))}" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-warning text-warning hover:bg-warning/10 transition-colors">
-          <span class="material-symbols-outlined text-[18px]">pending_actions</span>
-          <span class="font-label-md text-label-md">${escapeHtml(g.gName)} — ${g.count} pendiente${g.count !== 1 ? 's' : ''}</span>
-        </button>`).join('');
-      banner = `<div class="mb-5 rounded-xl border border-warning/40 bg-warning/10 p-4 flex flex-wrap items-center gap-3">
-        <span class="material-symbols-outlined text-warning text-2xl">notifications</span>
-        <div class="flex-1 min-w-0">
-          <p class="font-label-md text-label-md text-on-warning font-semibold">Hay informes pendientes de revisión</p>
-          <p class="text-on-surface-variant text-caption">Grupos: ${Object.values(porGrupo).map(g => escapeHtml(g.gName)).join(', ')}</p>
-        </div>
-        <div class="flex gap-2 flex-wrap">${items}</div>
-      </div>`;
-    }
-  }
   if (me && me.rol === 'user') {
     const grupos = (me.grupos && me.grupos.length) ? me.grupos : [];
     const gid = (state.reportGroup && grupos.includes(state.reportGroup)) ? state.reportGroup : grupos[0];
-    if (!gid) return banner + `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No tienes un grupo asignado.</div>`;
-    return banner + await renderActivityGroupView(gid, false);
+    if (!gid) return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No tienes un grupo asignado.</div>`;
+    return await renderActivityGroupView(gid, false);
   }
-  if (state.reportReviewGroup) {
-    return banner + await renderActivityReviewView(state.reportReviewGroup);
-  }
-  if (state.reportGroup) return banner + await renderActivityGroupView(state.reportGroup, true);
-  const cardsHtml = renderActivityCards(pendingMap);
+  if (state.reportGroup) return await renderActivityGroupView(state.reportGroup, true);
+  const cardsHtml = renderActivityCards();
   const metricsHtml = await renderActivityMetrics();
-  return banner + cardsHtml + metricsHtml;
+  return cardsHtml + metricsHtml;
 }
 
-function renderActivityCards(pendingMap = {}) {
+function renderActivityCards() {
   const deps = state.departments || [];
-  const isAdmin = true;
   const cards = deps.map(dep => {
     const members = state.people.filter(p => String(p.grupoId) === String(dep.id));
-    const pendCount = pendingMap[String(dep.id)] || 0;
-    const pill = isAdmin && pendCount > 0 ? `<button data-review-group="${dep.id}" class="mt-3 inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-warning/15 text-warning border border-warning/30 text-xs font-semibold hover:bg-warning/25">Revisar informes · ${pendCount}</button>` : '';
     return `<div class="text-left bg-surface-container-lowest rounded-xl border border-outline-variant p-5 hover:border-primary transition-colors">
       <button data-group-card="${dep.id}" class="w-full text-left">
         <div class="flex items-center gap-3 mb-3"><span class="material-symbols-outlined text-primary">groups</span><h3 class="font-headline-md text-headline-md text-primary">${escapeHtml(dep.name || 'Grupo')}</h3></div>
         <p class="font-body-md text-body-md text-on-surface-variant">${members.length} publicadores</p>
       </button>
-      ${pill}
     </div>`;
   }).join('');
   return `<h2 class="font-headline-md text-headline-md text-primary mb-4">Grupos</h2>
@@ -1097,18 +1056,12 @@ async function renderActivityGroupView(gid, withBack) {
     } catch (e) { /* fallback local */ }
   }
   const members = state.people.filter(p => String(p.grupoId) === String(gid));
-  console.log('[DEBUG actividad] renderActivityGroupView gid', gid, 'month', month, 'members', members.length, 'sample', members.slice(0,2).map(p=>({id:p.id,name:p.name,precursorRegular:p.precursorRegular})));
 
   const nowMonth = isoDate(new Date()).slice(0,7);
   const reportDate = new Date(month+'-01');
   const nowDate = new Date(nowMonth+'-01');
   const monthsDiff = (nowDate.getFullYear() - reportDate.getFullYear())*12 + (nowDate.getMonth() - reportDate.getMonth());
   const canEditUser = isUser && monthsDiff >=0 && monthsDiff <=1;
-  let revisionMap = {};
-  if (isUser && canEditUser) {
-    const revs = await db.listActividadRevision(gid, month);
-    revisionMap = Object.fromEntries(revs.map(r => [String(r.personId), r]));
-  }
   let totalCursos = 0;
   let sinActividad = 0;
   members.forEach(p => {
@@ -1126,41 +1079,16 @@ async function renderActivityGroupView(gid, withBack) {
   const sinActLabel = todosInformaron ? 'Todos informaron' : 'Sin actividad';
   const sinActValue = todosInformaron ? '✓' : sinActividad;
   const rows = members.map(p => {
-    console.log('[DEBUG actividad] pid', p.id, 'name', p.name, 'precursorRegular=', p.precursorRegular, 'type=', typeof p.precursorRegular);
-    const rev = revisionMap[p.id];
-    console.log('[DEBUG actividad] rev=', rev, 'regular computed later');
     const regular = p.precursorRegular === true;
-    const vReport = report.people?.[p.id] || {};
-    const v = (isUser && canEditUser && rev) ? rev : vReport;
+    const v = report.people?.[p.id] || {};
     const horas = Number(v.horas) || 0;
     const act = horas > 0 || v.actividad === true;
-    const hasSentActivity = isUser && canEditUser && rev && (Number(rev.horas) > 0 || rev.actividad === true);
-    const isEditing = state.activityEditId === p.id;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
     const aux = !!v.auxiliar;
     const borderColor = regular ? 'border-l-secondary' : 'border-l-primary';
     const disabled = isUser ? !canEditUser : report.locked;
     const auxCell = auxCellHtml(regular, aux, disabled, p.id);
     const actCell = actCellHtml(regular, aux, act, Number(v.horas) || 0, disabled, p.id);
-    if (isUser && canEditUser && hasSentActivity && !isEditing) {
-      const fecha = rev.createdAt ? new Date(rev.createdAt).toLocaleString('es-ES', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
-      return `<div class="bg-surface-container-lowest border-l-4 ${borderColor} border border-outline-variant rounded-lg p-4 shadow-sm" data-row="${p.id}">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-          <div class="flex items-center gap-2 min-w-0">
-            <p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p>
-            ${precBadge}
-          </div>
-          <button data-edit-activity="${p.id}" class="px-3 py-1 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:opacity-90">Editar</button>
-        </div>
-        <div class="text-sm text-on-surface-variant space-y-1">
-          <p><strong>Actividad:</strong> ${act ? 'Sí' : 'No'} ${regular || aux ? ` / ${horas} h` : ''}</p>
-          <p><strong>Cursos:</strong> ${Number(v.cursos)||0}</p>
-          <p><strong>Auxiliar:</strong> ${regular ? 'Regular' : (v.auxiliar ? 'Sí' : 'No')}</p>
-          <p><strong>Notas:</strong> ${escapeHtml(v.notas||'—')}</p>
-          <p class="text-caption"><strong>Enviado:</strong> ${fecha}</p>
-        </div>
-      </div>`;
-    }
     return `<div class="bg-surface-container-lowest border-l-4 ${borderColor} border border-outline-variant rounded-lg p-4 shadow-sm transition-all group" data-row="${p.id}">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div class="flex items-center gap-2 min-w-0">
@@ -1205,83 +1133,12 @@ async function renderActivityGroupView(gid, withBack) {
     <div class="flex flex-col gap-3">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>`;
 }
 
-async function renderActivityReviewView(gid) {
-  const dep = (state.departments || []).find(d => String(d.id) === String(gid));
-  const groupName = dep ? (dep.name || 'Grupo') : 'Grupo';
-  const month = state.reportMonth;
-  const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
-  const report = await db.getActivity(month) || { id: month, people: {} };
-  const revs = await db.listActividadRevision(gid, month);
-  const members = state.people.filter(p => String(p.grupoId) === String(gid));
-  const revMap = Object.fromEntries(revs.map(r => [String(r.personId), r]));
-  const rows = members.map(p => {
-    const pid = String(p.id);
-    const rev = revMap[pid];
-    const cur = report.people?.[p.id] || {};
-    const regular = p.precursorRegular === true;
-    const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
-    const curAct = `${cur.actividad ? 'Sí' : 'No'}${regular || cur.auxiliar ? ` / ${cur.horas||0} h` : ''}`;
-    const curAux = regular ? 'Regular' : (cur.auxiliar ? 'Sí' : 'No');
-    const curCursos = cur.cursos || 0;
-    const curHoras = cur.horas || 0;
-    const curNotas = escapeHtml(cur.notas||'—');
-    if (!rev) return '';
-    const revAct = `${rev.actividad ? 'Sí' : 'No'}${regular || rev.auxiliar ? ` / ${rev.horas||0} h` : ''}`;
-    const revAux = regular ? 'Regular' : (rev.auxiliar ? 'Sí' : 'No');
-    const revCursos = rev.cursos || 0;
-    const revHoras = rev.horas || 0;
-    const revNotas = escapeHtml(rev.notas||'—');
-    return `<div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl border border-outline-variant bg-surface-container-lowest">
-      <div class="border-r border-outline-variant pr-4">
-        <div class="flex items-center gap-2 mb-2"><span class="font-label-md text-label-md text-on-surface-variant">Actividad actual</span></div>
-        <p class="font-body-md text-body-md"><strong>${escapeHtml(p.name)}</strong> ${precBadge}</p>
-        <p class="text-sm text-on-surface-variant">Actividad: ${curAct}</p>
-        <p class="text-sm text-on-surface-variant">Auxiliar: ${curAux}</p>
-        <p class="text-sm text-on-surface-variant">Horas: ${curHoras}</p>
-        <p class="text-sm text-on-surface-variant">Cursos: ${curCursos}</p>
-        <p class="text-sm text-on-surface-variant">Notas: ${curNotas}</p>
-      </div>
-      <div class="pl-4">
-        <div class="flex items-center gap-2 mb-2"><span class="font-label-md text-label-md text-warning">Actividad enviada</span></div>
-        <p class="font-body-md text-body-md"><strong>${escapeHtml(p.name)}</strong></p>
-        <p class="text-sm">Actividad: ${revAct}</p>
-        <p class="text-sm">Auxiliar: ${revAux}</p>
-        <p class="text-sm">Horas: ${revHoras}</p>
-        <p class="text-sm">Cursos: ${revCursos}</p>
-        <p class="text-sm">Notas: ${revNotas}</p>
-        <div class="flex gap-2 mt-3">
-          <button data-accept-rev="${pid}" class="px-3 py-1.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90">Aceptar</button>
-          <button data-decline-rev="${pid}" class="px-3 py-1.5 rounded-lg border border-outline-variant font-label-md text-label-md hover:bg-surface-container">Declinar</button>
-        </div>
-      </div>
-    </div>`;
-  }).filter(Boolean).join('');
-  const header = `<div class="flex items-center justify-between mb-4">
-    <div>
-      <h2 class="font-headline-lg text-headline-lg text-primary">Revisar informes — ${escapeHtml(groupName)}</h2>
-      <p class="text-on-surface-variant text-caption">${monthLabel} — ${revs.length} registro${revs.length !== 1 ? 's' : ''} pendiente${revs.length !== 1 ? 's' : ''}</p>
-    </div>
-    <button id="activityBack" class="px-4 py-2 rounded-lg border border-outline-variant font-label-md">Volver</button>
-  </div>`;
-  const actions = `<div class="flex items-center gap-3 mb-4">
-    <button id="acceptAllRev" class="px-4 py-2 rounded-lg bg-tertiary text-on-tertiary font-label-md">Aceptar toda la actividad</button>
-    <button id="cancelRev" class="px-4 py-2 rounded-lg border border-outline-variant font-label-md">Cerrar revisión</button>
-  </div>`;
-  return header + actions + (rows || '<p class="p-8 text-center text-on-surface-variant">No hay revisiones pendientes.</p>');
-}
+// renderActivityReviewView eliminado: se quitó la lógica de revisión de actividad_revision
 
 function bindActivityTab() {
   const back = $('#activityBack');
-  if (back) back.onclick = () => { state.reportGroup = null; state.reportReviewGroup = null; renderInformes(); };
-  document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { state.reportGroup = b.dataset.groupCard; state.reportReviewGroup = null; renderInformes(); });
-  document.querySelectorAll('[data-edit-activity]').forEach(b => b.onclick = () => { state.activityEditId = b.dataset.editActivity; renderInformes(); });
-  // Admin: ir a revisar un grupo específico.
-  document.querySelectorAll('[data-vg]').forEach(b => b.onclick = () => {
-    state.reportGroup = b.dataset.vg; state.reportReviewGroup = b.dataset.vg; renderInformes();
-  });
-  document.querySelectorAll('[data-review-group]').forEach(b => b.onclick = () => {
-    state.reportGroup = b.dataset.reviewGroup; state.reportReviewGroup = b.dataset.reviewGroup; renderInformes();
-  });
+  if (back) back.onclick = () => { state.reportGroup = null; renderInformes(); };
+  document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { state.reportGroup = b.dataset.groupCard; renderInformes(); });
   const lock = $('#activityLock');
   if (lock) lock.onclick = async () => {
     const month = state.reportMonth;
@@ -1316,59 +1173,6 @@ function bindActivityTab() {
   };
   const save = $('#activitySave');
   if (save) save.onclick = async () => {
-    const month = state.reportMonth;
-    const me = currentUser();
-    if (me && me.rol === 'user') {
-      const gid = me.grupos && me.grupos.length ? me.grupos[0] : '';
-      const revs = await db.listActividadRevision(gid, month);
-      const revMap = Object.fromEntries(revs.map(r => [String(r.personId), r]));
-      const personRows = document.querySelectorAll('[data-row]');
-      const entries = [];
-      let totalCursos = 0, totalHoras = 0, activos = 0;
-      personRows.forEach(row => {
-        const pid = row.dataset.row;
-        const person = state.people.find(p => String(p.id) === String(pid)) || {};
-        const regular = person.precursorRegular === true;
-        const get = (sel) => row.querySelector(`[data-act="${sel}"]`);
-        const hasForm = !!get('cursos');
-        let actividad, auxiliar, cursos, horas, notas;
-        if (hasForm) {
-          const aux = regular ? false : !!get('auxiliar')?.checked;
-          const crs = parseInt(get('cursos')?.value, 10) || 0;
-          const hrs = parseInt(get('horas')?.value, 10) || 0;
-          const isNumber = regular || aux;
-          const act = isNumber ? hrs > 0 : (get('actividad')?.checked ?? false);
-          actividad = act;
-          auxiliar = aux;
-          cursos = crs;
-          horas = hrs;
-          notas = get('notas')?.value || '';
-        } else {
-          const existing = revMap[pid];
-          if (existing) {
-            actividad = !!existing.actividad;
-            auxiliar = !!existing.auxiliar;
-            cursos = Number(existing.cursos) || 0;
-            horas = Number(existing.horas) || 0;
-            notas = existing.notas || '';
-          } else {
-            actividad = false;
-            auxiliar = false;
-            cursos = 0;
-            horas = 0;
-            notas = '';
-          }
-        }
-        entries.push({ personId: pid, actividad, auxiliar, cursos, horas, notas });
-        if (actividad) { activos++; totalCursos += cursos; totalHoras += horas; }
-      });
-      for (const e of entries) await db.addActividadRevision({ grupoId: gid, monthId: month, ...e });
-      state.activityEditId = null;
-      toast('Actividad enviada para revisión', 'success');
-      try { await subirStores(['actividad_revision']); } catch (e) { /* sin Supabase: solo local */ }
-      renderInformes();
-      return;
-    }
     await saveData();
     toast('Actividad guardada', 'success');
     try { await subirStores(['activity']); } catch (e) { /* sin Supabase: solo local */ }
