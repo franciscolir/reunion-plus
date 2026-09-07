@@ -1430,18 +1430,13 @@ function bindActivityTab() {
     const person = state.people.find(p => String(p.id) === String(pid));
     if (!person) return;
     const year = new Date(state.reportMonth+'-01').getFullYear();
-    const activities = [];
-    const months = [];
-    for (let m=1; m<=12; m++) {
-      const mid = `${year}-${String(m).padStart(2,'0')}`;
-      months.push(mid);
-    }
+    const data = await computePubReg(person, year);
     openModal(`
       <div class="max-w-3xl w-full">
         <h3 class="font-headline-lg text-headline-lg text-primary mb-3">Registro anual editable — ${escapeHtml(person.name)}</h3>
         <p class="text-on-surface-variant mb-4">Año ${year}. Edita la actividad mensual. Guarda al cerrar.</p>
         <div class="max-h-[60vh] overflow-auto rounded-lg border border-outline-variant">
-          ${buildPubRegHtml(year, person, [])}
+          ${buildPubRegHtml(person, year, data)}
         </div>
         <div class="flex justify-end gap-3 mt-4">
           <button id="regClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md">Cerrar</button>
