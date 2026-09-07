@@ -895,6 +895,9 @@ async function renderInformes() {
 }
 
 async function renderActivityTab() {
+  if (state.reportRegPersonId) {
+    return await renderRegistroAnualView(state.reportRegPersonId);
+  }
   const me = currentUser();
   if (me && me.rol === 'user') {
     if (me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
@@ -1358,6 +1361,45 @@ async function renderActivityGroupView(gid, withBack) {
     <div class="flex flex-col gap-3">${rows || '<p class="p-8 text-center text-on-surface-variant">Sin publicadores en este grupo.</p>'}</div>`;
 }
 
+async function renderRegistroAnualView(pid) {
+  const person = state.people.find(p => String(p.id) === String(pid));
+  if (!person) {
+    state.reportRegPersonId = null;
+    return await renderInformesDashboard();
+  }
+  const year = new Date(state.reportMonth+'-01').getFullYear();
+  const data = await computePubReg(person, year);
+  const monthIds = [];
+  for (let m=1; m<=12; m++) monthIds.push(`${year}-${String(m).padStart(2,'0')}`);
+  const rows = data.months.map((m,i) => {
+    const mid = monthIds[i];
+    return `<tr class="border-b border-outline-variant/30">
+      <td class="p-3 font-medium">${escapeHtml(m.label)}</td>
+      <td class="p-3 text-center"><input type="checkbox" data-m="${mid}" data-k="actividad" ${m.actividad?'checked':''} class="reg-check"/></td>
+      <td class="p-3 text-center"><input type="number" min="0" data-m="${mid}" data-k="cursos" value="${m.cursos||0}" class="reg-num w-20"/></td>
+      <td class="p-3 text-center"><input type="checkbox" data-m="${mid}" data-k="auxiliar" ${m.auxiliar?'checked':''} class="reg-check"/></td>
+      <td class="p-3 text-center"><input type="number" min="0" data-m="${mid}" data-k="horas" value="${m.horas||0}" class="reg-num w-20"/></td>
+      <td class="p-3"><input type="text" data-m="${mid}" data-k="notas" value="${escapeAttr(m.notas||'')}" class="w-full border rounded px-2 py-1"/></td>
+    </tr>`;
+  }).join('');
+  const back = `<button id="regBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant"><span class="material-symbols-outlined text-sm">arrow_back</span> Volver</button>`;
+  return `<div class="mb-6">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-headline-lg text-headline-lg md:text-display-lg font-bold text-primary mb-1">Registro anual — ${escapeHtml(person.name)}</h1>
+        <p class="text-on-surface-variant">Año de servicio ${year}</p>
+      </div>
+      <div class="flex gap-2">${back}<button id="regCancel" class="px-4 py-2 rounded-lg border border-outline-variant">Cancelar</button><button id="regSave" class="px-4 py-2 rounded-lg bg-primary text-on-primary">Guardar</button></div>
+    </div>
+  </div>
+  <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
+    <table class="w-full text-left">
+      <thead class="bg-surface-container"><tr class="text-xs uppercase text-on-surface-variant"><th class="p-3">Mes</th><th class="p-3 text-center">Actividad</th><th class="p-3 text-center">Cursos</th><th class="p-3 text-center">Auxiliar</th><th class="p-3 text-center">Horas</th><th class="p-3">Observación</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
 // renderActivityReviewView eliminado: se quitó la lógica de revisión de actividad_revision
 
 function bindActivityTab() {
@@ -1425,29 +1467,38 @@ function bindActivityTab() {
   }
   bindActividad();
 
+  const regBack = $('#regBack');
+  if (regBack) regBack.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
+  const regCancel = $('#regCancel');
+  if (regCancel) regCancel.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
+  const regSave = $('#regSave');
+  if (regSave) regSave.onclick = async () => {
+    const pid = state.reportRegPersonId;
+    if (!pid) return;
+    const year = new Date(state.reportMonth+'-01').getFullYear();
+    for (let m=1; m<=12; m++) {
+      const mid = `${year}-${String(m).padStart(2,'0')}`;
+      const act = document.querySelector(`[data-m="${mid}"][data-k="actividad"]`)?.checked;
+      const aux = document.querySelector(`[data-m="${mid}"][data-k="auxiliar"]`)?.checked;
+      const cursos = Number(document.querySelector(`[data-m="${mid}"][data-k="cursos"]`)?.value||0);
+      const horas = Number(document.querySelector(`[data-m="${mid}"][data-k="horas"]`)?.value||0);
+      const notas = document.querySelector(`[data-m="${mid}"][data-k="notas"]`)?.value||'';
+      const actividad = !!act || horas>0;
+      const report = await db.getActivity(mid) || { id: mid, people: {}, locked:false };
+      const people = { ...(report.people||{}) };
+      people[pid] = { actividad, auxiliar: !!aux, cursos, horas, notas };
+      await db.putActivity({ ...report, people });
+    }
+    toast('Registro anual guardado', 'success');
+    try { await subirStores(['activity']); } catch(e){}
+    state.reportRegPersonId = null;
+    renderInformes();
+  };
+
   document.querySelectorAll('[data-edit-reg]').forEach(b => b.onclick = async () => {
     const pid = b.dataset.editReg;
-    const person = state.people.find(p => String(p.id) === String(pid));
-    if (!person) return;
-    const year = new Date(state.reportMonth+'-01').getFullYear();
-    const data = await computePubReg(person, year);
-    const html = buildPubRegHtml(person, year, data);
-    const w = window.open('', '_blank', 'noopener,noreferrer');
-    if (w) {
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-    } else {
-      openModal(`
-        <div class="w-[95vw] max-w-none">
-          <h3 class="font-headline-lg text-headline-lg text-primary mb-3">Registro anual editable — ${escapeHtml(person.name)}</h3>
-          <div class="overflow-auto rounded-lg border border-outline-variant max-h-[85vh]">${html}</div>
-          <div class="flex justify-end gap-3 mt-4">
-            <button id="regClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md">Cerrar</button>
-          </div>
-        </div>`);
-      $('#regClose').onclick = closeModal;
-    }
+    state.reportRegPersonId = pid;
+    renderInformes();
   });
 
   // Revisión de informes por grupo
