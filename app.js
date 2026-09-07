@@ -856,6 +856,30 @@ async function renderActivityTab() {
   return await renderInformesDashboard();
 }
 
+window.showRegularsList = async () => {
+  const month = state.reportMonth;
+  const report = await db.getActivity(month) || {people:{}};
+  const regs = state.people.filter(p=>p.precursorRegular===true);
+  const rows = regs.map(p=>{
+    const v = report.people[p.id]||{};
+    const active = v.actividad || Number(v.horas)>0;
+    return `<tr class="border-b border-outline-variant/30"><td class="p-3">${escapeHtml(p.name)}</td><td class="p-3 text-center">${active?'Sí':'No'}</td><td class="p-3 text-center">${v.horas||0}</td><td class="p-3 text-center">${v.cursos||0}</td></tr>`;
+  }).join('');
+  const html = `<main class="p-6 max-w-4xl mx-auto"><h2 class="font-headline-lg text-primary mb-4">Precursores Regulares - ${MONTHS_ES[Number(month.slice(5))-1]} ${month.slice(0,4)}</h2><table class="w-full text-left border border-outline-variant rounded-xl overflow-hidden"><thead class="bg-surface-container"><tr><th class="p-3">Nombre</th><th class="p-3 text-center">Activo</th><th class="p-3 text-center">Horas</th><th class="p-3 text-center">Cursos</th></tr></thead><tbody>${rows}</tbody></table></main>`;
+  $('#app').innerHTML = html;
+};
+window.closeCurrentMonth = async () => {
+  const month = state.reportMonth;
+  if (!month) return;
+  let closed = await db.getSetting('closedMonths', []);
+  if (!Array.isArray(closed)) closed = [];
+  if (!closed.includes(month)) {
+    closed.push(month);
+    await db.putSetting('closedMonths', closed);
+    toast('Mes cerrado', 'info');
+    renderInformes();
+  }
+};
 async function renderInformesDashboard(){
   const month = state.reportMonth;
   const monthLabel = `${MONTHS_ES[Number(month.slice(5))-1]} ${month.slice(0,4)}`;
@@ -877,21 +901,21 @@ async function renderInformesDashboard(){
   }).length;
 
   const kpiCard = (title, value, sub, extra, icon, primary=false) => `
-  <div class="bg-surface rounded-xl border border-outline-variant/30 p-5 soft-shadow-lvl1 flex flex-col justify-between ${primary?'bg-primary-container text-white':''}">
+  <div class="bg-surface rounded-xl border border-outline-variant/30 border-l-4 border-l-primary p-5 soft-shadow-lvl1 flex flex-col justify-between ${primary?'bg-primary-container text-white':''}">
     <div>
-      <div class="flex items-center justify-between">
-        <span class="text-xs uppercase font-semibold tracking-wider ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${title}</span>
-        <span class="material-symbols-outlined text-lg ${primary?'text-primary-fixed-dim':'text-secondary'}">${icon}</span>
-      </div>
-      <div class="my-3">
-        <div class="flex items-baseline gap-2">
-          <span class="font-display-lg text-3xl font-bold ${primary?'text-white':'text-primary'}">${value}</span>
-          <span class="text-xs ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${sub||''}</span>
+        <div class="flex items-center justify-between">
+          <span class="text-xs uppercase font-semibold tracking-wider ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${title}</span>
+          <span class="material-symbols-outlined text-lg ${primary?'text-primary-fixed-dim':'text-secondary'}">${icon}</span>
         </div>
-        <p class="text-xs ${primary?'text-primary-fixed-dim':'text-on-surface-variant'} mt-1.5">${extra||''}</p>
+        <div class="my-3">
+          <div class="flex items-baseline gap-2">
+            <span class="font-display-lg text-3xl font-bold ${primary?'text-white':'text-primary'}">${value}</span>
+            <span class="text-xs ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${sub||''}</span>
+          </div>
+          <p class="text-xs ${primary?'text-primary-fixed-dim':'text-on-surface-variant'} mt-1.5">${extra||''}</p>
+        </div>
       </div>
-    </div>
-  </div>`;
+    </div>`;
 
   const kpis = [
     kpiCard('Publicadores', activos, `/ ${totalPub} activos`, `Total neto: ${totalPub} publ. de congregación`, 'group'),
@@ -907,14 +931,13 @@ async function renderInformesDashboard(){
     const status = pct===100?'Completado':pct===0?'Pendiente':'En revisión';
     const statusCls = pct===100?'bg-emerald-100 text-emerald-800':pct===0?'bg-amber-100 text-amber-900 border border-amber-300':'bg-primary-fixed text-on-primary-fixed';
     const encargado = people.find(p=>String(p.id)===String(d.encargadoId));
-    return `<article data-group-id="${d.id}" class="bg-surface rounded-xl border border-outline-variant/30 p-5 flex flex-col justify-between group cursor-pointer hover:border-primary transition-colors">
+    return `<article data-group-id="${d.id}" class="bg-surface rounded-xl border border-outline-variant/30 border-l-4 border-l-primary p-5 flex flex-col justify-between group cursor-pointer hover:border-primary transition-colors">
       <div>
         <div class="flex justify-between items-start mb-3">
-          <div>
-            <div class="flex items-center gap-2">
-              <h3 class="font-headline-md text-xl text-primary font-bold">${escapeHtml(d.name||'Grupo')}</h3>
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${statusCls}">${status}</span>
-            </div>
+          <div class="flex items-center gap-2">
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-container text-primary font-bold text-xs">${members.length}</span>
+            <h3 class="font-headline-md text-xl text-primary font-bold">${escapeHtml(d.name||'Grupo')}</h3>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${statusCls}">${status}</span>
           </div>
         </div>
         <div class="text-xs text-on-surface-variant mt-1">Encargado: <strong>${escapeHtml(encargado?.name||'—')}</strong></div>
@@ -926,6 +949,8 @@ async function renderInformesDashboard(){
     </article>`;
   }).join('');
 
+  const closedMonths = (await db.getSetting('closedMonths', []) )||[];
+  const isClosed = closedMonths.includes(month);
   return `
   <header class="mb-6">
     <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-4 border-b border-outline-variant/30">
@@ -937,6 +962,7 @@ async function renderInformesDashboard(){
       <div class="flex items-center gap-3">
         <div class="inline-flex items-center bg-surface-container-low border rounded-lg p-1 text-sm">
           <span class="px-3 font-semibold text-xs uppercase">${monthLabel}</span>
+          ${isClosed ? '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase">Cerrado</span>' : '<button data-close-month onclick="closeCurrentMonth()" class="px-2 py-0.5 bg-amber-100 text-amber-900 rounded text-[10px] font-bold uppercase hover:bg-amber-200">Cerrar mes</button>'}
         </div>
       </div>
     </div>
@@ -1077,15 +1103,15 @@ async function renderActivityMetrics() {
     { label: 'Horas regulares', value: regHoras, icon: 'hourglass' },
     { label: 'Cursos regulares', value: regCursos, icon: 'auto_stories' },
   ];
-  const cardHtml = (list) => list.map(c => `
-    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-4">
+  const cardHtml = (list, isRegular=false) => list.map(c => `
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant border-l-4 border-l-primary p-4 ${isRegular?'cursor-pointer hover:bg-surface-container':'"}" ${isRegular?'onclick="showRegularsList()"':''} data-metric-regular="${isRegular}">
       <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-primary text-xl">${c.icon}</span><p class="font-label-md text-label-md text-on-surface-variant">${c.label}</p></div>
       <p class="font-headline-md text-headline-md text-primary">${c.value}</p>
     </div>`).join('');
   return `<div class="mt-8"><h2 class="font-headline-md text-headline-md text-primary mb-4">Resumen mensual ${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0,4)}</h2>
-    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Publicadores</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(pubCards)}</div></div>
-    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Auxiliares</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(auxCards)}</div></div>
-    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Regulares</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(regCards)}</div></div>
+    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Publicadores</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(pubCards,false)}</div></div>
+    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Auxiliares</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(auxCards,false)}</div></div>
+    <div class="mb-6"><h3 class="font-headline-sm text-headline-sm text-on-surface mb-3">Regulares</h3><div class="grid grid-cols-1 sm:grid-cols-3 gap-4">${cardHtml(regCards,true)}</div></div>
   </div>`;
 }
 
