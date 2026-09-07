@@ -333,10 +333,6 @@ async function pushStore(store) {
       const docs = await db.listActivity();
       await batchWrite(docs.map(r => ({ collection: 'actividad', id: String(r.id), data: r })));
       setStatus('ok', `actividad: ${docs.length}`);
-    } else if (store === 'actividad_revision') {
-      const docs = await db.listActividadRevision();
-      await batchWrite(docs.map(r => ({ collection: 'actividad_revision', id: String(r.id), data: r })));
-      setStatus('ok', `actividad_revision: ${docs.length}`);
     } else if (store === 'attendance') {
       const docs = await db.listAttendance();
       await batchWrite(docs.map(r => ({ collection: 'asistencia', id: String(r.id), data: r })));
@@ -487,7 +483,7 @@ export async function sincronizarAhora() {
   if (_syncing) return { error: 'ocupado' };
   if (!_enabled) await iniciarSync();
   setStatus('syncing', 'subiendo cambios…');
-  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings', 'activity', 'actividad_revision', 'attendance', 'arrangements'];
+  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings', 'activity', 'attendance', 'arrangements'];
   for (const store of stores) await pushStore(store);
   // Si algún store falló por cupo de Supabase, informarlo (no dar éxito).
   if (_lastStatus && _lastStatus.state === 'error') {
@@ -513,7 +509,7 @@ export async function pullAll() {
   _enabled = false;
   try {
     const f = await import('./supabase.js?v=219');
-    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, actividad, asistencia, arreglos, revisiones] = await Promise.all([
+    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, actividad, asistencia, arreglos] = await Promise.all([
       f.obtenerParticipantes(),
       f.obtenerGrupos(),
       f.obtenerReuniones(),
@@ -524,7 +520,6 @@ export async function pullAll() {
       f.obtenerActividad(),
       f.obtenerAsistencia(),
       f.obtenerArreglos(),
-      f.obtenerActividadRevision(),
     ]);
 
 // personas: participantes → registros people
@@ -608,7 +603,6 @@ export async function pullAll() {
     for (const d of actividad || []) await db.putActivitySilent(d);
     for (const d of asistencia || []) await db.putAttendanceSilent(d);
     for (const d of arreglos || []) await db.putArrangementsSilent(d);
-    for (const d of revisiones || []) await db.putActividadRevisionSilent(d);
     setStatus('ok', 'pull completado');
     return { ok: true, participantes: participantes.length, programas: programas.length };
   } catch (e) {
@@ -840,19 +834,6 @@ export async function reconciliar() {
         roleLabel: String(a.rol || ''),
         updatedAt: a.createdAt || Date.now(),
       });
-      bajados++;
-    }
-
-    // ---- actividad_revision ↔ actividad_revision (revisiones del user) ----
-    const revsLocales = await db.listActividadRevision();
-    const revsRemotas = await f.obtenerActividadRevision();
-    const idsRevLocal = new Set(revsLocales.map(r => String(r.id)));
-    const idsRevRemota = new Set(revsRemotas.map(r => String(r.id)));
-    const revsASubir = revsLocales.filter(r => !idsRevRemota.has(String(r.id)));
-    if (revsASubir.length) { await batchWrite(revsASubir.map(r => ({ collection: 'actividad_revision', id: String(r.id), data: r }))); subidos += revsASubir.length; }
-    for (const r of revsRemotas) {
-      if (idsRevLocal.has(String(r.id))) continue;
-      await db.putActividadRevisionSilent(r);
       bajados++;
     }
 

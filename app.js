@@ -1192,83 +1192,7 @@ function auxCellHtml(regular, aux, disabled, pid) {
   return `<input type="checkbox" data-act="auxiliar" data-pid="${pid}" ${aux ? 'checked' : ''} ${disabled ? 'disabled' : ''} class="form-checkbox text-primary rounded border-outline-variant cursor-pointer"/>`;
 }
 
-// Modal: el admin revisa un informe enviado por un user y lo confirma.
-// Copia cada registro del actividad_revision del grupo+mes al store definitivo
-// (actividad) y borra esos registros. Muestra persona, auxiliar, horas, cursos, notas.
-export async function openRevisionModal(grupoId) {
-  const monthId = state.reportMonth;
-  const revs = await db.listActividadRevision(grupoId, monthId);
-  if (!revs.length) { toast('No hay nada pendiente para este grupo', 'info'); return; }
-  const dep = (state.departments || []).find(d => String(d.id) === String(grupoId));
-  const gName = dep ? (dep.name || String(grupoId)) : String(grupoId);
-  const monthLabel = `${MONTHS_ES[Number(monthId.slice(5)) - 1]} ${monthId.slice(0, 4)}`;
-  const rows = revs.map(r => {
-    const person = state.people.find(p => String(p.id) === String(r.personId));
-    const name = person ? person.name : String(r.personId);
-    const actTxt = r.actividad ? 'Sí' : 'No';
-    const auxTxt = r.auxiliar ? 'Sí' : 'No';
-    const hrs = r.horas ? `${r.horas} h` : '';
-    const curs = r.cursos ? `${r.cursos} cursos` : '';
-    const notDesc = r.notas ? escapeHtml(r.notas) : '—';
-    return `<tr class="border-b border-outline-variant/30 hover:bg-surface-container-low">
-      <td class="p-3 font-body-md text-body-md font-semibold text-on-surface">${escapeHtml(name)}</td>
-      <td class="p-3 text-center font-body-md">${actTxt}</td>
-      <td class="p-3 text-center font-body-md">${auxTxt}</td>
-      <td class="p-3 text-center font-body-md">${hrs}</td>
-      <td class="p-3 text-center font-body-md">${curs}</td>
-      <td class="p-3 font-body-md text-on-surface-variant text-sm">${notDesc}</td>
-    </tr>`;
-  }).join('');
 
-  openModal(`
-    <div class="max-w-2xl w-full">
-      <div class="flex items-center gap-3 mb-1">
-        <span class="material-symbols-outlined text-primary text-3xl">fact_check</span>
-        <div>
-          <h3 class="font-headline-md text-headline-md text-primary">Revisar informe del ${escapeHtml(gName)}</h3>
-          <p class="text-on-surface-variant text-caption">${monthLabel} — ${revs.length} registro${revs.length !== 1 ? 's' : ''} pendiente${revs.length !== 1 ? 's' : ''}</p>
-        </div>
-      </div>
-      <div class="max-h-96 overflow-y-auto rounded-lg border border-outline-variant mb-5">
-        <table class="w-full text-left">
-          <thead class="bg-surface-container sticky top-0">
-            <tr class="border-b border-outline-variant">
-              <th class="p-3 font-label-md text-label-md text-on-surface-variant">Nombre</th>
-              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Actividad</th>
-              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Auxiliar</th>
-              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Horas</th>
-              <th class="p-3 font-label-md text-label-md text-on-surface-variant text-center">Cursos</th>
-              <th class="p-3 font-label-md text-label-md text-on-surface-variant">Notas</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-outline-variant/40">${rows}</tbody>
-        </table>
-      </div>
-      <div class="flex gap-3 justify-end">
-        <button id="modalCancel" class="px-5 py-2.5 rounded-lg border border-outline font-label-md text-label-md hover:bg-surface-container">Cerrar</button>
-        <button id="modalConfirm" class="px-5 py-2.5 rounded-lg bg-tertiary text-on-tertiary font-label-md text-label-md hover:opacity-90">Guardar definitivamente</button>
-      </div>
-    </div>`);
-
-  $('#modalCancel').onclick = closeModal;
-  $('#modalConfirm').onclick = async () => {
-    const existing = await db.getActivity(monthId) || { id: monthId, people: {}, locked: false };
-    const merged = { ...(existing.people || {}) };
-    for (const r of revs) {
-      merged[r.personId] = { actividad: r.actividad, auxiliar: r.auxiliar, cursos: r.cursos, horas: r.horas, notas: r.notas || '' };
-    }
-    await db.putActivity({ ...existing, people: merged });
-    await db.clearActividadRevision(grupoId, monthId);
-    closeModal();
-    toast(`Informe del ${gName} guardado`, 'success');
-    try {
-      const f = await import('./supabase.js?v=219');
-      await Promise.all(revs.map(r => f.eliminarActividadRevision(String(r.id))));
-    } catch (e) { /* sin Supabase: solo local */ }
-    try { await subirStores(['activity', 'actividad_revision']); } catch (e) { /* sync error tolerable */ }
-    renderInformes();
-  };
-}
 
 async function renderActivityGroupView(gid, withBack) {
   const dep = (state.departments || []).find(d => String(d.id) === String(gid));
@@ -1507,52 +1431,7 @@ function bindActivityTab() {
     renderInformes();
   });
 
-  // Revisión de informes por grupo
-  document.querySelectorAll('[data-accept-rev]').forEach(b => b.onclick = async () => {
-    const pid = b.dataset.acceptRev;
-    const gid = state.reportReviewGroup;
-    const month = state.reportMonth;
-    const revs = await db.listActividadRevision(gid, month);
-    const rev = revs.find(r => String(r.personId) === String(pid));
-    if (!rev) return;
-    const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
-    const merged = { ...(report.people || {}) };
-    merged[pid] = { actividad: rev.actividad, auxiliar: rev.auxiliar, cursos: rev.cursos, horas: rev.horas, notas: rev.notas || '' };
-    await db.putActivity({ ...report, people: merged });
-    await db.deleteActividadRevision(String(rev.id));
-    toast('Revisión aceptada', 'success');
-    try { await subirStores(['activity', 'actividad_revision']); } catch (e) {}
-    renderInformes();
-  });
-  document.querySelectorAll('[data-decline-rev]').forEach(b => b.onclick = async () => {
-    const pid = b.dataset.declineRev;
-    const gid = state.reportReviewGroup;
-    const month = state.reportMonth;
-    const revs = await db.listActividadRevision(gid, month);
-    const rev = revs.find(r => String(r.personId) === String(pid));
-    if (!rev) return;
-    await db.deleteActividadRevision(String(rev.id));
-    toast('Revisión declinada', 'info');
-    try { await subirStores(['actividad_revision']); } catch (e) {}
-    renderInformes();
-  });
-  const acceptAll = $('#acceptAllRev');
-  if (acceptAll) acceptAll.onclick = async () => {
-    const gid = state.reportReviewGroup;
-    const month = state.reportMonth;
-    const revs = await db.listActividadRevision(gid, month);
-    if (!revs.length) { toast('No hay revisiones pendientes', 'info'); return; }
-    const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
-    const merged = { ...(report.people || {}) };
-    for (const r of revs) {
-      merged[r.personId] = { actividad: r.actividad, auxiliar: r.auxiliar, cursos: r.cursos, horas: r.horas, notas: r.notas || '' };
-    }
-    await db.putActivity({ ...report, people: merged });
-    await db.clearActividadRevision(gid, month);
-    toast('Todas las revisiones aceptadas', 'success');
-    try { await subirStores(['activity', 'actividad_revision']); } catch (e) {}
-    renderInformes();
-  };
+
   const cancelRev = $('#cancelRev');
   if (cancelRev) cancelRev.onclick = () => { state.reportReviewGroup = null; state.reportGroup = null; renderInformes(); };
 
