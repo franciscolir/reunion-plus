@@ -1318,6 +1318,7 @@ async function renderActivityGroupView(gid, withBack) {
         <div class="flex items-center gap-2 min-w-0">
           <p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p>
           ${precBadge}
+          <button data-edit-reg="${p.id}" class="ml-2 text-xs px-2 py-0.5 bg-surface-container rounded hover:bg-surface-container-low">Registro anual</button>
         </div>
         <div class="flex items-center gap-2 text-caption text-on-surface-variant shrink-0">
           ${regular ? '' : '<span>Auxiliar</span>'}${auxCell}
@@ -1423,6 +1424,31 @@ function bindActivityTab() {
     });
   }
   bindActividad();
+
+  document.querySelectorAll('[data-edit-reg]').forEach(b => b.onclick = async () => {
+    const pid = b.dataset.editReg;
+    const person = state.people.find(p => String(p.id) === String(pid));
+    if (!person) return;
+    const year = new Date(state.reportMonth+'-01').getFullYear();
+    const activities = [];
+    const months = [];
+    for (let m=1; m<=12; m++) {
+      const mid = `${year}-${String(m).padStart(2,'0')}`;
+      months.push(mid);
+    }
+    openModal(`
+      <div class="max-w-3xl w-full">
+        <h3 class="font-headline-lg text-headline-lg text-primary mb-3">Registro anual editable — ${escapeHtml(person.name)}</h3>
+        <p class="text-on-surface-variant mb-4">Año ${year}. Edita la actividad mensual. Guarda al cerrar.</p>
+        <div class="max-h-[60vh] overflow-auto rounded-lg border border-outline-variant">
+          ${buildPubRegHtml(year, person, [])}
+        </div>
+        <div class="flex justify-end gap-3 mt-4">
+          <button id="regClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md">Cerrar</button>
+        </div>
+      </div>`);
+    $('#regClose').onclick = closeModal;
+  });
 
   // Revisión de informes por grupo
   document.querySelectorAll('[data-accept-rev]').forEach(b => b.onclick = async () => {
