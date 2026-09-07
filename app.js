@@ -992,7 +992,7 @@ async function renderInformesDashboard(){
       <div>
         <div class="flex justify-between items-start mb-3">
           <div class="flex items-center gap-2">
-            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-container text-primary font-bold text-xs">${members.length}</span>
+            <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-container text-white font-bold text-xs">${members.length}</span>
             <h3 class="font-headline-md text-xl text-primary font-bold">${escapeHtml(d.name||'Grupo')}</h3>
             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${statusCls}">${status}</span>
           </div>
