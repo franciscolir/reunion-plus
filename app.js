@@ -69,7 +69,6 @@ init();
 
 async function init() {
   await db.seedIfEmpty();
-  await refreshCatalogs();
   registerSW();
   bindGlobal();
   // Sincronización con Supabase (si está configurado). No bloquea el arranque.
@@ -92,7 +91,59 @@ async function init() {
   renderAuthUI();
   window.addEventListener('hashchange', router);
   initSyncIndicator();
+  await loadEssentials();
   router();
+  loadRemainingCatalogs().catch(() => {});
+}
+
+async function loadEssentials() {
+  const [people, departments, midweeks, config] = await Promise.all([
+    db.listPeople(),
+    db.listDepartments(),
+    db.listMidweeks(),
+    db.getConfig()
+  ]);
+  state.people = people;
+  state.departments = departments;
+  state.midweeks = midweeks;
+  state.config = config;
+  applyConfigMidweekTypes(state.midweeks, true);
+}
+
+async function loadRemainingCatalogs() {
+  state.departmentsAll = await db.listDepartmentsAll();
+  state.talks = await db.listTalks();
+  const saved = await db.getLabores(null);
+  state.labores = (saved && Array.isArray(saved) && saved.length) ? saved : DEFAULT_LABORES.map(r => ({ ...r }));
+  state.cargos = await db.listCargos();
+  state.capacidades = await db.listCapacidades();
+  const idsGuardados = new Set(state.labores.map(r => r.id));
+  DEFAULT_LABORES.forEach(r => { if (!idsGuardados.has(r.id)) state.labores.push({ ...r }); });
+  const canonAudio = state.labores.find(r => r.id === 'audio');
+  if (canonAudio) canonAudio.label = 'Sonido';
+  if (state.labores.some(r => r.id === 'sonido')) {
+    state.labores = state.labores.filter(r => r.id !== 'sonido');
+  }
+  state.people.forEach(p => {
+    if (!Array.isArray(p.labores)) return;
+    p.labores = p.labores.map(l => (l === 'sonido' ? 'audio' : l));
+  });
+  if (state.departmentsAll.length) {
+    const idsReales = new Set(state.departmentsAll.map(d => String(d.id)));
+    for (const p of state.people) {
+      if (!p.grupoId || idsReales.has(String(p.grupoId))) continue;
+      const num = String(p.grupoId).replace(/\D/g, '');
+      if (!num) continue;
+      const match = state.departmentsAll.find(d => {
+        const m = String(d.name || '').match(/(\d+)\s*$/);
+        return m && m[1] === num;
+      });
+      if (match && String(match.id) !== String(p.grupoId)) {
+        p.grupoId = match.id;
+        await db.updatePerson({ ...p });
+      }
+    }
+  }
 }
 
 async function refreshCatalogs() {
@@ -1104,7 +1155,7 @@ async function renderActivityMetrics() {
     { label: 'Cursos regulares', value: regCursos, icon: 'auto_stories' },
   ];
   const cardHtml = (list, isRegular=false) => list.map(c => `
-    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant border-l-4 border-l-primary p-4 ${isRegular?'cursor-pointer hover:bg-surface-container':'"}" ${isRegular?'onclick="showRegularsList()"':''} data-metric-regular="${isRegular}">
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant border-l-4 border-l-primary p-4 ${isRegular?'cursor-pointer hover:bg-surface-container':''}" ${isRegular?'onclick="showRegularsList()"':''} data-metric-regular="${isRegular}">
       <div class="flex items-center gap-2 mb-1"><span class="material-symbols-outlined text-primary text-xl">${c.icon}</span><p class="font-label-md text-label-md text-on-surface-variant">${c.label}</p></div>
       <p class="font-headline-md text-headline-md text-primary">${c.value}</p>
     </div>`).join('');
