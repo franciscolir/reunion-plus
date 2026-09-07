@@ -1431,18 +1431,23 @@ function bindActivityTab() {
     if (!person) return;
     const year = new Date(state.reportMonth+'-01').getFullYear();
     const data = await computePubReg(person, year);
-    openModal(`
-      <div class="max-w-3xl w-full">
-        <h3 class="font-headline-lg text-headline-lg text-primary mb-3">Registro anual editable — ${escapeHtml(person.name)}</h3>
-        <p class="text-on-surface-variant mb-4">Año ${year}. Edita la actividad mensual. Guarda al cerrar.</p>
-        <div class="max-h-[60vh] overflow-auto rounded-lg border border-outline-variant">
-          ${buildPubRegHtml(person, year, data)}
-        </div>
-        <div class="flex justify-end gap-3 mt-4">
-          <button id="regClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md">Cerrar</button>
-        </div>
-      </div>`);
-    $('#regClose').onclick = closeModal;
+    const html = buildPubRegHtml(person, year, data);
+    const w = window.open('', '_blank', 'noopener,noreferrer');
+    if (w) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    } else {
+      openModal(`
+        <div class="w-[95vw] max-w-none">
+          <h3 class="font-headline-lg text-headline-lg text-primary mb-3">Registro anual editable — ${escapeHtml(person.name)}</h3>
+          <div class="overflow-auto rounded-lg border border-outline-variant max-h-[85vh]">${html}</div>
+          <div class="flex justify-end gap-3 mt-4">
+            <button id="regClose" class="px-5 py-2.5 rounded-lg border border-outline font-label-md">Cerrar</button>
+          </div>
+        </div>`);
+      $('#regClose').onclick = closeModal;
+    }
   });
 
   // Revisión de informes por grupo
@@ -2246,7 +2251,7 @@ async function renderFormsTab() {
   const month = state.reportMonth && months.includes(state.reportMonth) ? state.reportMonth : defaultMonth;
   const monthOpts = months.map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('');
   const peopleOpts = (state.people || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(p => `<option value="${p.id}">${p.name || ''}</option>`).join('');
-  const yearOpts = [currentServiceYear(), currentServiceYear() + 1].map(y => `<option value="${y}">${serviceYearLabel(y)}</option>`).join('');
+  const yearOpts = [currentServiceYear(), currentServiceYear() - 1].map(y => `<option value="${y}">${serviceYearLabel(y)}</option>`).join('');
   const card = (id, title, desc, sel, btns) => `
     <section class="bg-surface-container-lowest rounded-xl border border-outline-variant p-6">
       <h3 class="font-headline-md text-headline-md text-primary mb-1">${title}</h3>
@@ -2259,7 +2264,7 @@ async function renderFormsTab() {
       <button data-form="${kind}" data-fmt="png" class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-surface-container-high text-primary font-label-md text-label-md border border-outline-variant hover:bg-surface-variant"><span class="material-symbols-outlined">image</span> PNG</button>`;
   const cards = [
     card('predicacion', 'Informe de Predicación (S-1-S)', 'Informe de predicación y asistencia a las reuniones de la congregación.', `<select id="fPredMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('predicacion')),
-    card('registro', 'Registro de Asistencia (2 años)', 'Registro de asistencia a las reuniones, dos años de servicio.', `<p class="text-on-surface-variant text-body-md">Año de servicio: ${serviceYearLabel(2026)} y ${serviceYearLabel(2027)}</p>`, pdfPng('registro')),
+    card('registro', 'Registro de Asistencia (2 años)', 'Registro de asistencia a las reuniones, dos años de servicio.', `<p class="text-on-surface-variant text-body-md">Año de servicio: ${serviceYearLabel(currentServiceYear()-1)} y ${serviceYearLabel(currentServiceYear())}</p>`, pdfPng('registro')),
     card('asistenciaMes', 'Informe de Asistencia Mensual (S-3-S)', 'Asistencia mensual por semanas (entre semana / fin de semana).', `<select id="fAsistMes" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${monthOpts}</select>`, pdfPng('asistenciaMes')),
     card('pubreg', 'Registro de Publicador', 'Formulario anual por publicador con su actividad del año de servicio.', `<select id="fPubPerson" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${peopleOpts}</select><select id="fPubYear" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${yearOpts}</select>`, pdfPng('pubreg')),
     card('pubreg-masivo', 'Registro de Publicador Masivo', 'Generar todos los registros de publicadores en PDF organizados por activos/inactivos y grupos.', `<select id="fPubYearMasivo" class="w-full bg-surface-bright border border-outline-variant rounded-lg p-2.5 mb-2">${yearOpts}</select><p class="text-on-surface-variant text-body-sm mt-2">Se crea un ZIP con estructura: activos / inactivos, publicadores por grupo, precursores regulares.</p>`, `<button data-form="pubreg-masivo" class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:opacity-90"><span class="material-symbols-outlined">download</span> Descargar ZIP</button>`),
@@ -2274,7 +2279,7 @@ function bindFormsTab() {
     b.onclick = () => {
       const kind = b.dataset.form, fmt = b.dataset.fmt;
       if (kind === 'predicacion') downloadPredicacion($('#fPredMes').value, fmt);
-      else if (kind === 'registro') downloadRegistro(2026, fmt);
+      else if (kind === 'registro') downloadRegistro(currentServiceYear() - 1, fmt);
       else if (kind === 'asistenciaMes') downloadAsistenciaMes($('#fAsistMes').value, fmt);
       else if (kind === 'pubreg') downloadPubReg($('#fPubPerson').value, fmt, $('#fPubYear').value);
       else if (kind === 'pubreg-masivo') downloadAllPubReg($('#fPubYearMasivo').value);
