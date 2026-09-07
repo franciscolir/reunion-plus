@@ -914,7 +914,7 @@ window.showGroupList = async (type) => {
   const month = state.reportMonth;
   const report = await db.getActivity(month) || {people:{}};
   const isRegular = type==='regular';
-  const people = state.people.filter(p => isRegular ? p.precursorRegular===true : !p.precursorRegular===true && (report.people[p.id]?.auxiliar));
+  const people = state.people.filter(p => isRegular ? p.precursorRegular===true : p.precursorRegular!==true && (report.people[p.id]?.auxiliar));
   const rows = people.map(p=>{
     const v = report.people[p.id]||{};
     const active = v.actividad || Number(v.horas)>0;
