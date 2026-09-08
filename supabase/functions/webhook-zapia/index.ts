@@ -331,11 +331,11 @@ async function handleMeta() {
       description: 'Sección Informes de la app. 4 pestañas: Actividad, Asistencia, Arreglos y Formularios.',
       tabs: {
         actividad: {
-          description: 'Informe mensual de actividad de predicación por persona.',
-          table: 'actividad',
-          idFormat: 'activity:YYYY-MM',
-          howToRead: 'Consulta la tabla actividad con el id "activity:YYYY-MM". El campo data.people contiene un objeto con los ids de personas como keys.',
-          howToWrite: 'Usa upsert para escribir el registro completo del mes. Cada persona se guarda bajo data.people[personId].',
+          description: 'Informe mensual de actividad de predicación por persona, dividido por grupo (g1..g7).',
+          tables: ['actividad_g1', 'actividad_g2', 'actividad_g3', 'actividad_g4', 'actividad_g5', 'actividad_g6', 'actividad_g7'],
+          idFormat: 'YYYY-MM',
+          howToRead: 'Consulta actividad_g{N} con id = YYYY-MM. El campo data.people contiene un objeto con los ids de personas como keys.',
+          howToWrite: 'Usa upsert para escribir el registro completo del mes en la tabla del grupo correspondiente.',
           fieldDetails: {
             'data.people.<personId>.actividad': 'boolean — si participó en predicación este mes',
             'data.people.<personId>.auxiliar': 'boolean — si fue auxiliar (solo si actividad=true)',
@@ -432,8 +432,8 @@ async function handleAttendance(sb: ReturnType<typeof createClient>, payload: Re
   const { month, week, data } = payload as { month: string; week: string; data: Record<string, unknown> };
   if (!month || !week || !data) return jsonRes({ error: 'Faltan campos: month, week, data' }, 400);
 
-  const id = `activity:${month}`;
-  const { data: existing } = await sb.from('actividad').select('data').eq('id', id).single();
+  const id = `${month}`;
+  const { data: existing } = await sb.from('actividad_g1').select('data').eq('id', id).single();
 
   const report = existing?.data || { id, people: {} };
   if (!report.people) report.people = {};
@@ -449,7 +449,7 @@ async function handleAttendance(sb: ReturnType<typeof createClient>, payload: Re
   };
 
   const { error } = await sb
-    .from('actividad')
+    .from('actividad_g1')
     .upsert({ id, data: report, updated_at: new Date().toISOString() }, { onConflict: 'id' });
 
   if (error) return jsonRes({ error: error.message }, 500);

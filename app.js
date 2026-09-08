@@ -945,7 +945,7 @@ async function renderInformesDashboard(){
   try {
     const f = await import('./supabase.js?v=219');
     if (f.isAuthenticated && f.isAuthenticated()) {
-      const acts = await f.obtenerActividad();
+      const acts = await f.obtenerActividadTodas();
       const rem = acts.find(a => String(a.id) === String(month));
       if (rem) report = rem;
     }
@@ -1215,7 +1215,7 @@ async function renderActivityGroupView(gid, withBack) {
   try {
     const f = await import('./supabase.js?v=219');
     if (f.isAuthenticated && f.isAuthenticated()) {
-      const acts = await f.obtenerActividad();
+      const acts = await f.obtenerActividadTodas();
       const rem = acts.find(a => String(a.id) === String(month));
       if (rem) report = rem;
     }

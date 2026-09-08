@@ -47,25 +47,16 @@ create table if not exists public.configuracion (
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-create table if not exists public.actividad (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-
 create table if not exists public.asistencia (
   id text primary key,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.arreglos (
   id text primary key,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-
--- Nuevas tablas para el modelo de datos v2
 create table if not exists public.cargos (
   id text primary key,
   data jsonb not null default '{}'::jsonb,
@@ -76,19 +67,12 @@ create table if not exists public.capacidades (
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-
 create table if not exists public.speaker_talks (
   id text primary key,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 create table if not exists public.audit_log (
-  id text primary key,
-  data jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.actividad_revision (
   id text primary key,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
@@ -122,7 +106,6 @@ create index if not exists idx_asignaciones_programa on public.asignaciones ((da
 create index if not exists idx_programas_mes on public.programas ((data->>'mes'));
 create index if not exists idx_cargos_nombre on public.cargos ((data->>'name'));
 create index if not exists idx_capacidades_cargo on public.capacidades ((data->>'cargoId'));
-
 create index if not exists idx_speaker_talks_persona on public.speaker_talks ((data->>'personId'));
 create index if not exists idx_speaker_talks_talk on public.speaker_talks ((data->>'talkNum'));
 create index if not exists idx_audit_log_entity on public.audit_log ((data->>'entity'));
@@ -147,7 +130,6 @@ as $$
 $$;
 
 -- Rol arbitrario (admin, user, reader, ia).
--- Uso: escritura de actividad permitida para user; pendientes futuros desarrollo.
 create or replace function internal.has_role(rol text)
 returns boolean
 language sql
@@ -163,8 +145,6 @@ as $$
 $$;
 
 -- Whitelist: ¿el correo del usuario está autorizado a leer los datos?
--- Lee la whitelist de la app (configuracion/general → config.emailsPermitidos).
--- SECURITY DEFINER para leer configuracion aunque su RLS esté restringida.
 create or replace function internal.email_autorizado()
 returns boolean
 language plpgsql
@@ -227,68 +207,28 @@ select internal.def_policies('programas');
 select internal.def_policies('asignaciones');
 select internal.def_policies('discursos');
 select internal.def_policies('configuracion');
-select internal.def_policies('actividad');
--- Actividad: lectura para autorizados, escritura para admin + user.
--- (def_policies YA creó las políticas genéricas; aquí las refinamos para que
--- el rol user también pueda escribir en actividad, p. ej. ingresar el informe
--- de su grupo.) Al ser la misma tabla, recreamos las políticas con el nuevo
--- criterio — las anteriores son solo placeholders que PostgreSQL sustituye.
-drop policy if exists "escritura_admin" on public.actividad;
-drop policy if exists "lectura_autorizados" on public.actividad;
-create policy "lectura_autorizados" on public.actividad
-  for select to authenticated using (internal.email_autorizado());
-create policy "escritura_admin" on public.actividad
-  for all to authenticated
-  using (internal.is_admin())
-  with check (internal.is_admin());
-drop policy if exists "escritura_user_actividad" on public.actividad;
-create policy "escritura_user_actividad" on public.actividad
-  for all to authenticated
-  using (internal.has_role('user')) with check (internal.has_role('user'));
+select internal.def_policies('asistencia');
+select internal.def_policies('arreglos');
+select internal.def_policies('cargos');
+select internal.def_policies('capacidades');
+select internal.def_policies('speaker_talks');
+select internal.def_policies('audit_log');
 
--- actividad_revision: el user puede escribir (guardar su informe pendiente).
--- El admin confirma moviendo esa fila a actividad. La lectura es para todos
--- (RLS ya la garantiza).
-select internal.def_policies('actividad_revision');
--- Políticas de usuario para el escribir/copiar actividad pendiente (del user).
--- Queda la lectura genérica y escritura solo para user de actividad_revision.
-drop policy if exists "escritura_user_revision" on public.actividad_revision;
-create policy "escritura_user_revision" on public.actividad_revision
-  for all to authenticated
-  using (internal.has_role('user')) with check (internal.has_role('user'));
-
--- Políticas para actividad_g1..g7 (mismas que actividad)
+-- Políticas para actividad_g1..g7: lectura autorizados, escritura admin + user.
 do $$
 begin
   for g in 1..7 loop
     execute format('select internal.def_policies(''actividad_g%s'');', g);
     execute format('drop policy if exists "escritura_user_actividad" on public.actividad_g%s;', g);
-    execute format('create policy "escritura_user_actividad" on public.actividad_g%s
-      for all to authenticated
-      using (internal.has_role('user')) with check (internal.has_role('user'));', g);
+    execute format('create policy "escritura_user_actividad" on public.actividad_g%s for all to authenticated using (internal.has_role(''user'')) with check (internal.has_role(''user''));', g);
   end loop;
 end $$;
 
-select internal.def_policies('asistencia');
-select internal.def_policies('arreglos');
-select internal.def_policies('cargos');
-select internal.def_policies('capacidades');
-
-select internal.def_policies('speaker_talks');
-select internal.def_policies('audit_log');
-
 -- ===== Hardening de funciones =====
--- is_admin / email_autorizado se movieron al esquema internal (no expuesto por
--- la API de PostgREST), así que no aparecen en /rest/v1/rpc/ y el linter no las
--- señala. Se mantiene EXECUTE para anon/authenticated porque la evaluación de
--- RLS (que las invoca) corre con el rol que consulta y necesita EXECUTE.
 -- Concedemos USAGE sobre internal para que la RLS pueda resolver el esquema.
 grant usage on schema internal to anon, authenticated;
 
--- rls_auto_enable está amarrada a un event trigger (ensure_rls) que auto-habilita
--- RLS, por lo que NO se borra. Solo se revoca EXECUTE para que no sea invocable
--- vía /rest/v1/rpc/. El event trigger corre como superusuario y conserva el
--- privilegio, así que sigue funcionando.
+-- rls_auto_enable: se revoca EXECUTE para que no sea invocable vía /rest/v1/rpc/.
 do $$
 declare r record;
 begin
@@ -325,22 +265,21 @@ create policy "usuarios_borrado_admin" on public.usuarios
 -- ===== Grants (los roles anon/authenticated pueden usar las tablas; RLS decide) =====
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
-  public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
+  public.programas, public.asignaciones, public.discursos, public.configuracion,
   public.actividad_g1, public.actividad_g2, public.actividad_g3, public.actividad_g4,
   public.actividad_g5, public.actividad_g6, public.actividad_g7,
   public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
-  public.actividad_revision, public.audit_log, public.usuarios
+  public.audit_log, public.usuarios
   to authenticated;
-grant select, insert, update, delete on public.usuarios to authenticated;
 
 -- service_role (usado por Edge Functions) necesita grants explícitos para
 -- bypass RLS y acceder a las tablas.
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
-  public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
+  public.programas, public.asignaciones, public.discursos, public.configuracion,
   public.actividad_g1, public.actividad_g2, public.actividad_g3, public.actividad_g4,
   public.actividad_g5, public.actividad_g6, public.actividad_g7,
   public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
-  public.actividad_revision, public.audit_log, public.usuarios
+  public.audit_log, public.usuarios
   to service_role;
 
 -- Elimina las versiones públicas obsoletas de is_admin / email_autorizado (de
