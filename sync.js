@@ -509,18 +509,16 @@ export async function pullAll() {
   _enabled = false;
   try {
     const f = await import('./supabase.js?v=219');
-    const [participantes, grupos, reuniones, programas, asignaciones, configuracion, discursos, actividad, asistencia, arreglos] = await Promise.all([
-      f.obtenerParticipantes(),
-      f.obtenerGrupos(),
-      f.obtenerReuniones(),
-      f.obtenerProgramas(),
-      f.obtenerAsignaciones(),
-      f.obtenerConfiguracion(),
-      f.obtenerDiscursos(),
-      f.obtenerActividad(),
-      f.obtenerAsistencia(),
-      f.obtenerArreglos(),
-    ]);
+    const participantes = await f.obtenerParticipantes();
+    const grupos = await f.obtenerGrupos();
+    const reuniones = await f.obtenerReuniones();
+    const programas = await f.obtenerProgramas();
+    const asignaciones = await f.obtenerAsignaciones();
+    const configuracion = await f.obtenerConfiguracion();
+    const discursos = await f.obtenerDiscursos();
+    const asistencia = await f.obtenerAsistencia();
+    const arreglos = await f.obtenerArreglos();
+    const actividadGroups = await Promise.all([1,2,3,4,5,6,7].map(g=>f.obtenerActividadGrupo(g)));
 
 // personas: participantes → registros people
     const personasDesdeCloud = participantes.map(p => ({
@@ -600,7 +598,9 @@ export async function pullAll() {
     }
     // discursos
     await db.replaceAllTalksSilent(discursos.map(d => ({ num: Number(d.num), title: d.title || '' })));
-    for (const d of actividad || []) await db.putActivitySilent(d);
+    for (let gid=1; gid<=7; gid++){
+      for (const d of actividadGroups[gid-1] || []) await db.putActivityGroupSilent(d, gid);
+    }
     for (const d of asistencia || []) await db.putAttendanceSilent(d);
     for (const d of arreglos || []) await db.putArrangementsSilent(d);
     setStatus('ok', 'pull completado');

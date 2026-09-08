@@ -4,7 +4,7 @@
 import { defaultAlgorithmConfig, mapMidweekSlots, mapFinWeekSlots, mapSalidasSlots, mapAtencionSlots, addDays } from './logic.js';
 
 const DB_NAME = 'reunion-plus';
-const DB_VERSION = 14;
+const DB_VERSION = 15;
 const STORE_MONTHS = 'months';       // key: "YYYY-MM"
 const STORE_PEOPLE = 'people';       // keyPath: id (auto)
 const STORE_DEPARTMENTS = 'departments'; // keyPath: id (auto)
@@ -79,6 +79,12 @@ function openDB() {
       }
       if (!db.objectStoreNames.contains(STORE_ACTIVITY)) {
         db.createObjectStore(STORE_ACTIVITY, { keyPath: 'id' });
+      }
+      for (let i=1;i<=7;i++){
+        const sName = `activity_g${i}`;
+        if (!db.objectStoreNames.contains(sName)){
+          db.createObjectStore(sName, { keyPath: 'id' });
+        }
       }
       if (!db.objectStoreNames.contains(STORE_ATTENDANCE)) {
         db.createObjectStore(STORE_ATTENDANCE, { keyPath: 'id' });
@@ -282,6 +288,34 @@ function openDB() {
             if (!c) return;
             const p = c.value || {};
             if (!('inactivo' in p)) { p.inactivo = false; c.update(p); }
+            c.continue();
+          };
+        }
+      }
+
+      if (e.oldVersion < 15) {
+        const t = e.target.transaction;
+        if (t.objectStoreNames.contains(STORE_ACTIVITY)) {
+          const cur = t.objectStore(STORE_ACTIVITY).openCursor();
+          cur.onsuccess = (ev) => {
+            const c = ev.target.result;
+            if (!c) return;
+            const a = c.value || {};
+            const month = a.id;
+            const people = a.people || {};
+            for (let gid=1; gid<=7; gid++){
+              const storeName = `activity_g${gid}`;
+              if (!t.objectStoreNames.contains(storeName)) continue;
+              const filtered = {};
+              for (const pid in people){
+                const p = people[pid];
+                if (p && p.grupoId===gid) filtered[pid]=p;
+              }
+              if (Object.keys(filtered).length){
+                const doc = { ...a, id: month, people: filtered };
+                t.objectStore(storeName).put(doc);
+              }
+            }
             c.continue();
           };
         }
@@ -1220,21 +1254,50 @@ export async function borrarSoloProgramasLocal() {
 }
 
 export async function getActivity(id) {
+  const gid = (typeof window !== 'undefined' && window.state && window.state.reportGroup) ? window.state.reportGroup : 1;
+  return await getActivityGroup(id, gid);
+}
+
+export async function getActivityGroup(month, gid) {
+  const store = `activity_g${gid}`;
   const db = await openDB();
-  return reqToPromise(tx(db, STORE_ACTIVITY).get(String(id)));
+  if (!db.objectStoreNames.contains(store)) return null;
+  return reqToPromise(tx(db, store).get(String(month)));
+}
+
+export async function putActivityGroup(report, gid) {
+  const store = `activity_g${gid}`;
+  return commit(store, (s) => reqToPromise(s.put({ ...report, id: String(report.id), updatedAt: Date.now() })));
+}
+
+export async function putActivityGroupSilent(report, gid) {
+  const store = `activity_g${gid}`;
+  return commitSilent(store, (s) => reqToPromise(s.put({ ...report, id: String(report.id) })));
 }
 
 export async function putActivity(report) {
-  return commit(STORE_ACTIVITY, (store) => reqToPromise(store.put({ ...report, id: String(report.id), updatedAt: Date.now() })));
+  const gid = (typeof window !== 'undefined' && window.state && window.state.reportGroup) ? window.state.reportGroup : 1;
+  return await putActivityGroup(report, gid);
 }
 
 export async function putActivitySilent(report) {
-  return commitSilent(STORE_ACTIVITY, (store) => reqToPromise(store.put({ ...report, id: String(report.id) })));
+  const gid = (typeof window !== 'undefined' && window.state && window.state.reportGroup) ? window.state.reportGroup : 1;
+  return await putActivityGroupSilent(report, gid);
 }
 
 export async function listActivity() {
+  const gid = (typeof window !== 'undefined' && window.state && window.state.reportGroup) ? window.state.reportGroup : 1;
   const db = await openDB();
-  return reqToPromise(tx(db, STORE_ACTIVITY).getAll());
+  const store = `activity_g${gid}`;
+  if (!db.objectStoreNames.contains(store)) return [];
+  return reqToPromise(tx(db, store).getAll());
+}
+
+export async function listActivityGroup(gid) {
+  const store = `activity_g${gid}`;
+  const db = await openDB();
+  if (!db.objectStoreNames.contains(store)) return [];
+  return reqToPromise(tx(db, store).getAll());
 }
 
 export async function getAttendance(id) {
