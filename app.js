@@ -940,7 +940,16 @@ window.closeCurrentMonth = async () => {
 async function renderInformesDashboard(){
   const month = state.reportMonth;
   const monthLabel = `${MONTHS_ES[Number(month.slice(5))-1]} ${month.slice(0,4)}`;
-  const report = await db.getActivity(month) || {people:{}};
+  let report = await db.getActivity(month) || {people:{}};
+  try {
+    const f = await import('./supabase.js?v=219');
+    if (f.isAuthenticated && f.isAuthenticated()) {
+      const acts = await f.obtenerActividad();
+      const rem = acts.find(a => String(a.id) === String(month));
+      if (rem) report = rem;
+    }
+  } catch(e) {}
+
   const deps = state.departments||[];
   const people = state.people||[];
   const totalPub = people.filter(p=>p.activo!==false).length;
@@ -1202,16 +1211,15 @@ async function renderActivityGroupView(gid, withBack) {
   const me = currentUser();
   const isUser = me && me.rol === 'user';
   let report = await db.getActivity(month) || { id: month, people: {}, locked: false };
-  if (isUser) {
-    try {
-      const f = await import('./supabase.js?v=219');
-      if (f.isAuthenticated && f.isAuthenticated()) {
-        const acts = await f.obtenerActividad();
-        const rem = acts.find(a => String(a.id) === String(month));
-        if (rem) report = rem;
-      }
-    } catch (e) { /* fallback local */ }
-  }
+  try {
+    const f = await import('./supabase.js?v=219');
+    if (f.isAuthenticated && f.isAuthenticated()) {
+      const acts = await f.obtenerActividad();
+      const rem = acts.find(a => String(a.id) === String(month));
+      if (rem) report = rem;
+    }
+  } catch (e) { /* fallback local */ }
+
   const members = state.people.filter(p => String(p.grupoId) === String(gid));
 
   const nowMonth = isoDate(new Date()).slice(0,7);
