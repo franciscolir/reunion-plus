@@ -857,8 +857,8 @@ function serviceYearLabel(year) {
 async function renderInformes() {
   state.month = null;
   renderTop();
-  const app = $('#app');
-  app.innerHTML = `<div class="flex flex-col items-center justify-center py-24 gap-4"><div class="w-12 h-12 border-4 border-outline-variant border-t-primary rounded-full animate-spin"></div><p class="text-on-surface-variant">Cargando informes... 0%</p></div>`;
+  const appEl = $('#app');
+  appEl.innerHTML = `<div class="flex flex-col items-center justify-center py-24 gap-4"><div class="w-12 h-12 border-4 border-outline-variant border-t-primary rounded-full animate-spin"></div><p class="text-on-surface-variant">Cargando informes... 0%</p></div>`;
   const months = availableReportMonths();
   if (!state.reportMonth || !months.includes(state.reportMonth)) {
     const now = new Date();
@@ -879,8 +879,7 @@ async function renderInformes() {
   else if (tab === 'arreglos') body = await renderArrangementsTab();
   else body = await renderFormsTab();
   const showMonth = tab === 'actividad' || tab === 'asistencia';
-  const app = $('#app');
-  app.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Informes</h1><p class="text-on-surface-variant font-body-lg">Actividad, asistencia y arreglos de la congregación.</p></div>
+  appEl.innerHTML = `<div class="mb-6"><h1 class="font-display-lg text-display-lg text-primary">Informes</h1><p class="text-on-surface-variant font-body-lg">Actividad, asistencia y arreglos de la congregación.</p></div>
     <div class="mb-5 flex flex-wrap items-center gap-3">
       ${showMonth ? `<select id="reportMonth" class="bg-surface-bright border border-outline-variant rounded-lg p-2.5 font-body-md">${months.map(m => `<option value="${m}" ${m === state.reportMonth ? 'selected' : ''}>${MONTHS_ES[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`).join('')}</select>` : ''}
       <div class="flex flex-wrap gap-2">${tabs.map(([id, label, icon]) => `<button data-report-tab="${id}" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg font-label-md text-label-md ${tab === id ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}"><span class="material-symbols-outlined text-[18px]">${icon}</span>${label}</button>`).join('')}</div>
