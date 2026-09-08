@@ -36,12 +36,13 @@ beforeEach(async () => {
 });
 
 // --- Esquema ---
-test('esquema v14 crea todos los stores', async () => {
+test('esquema v15 crea todos los stores', async () => {
   await db.listPeople(); // fuerza la apertura/creación del esquema
-  const d = await openRaw(DB_NAME, 14);
+  const d = await openRaw(DB_NAME, 15);
   const names = [...d.objectStoreNames];
   d.close();
   for (const s of STORES) assert.ok(names.includes(s), `falta el store "${s}"`);
+  for (let i=1;i<=7;i++){ assert.ok(names.includes(`activity_g${i}`), `falta activity_g${i}`); }
 });
 
 // --- Stores de informes (activity/attendance/arrangements) ---
