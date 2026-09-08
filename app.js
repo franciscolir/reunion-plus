@@ -857,6 +857,8 @@ function serviceYearLabel(year) {
 async function renderInformes() {
   state.month = null;
   renderTop();
+  const app = $('#app');
+  app.innerHTML = `<div class="flex flex-col items-center justify-center py-24 gap-4"><div class="w-12 h-12 border-4 border-outline-variant border-t-primary rounded-full animate-spin"></div><p class="text-on-surface-variant">Cargando informes... 0%</p></div>`;
   const months = availableReportMonths();
   if (!state.reportMonth || !months.includes(state.reportMonth)) {
     const now = new Date();
