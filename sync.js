@@ -330,9 +330,21 @@ async function pushStore(store) {
       await batchWrite(docs);
       setStatus('ok', `asignaciones: ${docs.length}`);
     } else if (store === 'activity') {
-      const docs = await db.listActivity();
-      await batchWrite(docs.map(r => ({ collection: 'actividad', id: String(r.id), data: r })));
-      setStatus('ok', `actividad: ${docs.length}`);
+      for (let gid=1; gid<=7; gid++){
+        const docs = await db.listActivityGroup(gid);
+        if (!docs || !docs.length) continue;
+        await batchWrite(docs.map(r => ({ collection:`actividad_g${gid}`, id:String(r.id), data:r })));
+        setStatus('ok', `actividad_g${gid}: ${docs.length}`);
+      }
+    } else if (store.startsWith('activity_g')) {
+      const gid = Number(store.replace('activity_g',''));
+      if (!isNaN(gid)){
+        const docs = await db.listActivityGroup(gid);
+        if (docs && docs.length){
+          await batchWrite(docs.map(r => ({ collection:`actividad_g${gid}`, id:String(r.id), data:r })));
+          setStatus('ok', `actividad_g${gid}: ${docs.length}`);
+        }
+      }
     } else if (store === 'attendance') {
       const docs = await db.listAttendance();
       await batchWrite(docs.map(r => ({ collection: 'asistencia', id: String(r.id), data: r })));

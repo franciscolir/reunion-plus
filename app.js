@@ -1381,7 +1381,8 @@ function bindActivityTab() {
   if (save) save.onclick = async () => {
     await saveData();
     toast('Actividad guardada', 'success');
-    try { await subirStores(['activity']); } catch (e) { /* sin Supabase: solo local */ }
+    const gid = state.reportGroup || 1;
+    try { await subirStores([`activity_g${gid}`]); } catch (e) { /* sin Supabase: solo local */ }
     renderInformes();
   };
   document.querySelectorAll('[data-act="auxiliar"]').forEach(c => c.onchange = () => {
@@ -1429,7 +1430,8 @@ function bindActivityTab() {
       await db.putActivity({ ...report, people });
     }
     toast('Registro anual guardado', 'success');
-    try { await subirStores(['activity']); } catch(e){}
+    const gid = state.reportGroup || 1;
+    try { await subirStores([`activity_g${gid}`]); } catch(e){}
     state.reportRegPersonId = null;
     renderInformes();
   };
