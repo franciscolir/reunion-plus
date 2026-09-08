@@ -516,7 +516,7 @@ export async function pullAll() {
       f.obtenerProgramas(),
       f.obtenerAsignaciones(),
       f.obtenerConfiguracion(),
-      f.obtenerTalks(),
+      f.obtenerDiscursos(),
       f.obtenerActividad(),
       f.obtenerAsistencia(),
       f.obtenerArreglos(),
