@@ -94,6 +94,20 @@ create table if not exists public.actividad_revision (
   updated_at timestamptz not null default now()
 );
 
+-- Tablas de actividad por grupo (g1..g7)
+do $$
+begin
+  for g in 1..7 loop
+    execute format(
+      'create table if not exists public.actividad_g%s (
+        id text primary key,
+        data jsonb not null default ''{}''::jsonb,
+        updated_at timestamptz not null default now()
+      );', g
+    );
+  end loop;
+end $$;
+
 -- Tabla de usuarios (rol admin/reader/user/ia). El usuario crea SU fila con rol reader
 -- en el primer login; solo un admin puede cambiar/borrar roles.
 create table if not exists public.usuarios (
@@ -242,6 +256,19 @@ drop policy if exists "escritura_user_revision" on public.actividad_revision;
 create policy "escritura_user_revision" on public.actividad_revision
   for all to authenticated
   using (internal.has_role('user')) with check (internal.has_role('user'));
+
+-- Políticas para actividad_g1..g7 (mismas que actividad)
+do $$
+begin
+  for g in 1..7 loop
+    execute format('select internal.def_policies(''actividad_g%s'');', g);
+    execute format('drop policy if exists "escritura_user_actividad" on public.actividad_g%s;', g);
+    execute format('create policy "escritura_user_actividad" on public.actividad_g%s
+      for all to authenticated
+      using (internal.has_role('user')) with check (internal.has_role('user'));', g);
+  end loop;
+end $$;
+
 select internal.def_policies('asistencia');
 select internal.def_policies('arreglos');
 select internal.def_policies('cargos');
@@ -299,6 +326,8 @@ create policy "usuarios_borrado_admin" on public.usuarios
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
+  public.actividad_g1, public.actividad_g2, public.actividad_g3, public.actividad_g4,
+  public.actividad_g5, public.actividad_g6, public.actividad_g7,
   public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
   public.actividad_revision, public.audit_log, public.usuarios
   to authenticated;
@@ -308,6 +337,8 @@ grant select, insert, update, delete on public.usuarios to authenticated;
 -- bypass RLS y acceder a las tablas.
 grant select, insert, update, delete on public.participantes, public.grupos, public.reuniones,
   public.programas, public.asignaciones, public.discursos, public.configuracion, public.actividad,
+  public.actividad_g1, public.actividad_g2, public.actividad_g3, public.actividad_g4,
+  public.actividad_g5, public.actividad_g6, public.actividad_g7,
   public.asistencia, public.arreglos, public.cargos, public.capacidades, public.speaker_talks,
   public.actividad_revision, public.audit_log, public.usuarios
   to service_role;
