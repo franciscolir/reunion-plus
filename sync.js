@@ -658,6 +658,8 @@ export async function iniciarSync() {
   if (!isSupabaseConfigured()) { setStatus('inactivo', 'Supabase no configurado'); return; }
   const ready = await isSupabaseReady();
   if (!ready) { setStatus('inactivo', 'Supabase no disponible'); return; }
+  // Limpiar cola de pendientes antes de sincronizar para evitar reescribir datos corregidos en Supabase
+  try { await descartarLocal(); } catch(e){}
   _enabled = true;
   db.onSync(marcarLocal);
   const saved = await db.getSetting('lastSavedAt', null).catch(() => null);
