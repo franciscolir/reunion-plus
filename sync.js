@@ -89,9 +89,9 @@ function marcarLocal(store) {
 // Sube explícitamente un conjunto de stores (al pulsar Guardar en un editor).
 // Respeta la cola offline y el estado de sincronización.
 export async function subirStores(stores) {
-  if (!_enabled) return { error: 'inactivo' };
-  if (!navigator.onLine) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'offline' }; }
-  if (!(await isSupabaseReady())) { (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'supabase-no-disponible' }; }
+  if (!_enabled) { console.warn('[Reunión+] subirStores: sync inactivo (¿Supabase no configurado o sin sesión?)', stores); return { error: 'inactivo' }; }
+  if (!navigator.onLine) { console.warn('[Reunión+] subirStores: offline, encolado', stores); (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'offline' }; }
+  if (!(await isSupabaseReady())) { console.warn('[Reunión+] subirStores: Supabase no disponible, encolado', stores); (stores || []).forEach(s => encolarPendienteAsync(s).then(() => marcarDirty())); return { error: 'supabase-no-disponible' }; }
   setStatus('syncing', 'guardando cambios…');
   for (const s of (stores || [])) {
     await pushStore(s);

@@ -1415,7 +1415,10 @@ function bindActivityTab() {
     await saveData();
     toast('Actividad guardada', 'success');
     const gid = state.reportGroup || 1;
-    try { await subirStores([`activity_g${gid}`]); } catch (e) { /* sin Supabase: solo local */ }
+    try {
+      const res = await subirStores([`activity_g${gid}`]);
+      if (res && res.error) console.warn('[Reunión+] Guardado local del grupo', gid, 'pendiente de subir:', res.error);
+    } catch (e) { console.warn('[Reunión+] Error al subir grupo', gid, e); /* sin Supabase: solo local */ }
     renderInformes();
   };
   document.querySelectorAll('[data-act="auxiliar"]').forEach(c => c.onchange = () => {
