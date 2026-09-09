@@ -938,6 +938,12 @@ window.closeCurrentMonth = async () => {
     renderInformes();
   }
 };
+window.forcePullCurrentMonth = async () => {
+  await sync.pullAll();
+  toast('Informes actualizados', 'success');
+  renderInformes();
+};
+
 async function renderInformesDashboard(){
   const month = state.reportMonth;
   const monthLabel = `${MONTHS_ES[Number(month.slice(5))-1]} ${month.slice(0,4)}`;
@@ -1027,6 +1033,7 @@ async function renderInformesDashboard(){
         <p class="text-on-surface-variant">Resumen general mensual y consolidación por grupos de servicio de campo.</p>
       </div>
       <div class="flex items-center gap-3">
+        <button onclick="forcePullCurrentMonth()" class="px-3 py-2 rounded-lg border border-outline-variant text-xs font-semibold uppercase hover:bg-surface-container">Descargar informes del mes</button>
         <div class="inline-flex items-center bg-surface-container-low border rounded-lg p-1 text-sm">
           <span class="px-3 font-semibold text-xs uppercase">${monthLabel}</span>
           ${isClosed ? '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold uppercase">Cerrado</span>' : '<button data-close-month onclick="closeCurrentMonth()" class="px-2 py-0.5 bg-amber-100 text-amber-900 rounded text-[10px] font-bold uppercase hover:bg-amber-200">Cerrar mes</button>'}
