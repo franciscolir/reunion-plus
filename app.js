@@ -1218,11 +1218,11 @@ async function renderActivityGroupView(gid, withBack) {
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   const me = currentUser();
   const isUser = me && me.rol === 'user';
-  let report = await db.getActivity(month) || { id: month, people: {}, locked: false };
+  let report = await db.getActivityGroup(month, gid) || { id: month, people: {}, locked: false };
   try {
     const f = await import('./supabase.js?v=219');
     if (f.isAuthenticated && f.isAuthenticated()) {
-      const acts = await f.obtenerActividadTodas();
+      const acts = await f.obtenerActividadGrupo(gid);
       const rem = acts.find(a => String(a.id) === String(month));
       if (rem) report = rem;
     }
