@@ -1415,8 +1415,10 @@ function bindActivityTab() {
     await saveData();
     toast('Actividad guardada', 'success');
     const gid = state.reportGroup || 1;
+    console.log('[Reunión+] Guardando grupo', gid, 'reportMonth', state.reportMonth);
     try {
       const res = await subirStores([`activity_g${gid}`]);
+      console.log('[Reunión+] subirStores resultado', gid, res);
       if (res && res.error) console.warn('[Reunión+] Guardado local del grupo', gid, 'pendiente de subir:', res.error);
     } catch (e) { console.warn('[Reunión+] Error al subir grupo', gid, e); /* sin Supabase: solo local */ }
     renderInformes();
