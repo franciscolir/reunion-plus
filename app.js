@@ -1256,12 +1256,27 @@ async function renderActivityGroupView(gid, withBack) {
     const v = report.people?.[p.id] || {};
     const horas = Number(v.horas) || 0;
     const act = horas > 0 || v.actividad === true;
+    const joined = v.joined === true;
     const precBadge = regular ? `<span class="inline-block px-2 py-0.5 bg-secondary-container text-on-secondary-container rounded text-[10px] uppercase font-bold tracking-wide">Precursor</span>` : '';
     const aux = !!v.auxiliar;
     const borderColor = regular ? 'border-l-secondary' : 'border-l-primary';
     const disabled = isUser ? !canEditUser : report.locked;
     const auxCell = auxCellHtml(regular, aux, disabled, p.id);
     const actCell = actCellHtml(regular, aux, act, Number(v.horas) || 0, disabled, p.id);
+    if (joined) {
+      return `<div class="bg-surface-container-lowest border-l-4 ${borderColor} border border-outline-variant rounded-lg p-4 shadow-sm" data-row="${p.id}">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <p class="font-body-md text-body-md font-medium text-on-surface truncate">${escapeHtml(p.name)}</p>
+            ${precBadge}
+            <button data-edit-reg="${p.id}" class="ml-2 text-xs px-2 py-0.5 bg-surface-container rounded hover:bg-surface-container-low">Registro anual</button>
+            <button data-unjoin="${p.id}" class="ml-2 text-xs px-2 py-0.5 bg-primary text-on-primary rounded hover:bg-primary/90">Editar</button>
+          </div>
+          <div class="text-caption text-on-surface-variant">Actividad: ${act ? 'Sí' : 'No'} · Horas: ${horas} · Cursos: ${Number(v.cursos)||0}</div>
+        </div>
+        <div class="text-sm text-on-surface-variant">${escapeHtml(v.notas || '')}</div>
+      </div>`;
+    }
     return `<div class="bg-surface-container-lowest border-l-4 ${borderColor} border border-outline-variant rounded-lg p-4 shadow-sm transition-all group" data-row="${p.id}">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div class="flex items-center gap-2 min-w-0">
@@ -1286,6 +1301,10 @@ async function renderActivityGroupView(gid, withBack) {
           <label class="font-label-md text-label-md text-on-surface-variant text-xs">Observación</label>
           <input type="text" data-act="notas" data-pid="${p.id}" value="${escapeAttr(v.notas || '')}" ${disabled ? 'disabled' : ''} class="w-full px-3 py-1.5 border border-outline-variant hover:border-outline-variant focus:border-primary rounded bg-surface focus:bg-surface font-body-md text-on-surface-variant transition-colors" placeholder="Añadir nota..."/>
         </div>
+      </div>
+      <div class="mt-3 flex items-center gap-2">
+        <input type="checkbox" data-act="sinactividad" data-pid="${p.id}" class="form-checkbox text-primary rounded border-outline-variant cursor-pointer"/>
+        <label class="text-xs text-on-surface-variant">Sin actividad</label>
       </div>
     </div>`;
   }).join('');
@@ -1373,12 +1392,19 @@ function bindActivityTab() {
       const isNumber = regular || auxiliar;
       const horas = isNumber ? (parseInt(get('horas')?.value, 10) || 0) : 0;
       const actividad = isNumber ? horas > 0 : !!get('actividad')?.checked;
+      const sinAct = !!get('sinactividad')?.checked;
+      const prev = people[p.id] || {};
+      const joined = prev.joined === true;
+      const nextJoined = joined || sinAct;
+      const nextActividad = sinAct ? false : actividad;
+      const nextHoras = sinAct ? 0 : horas;
       people[p.id] = {
-        actividad,
+        actividad: nextActividad,
         auxiliar,
         cursos: parseInt(get('cursos')?.value, 10) || 0,
-        horas,
+        horas: nextHoras,
         notas: get('notas')?.value || '',
+        joined: nextJoined,
       };
     });
     await db.putActivity({ ...report, people });
@@ -1413,6 +1439,18 @@ function bindActivityTab() {
     });
   }
   bindActividad();
+
+  document.querySelectorAll('[data-unjoin]').forEach(b => {
+    b.onclick = async () => {
+      const pid = b.dataset.unjoin;
+      const month = state.reportMonth;
+      const report = await db.getActivity(month) || { id: month, people: {} };
+      const people = { ...(report.people || {}) };
+      if (people[pid]) delete people[pid].joined;
+      await db.putActivity({ ...report, people });
+      renderInformes();
+    };
+  });
 
   const regBack = $('#regBack');
   if (regBack) regBack.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
