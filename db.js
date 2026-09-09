@@ -665,7 +665,9 @@ async function listDepartmentsRaw() {
 export async function listDepartments() {
   return (await listDepartmentsRaw()).filter(d => d.activo !== false);
 }
-
+export async function clearDepartments() {
+  return commit(STORE_DEPARTMENTS, (store) => reqToPromise(store.clear()));
+}
 export async function listDepartmentsAll() {
   return listDepartmentsRaw();
 }

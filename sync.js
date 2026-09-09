@@ -690,7 +690,8 @@ export async function reconciliar() {
   try {
     setStatus('syncing', 'sincronizando datos…');
 
-    // ---- personas: people ↔ participantes ----
+    // ---- personas: people ↔ participantes ---- limpiar para corregir grupoId tras cambio de ids de grupos
+    await db.clearPeople();
     const personas = await db.listPeople();
     const participantes = await f.obtenerParticipantes();
     const idsParticipantes = new Set(participantes.map(p => String(p.id)));
@@ -727,15 +728,10 @@ export async function reconciliar() {
       bajados++;
     }
 
-    // ---- grupos: departments ↔ grupos ----
-    const departments = await db.listDepartments();
+    // ---- grupos: departments ↔ grupos ---- read-only desde Supabase, limpiar y repoblar para corregir ids
+    await db.clearDepartments();
     const grupos = await f.obtenerGrupos();
-    const idsGrupos = new Set(grupos.map(g => String(g.id)));
-    const idsDepts = new Set(departments.map(d => String(d.id)));
-    const deptsASubir = departments.filter(d => !idsGrupos.has(String(d.id)));
-    if (puedeEscribir && deptsASubir.length) { await batchWrite(deptsASubir.map(grupoADocumento)); subidos += deptsASubir.length; }
     for (const g of grupos) {
-      if (idsDepts.has(String(g.id))) continue;
       await db.putDepartmentSilent({
         id: String(g.id),
         name: g.nombre || '',
