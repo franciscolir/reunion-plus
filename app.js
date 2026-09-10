@@ -1527,7 +1527,7 @@ function bindActivityTab() {
       const actividad = !!act || horas>0;
       const report = await db.getActivityGroup(mid, gid) || { id: mid, people: {}, locked:false };
       const people = { ...(report.people||{}) };
-      people[pid] = { actividad, auxiliar: !!aux, cursos, horas, notas };
+      people[pid] = { actividad, auxiliar: !!aux, cursos, horas, notas, joined: true };
       await db.putActivityGroup({ ...report, people }, gid);
     }
     toast('Registro anual guardado', 'success');
@@ -2659,10 +2659,11 @@ async function downloadAsistenciaMes(month, fmt) {
 
 async function computePubReg(person, year) {
   const months = serviceYearMonths(year);
+  const gid = person.grupoId || state.reportGroup || 1;
   const out = [];
   let totalHoras = 0, totalCursos = 0;
   for (const m of months) {
-    const rep = await db.getActivity(m) || { id: m, people: {} };
+    const rep = await db.getActivityGroup(m, gid) || { id: m, people: {} };
     const v = rep.people?.[person.id] || {};
     const horas = Number(v.horas) || 0;
     const cursos = Number(v.cursos) || 0;
