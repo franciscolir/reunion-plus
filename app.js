@@ -1010,9 +1010,11 @@ async function renderInformesDashboard(){
     kpiCard('Grupos Recibidos', `${gruposRecibidos}`, `/ ${deps.length}`, `${Math.round(deps.length?gruposRecibidos/deps.length*100:0)}% consolidado`, 'inventory_2', true)
   ].join('');
 
-  const groupsHtml = deps.map(d=>{
+  const groupsHtml = await Promise.all(deps.map(async d=>{
     const members = people.filter(p=>String(p.grupoId)===String(d.id));
-    const entregados = members.filter(p=>report.people[p.id]?.actividad).length;
+    const groupReport = await db.getActivityGroup(month, d.id);
+    const groupPeople = groupReport?.people || {};
+    const entregados = members.filter(p=>groupPeople[p.id]?.actividad).length;
     const pct = members.length?Math.round(entregados/members.length*100):0;
     const status = pct===100?'Completado':pct===0?'Pendiente':'En revisión';
     const statusCls = pct===100?'bg-emerald-100 text-emerald-800':pct===0?'bg-amber-100 text-amber-900 border border-amber-300':'bg-primary-fixed text-on-primary-fixed';
@@ -1033,7 +1035,7 @@ async function renderInformesDashboard(){
         <span class="text-xs font-semibold">${entregados}/${members.length} (${pct}%)</span>
       </div>
     </article>`;
-  }).join('');
+  }));
 
   const closedMonths = (await db.getSetting('closedMonths', []) )||[];
   const isClosed = closedMonths.includes(month);
