@@ -1506,10 +1506,9 @@ async function renderRegistroAnualView(pid) {
   }
   const year = new Date(state.reportMonth+'-01').getFullYear();
   const data = await computePubReg(person, year);
-  const monthIds = [];
-  for (let m=1; m<=12; m++) monthIds.push(`${year}-${String(m).padStart(2,'0')}`);
+  const monthsSvc = serviceYearMonths(year);
   const rows = data.months.map((m,i) => {
-    const mid = monthIds[i];
+    const mid = monthsSvc[i];
     return `<tr class="border-b border-outline-variant/30">
       <td class="p-3 font-medium">${escapeHtml(m.label)}</td>
       <td class="p-3 text-center"><input type="checkbox" data-m="${mid}" data-k="actividad" ${m.actividad?'checked':''} class="reg-check"/></td>
@@ -1642,10 +1641,12 @@ function bindActivityTab() {
   if (regSave) regSave.onclick = async () => {
     const pid = state.reportRegPersonId;
     if (!pid) return;
-    const gid = state.reportGroup;
+    const person = state.people.find(p => String(p.id) === String(pid));
+    const gid = person?.grupoId || state.reportGroup;
+    if (!gid) { toast('No se pudo determinar el grupo', 'error'); return; }
     const year = new Date(state.reportMonth+'-01').getFullYear();
-    for (let m=1; m<=12; m++) {
-      const mid = `${year}-${String(m).padStart(2,'0')}`;
+    const months = serviceYearMonths(year);
+    for (const mid of months) {
       const act = document.querySelector(`[data-m="${mid}"][data-k="actividad"]`)?.checked;
       const aux = document.querySelector(`[data-m="${mid}"][data-k="auxiliar"]`)?.checked;
       const cursos = Number(document.querySelector(`[data-m="${mid}"][data-k="cursos"]`)?.value||0);
