@@ -61,6 +61,7 @@ const state = {
   reportMonth: null,
   reportGroup: null,
   reportFilter: null,
+  precRegView: 'mensual',
   aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
   atencionWeeks: [],      // labores de atención del mes activo (vista previa)
 };
@@ -973,7 +974,13 @@ async function renderRegularPrecursorsView() {
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   const regs = state.people.filter(p => p.precursorRegular === true);
   const deps = state.departments || [];
-  const rows = [];
+  const precRegView = state.precRegView || 'mensual';
+  const year = new Date(month + '-01').getFullYear();
+  const monthsSvc = serviceYearMonths(year);
+  const nowMonth = isoDate(new Date()).slice(0, 7);
+  const monthsPassed = monthsSvc.filter(m => m <= nowMonth).length || 1;
+
+  const allRows = [];
   for (const d of deps) {
     const members = regs.filter(p => String(p.grupoId) === String(d.id));
     if (!members.length) continue;
@@ -984,38 +991,98 @@ async function renderRegularPrecursorsView() {
       const horas = Number(v.horas) || 0;
       const cursos = Number(v.cursos) || 0;
       const act = horas > 0 || v.actividad === true;
-      rows.push({ name: p.name, groupName: d.name || 'Grupo', horas, cursos, act, notas: v.notas || '' });
+      allRows.push({ id: p.id, name: p.name, groupName: d.name || 'Grupo', gid, horas, cursos, act, notas: v.notas || '' });
     }
   }
-  const rowsHtml = rows.map(r => `<tr class="border-b border-outline-variant/30">
+
+  if (precRegView === 'anual') {
+    const annualRows = [];
+    for (const p of regs) {
+      const gid = p.grupoId || 1;
+      let totalHoras = 0;
+      for (const m of monthsSvc) {
+        if (m > nowMonth) break;
+        const rep = await db.getActivityGroup(m, gid) || { id: m, people: {} };
+        const v = rep.people?.[p.id] || {};
+        totalHoras += Number(v.horas) || 0;
+      }
+      const promedio = totalHoras / monthsPassed;
+      const esperado = 50 * monthsPassed;
+      const diff = totalHoras - esperado;
+      const groupName = (deps.find(dd => String(dd.id) === String(gid)) || {}).name || 'Grupo';
+      annualRows.push({ id: p.id, name: p.name, groupName, totalHoras, promedio, diff });
+    }
+    const annualHtml = annualRows.map(r => {
+      const diffColor = r.diff >= 0 ? 'text-emerald-600' : 'text-red-600';
+      const diffSign = r.diff >= 0 ? '+' : '';
+      return `<tr class="border-b border-outline-variant/30">
+        <td class="p-3 font-medium">${escapeHtml(r.name)}</td>
+        <td class="p-3 text-on-surface-variant">${escapeHtml(r.groupName)}</td>
+        <td class="p-3 text-center font-bold">${r.totalHoras}</td>
+        <td class="p-3 text-center">${r.promedio.toFixed(1)}</td>
+        <td class="p-3 text-center font-bold ${diffColor}">${diffSign}${r.diff}</td>
+        <td class="p-3 text-center"><button data-edit-reg="${r.id}" class="text-xs px-2 py-0.5 bg-surface-container rounded hover:bg-surface-container-low">Registro anual</button></td>
+      </tr>`;
+    }).join('');
+    return `<div class="mb-6">
+      <div class="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 class="font-headline-lg text-headline-lg md:text-display-lg font-bold text-primary mb-1">Precursores Regulares</h1>
+          <p class="text-on-surface-variant">Año de servicio ${year} · ${annualRows.length} precursores · ${monthsPassed} meses en marcha</p>
+        </div>
+        <div class="flex gap-2">
+          <div class="inline-flex items-center bg-surface-container-low border rounded-lg p-1 text-sm">
+            <button data-prec-reg-view="mensual" class="px-3 py-1 rounded text-xs font-semibold ${precRegView==='mensual'?'bg-primary text-on-primary':'text-on-surface-variant'}">Mensual</button>
+            <button data-prec-reg-view="anual" class="px-3 py-1 rounded text-xs font-semibold ${precRegView==='anual'?'bg-primary text-on-primary':'text-on-surface-variant'}">Anual</button>
+          </div>
+          <button id="regPrecBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant"><span class="material-symbols-outlined text-sm">arrow_back</span> Volver</button>
+        </div>
+      </div>
+    </div>
+    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
+      <table class="w-full text-left">
+        <thead class="bg-surface-container"><tr class="text-xs uppercase text-on-surface-variant"><th class="p-3">Nombre</th><th class="p-3">Grupo</th><th class="p-3 text-center">Total Horas</th><th class="p-3 text-center">Promedio /mes</th><th class="p-3 text-center">Diferencia</th><th class="p-3 text-center">Registro</th></tr></thead>
+        <tbody>${annualHtml || '<tr><td colspan="6" class="p-8 text-center text-on-surface-variant">No hay precursores regulares.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }
+
+  const rowsHtml = allRows.map(r => `<tr class="border-b border-outline-variant/30">
     <td class="p-3 font-medium">${escapeHtml(r.name)}</td>
     <td class="p-3 text-on-surface-variant">${escapeHtml(r.groupName)}</td>
     <td class="p-3 text-center">${r.act ? '<span class="text-emerald-600 font-bold">Sí</span>' : '<span class="text-on-surface-variant">No</span>'}</td>
     <td class="p-3 text-center">${r.horas}</td>
     <td class="p-3 text-center">${r.cursos}</td>
     <td class="p-3 text-on-surface-variant">${escapeHtml(r.notas)}</td>
+    <td class="p-3 text-center"><button data-edit-reg="${r.id}" class="text-xs px-2 py-0.5 bg-surface-container rounded hover:bg-surface-container-low">Registro anual</button></td>
   </tr>`).join('');
-  const totalHoras = rows.reduce((s, r) => s + r.horas, 0);
-  const totalCursos = rows.reduce((s, r) => s + r.cursos, 0);
-  const activos = rows.filter(r => r.act).length;
+  const totalHoras = allRows.reduce((s, r) => s + r.horas, 0);
+  const totalCursos = allRows.reduce((s, r) => s + r.cursos, 0);
+  const activos = allRows.filter(r => r.act).length;
   return `<div class="mb-6">
     <div class="flex items-center justify-between gap-4 flex-wrap">
       <div>
         <h1 class="font-headline-lg text-headline-lg md:text-display-lg font-bold text-primary mb-1">Precursores Regulares</h1>
-        <p class="text-on-surface-variant">${monthLabel} · ${rows.length} precursores</p>
+        <p class="text-on-surface-variant">${monthLabel} · ${allRows.length} precursores</p>
       </div>
-      <button id="regPrecBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant"><span class="material-symbols-outlined text-sm">arrow_back</span> Volver</button>
+      <div class="flex gap-2">
+        <div class="inline-flex items-center bg-surface-container-low border rounded-lg p-1 text-sm">
+          <button data-prec-reg-view="mensual" class="px-3 py-1 rounded text-xs font-semibold ${precRegView==='mensual'?'bg-primary text-on-primary':'text-on-surface-variant'}">Mensual</button>
+          <button data-prec-reg-view="anual" class="px-3 py-1 rounded text-xs font-semibold ${precRegView==='anual'?'bg-primary text-on-primary':'text-on-surface-variant'}">Anual</button>
+        </div>
+        <button id="regPrecBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant"><span class="material-symbols-outlined text-sm">arrow_back</span> Volver</button>
+      </div>
     </div>
   </div>
   <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-    <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Total</p><p class="font-headline-lg text-primary">${rows.length}</p></div>
-    <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Activos</p><p class="font-headline-lg text-primary">${activos}/${rows.length}</p></div>
+    <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Total</p><p class="font-headline-lg text-primary">${allRows.length}</p></div>
+    <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Activos</p><p class="font-headline-lg text-primary">${activos}/${allRows.length}</p></div>
     <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Horas totales</p><p class="font-headline-lg text-primary">${totalHoras} hrs</p></div>
   </div>
   <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
     <table class="w-full text-left">
-      <thead class="bg-surface-container"><tr class="text-xs uppercase text-on-surface-variant"><th class="p-3">Nombre</th><th class="p-3">Grupo</th><th class="p-3 text-center">Actividad</th><th class="p-3 text-center">Horas</th><th class="p-3 text-center">Cursos</th><th class="p-3">Notas</th></tr></thead>
-      <tbody>${rowsHtml || '<tr><td colspan="6" class="p-8 text-center text-on-surface-variant">No hay precursores regulares.</td></tr>'}</tbody>
+      <thead class="bg-surface-container"><tr class="text-xs uppercase text-on-surface-variant"><th class="p-3">Nombre</th><th class="p-3">Grupo</th><th class="p-3 text-center">Actividad</th><th class="p-3 text-center">Horas</th><th class="p-3 text-center">Cursos</th><th class="p-3">Notas</th><th class="p-3 text-center">Registro</th></tr></thead>
+      <tbody>${rowsHtml || '<tr><td colspan="7" class="p-8 text-center text-on-surface-variant">No hay precursores regulares.</td></tr>'}</tbody>
     </table>
   </div>`;
 }
@@ -1567,7 +1634,8 @@ function bindActivityTab() {
   const regBack = $('#regBack');
   if (regBack) regBack.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
   const regPrecBack = $('#regPrecBack');
-  if (regPrecBack) regPrecBack.onclick = () => { state.reportFilter = null; renderInformes(); };
+  if (regPrecBack) regPrecBack.onclick = () => { state.reportFilter = null; state.precRegView = 'mensual'; renderInformes(); };
+  document.querySelectorAll('[data-prec-reg-view]').forEach(b => b.onclick = () => { state.precRegView = b.dataset.precRegView; renderInformes(); });
   const regCancel = $('#regCancel');
   if (regCancel) regCancel.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
   const regSave = $('#regSave');
