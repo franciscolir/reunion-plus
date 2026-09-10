@@ -1062,7 +1062,7 @@ async function renderInformesDashboard(){
       <h2 class="font-headline-md text-primary">Grupos de Servicio</h2>
       <p class="text-xs text-on-surface-variant">${deps.length} grupos · ${totalPub} publicadores</p>
     </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">${groupsHtml||'<p class="text-on-surface-variant">Sin grupos.</p>'}</div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">${groupsHtml.join('')||'<p class="text-on-surface-variant">Sin grupos.</p>'}</div>
   </section>`;
 }
 
