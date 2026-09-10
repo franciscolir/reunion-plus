@@ -885,7 +885,7 @@ export async function pullSiVacio() {
     const msj = vacio ? 'descargando datos de Supabase…' : 'actualizando datos de Supabase…';
     setStatus('syncing', msj);
     await pullAll();
-    await db.setSetting(SETTING_DATA_VERSION, DATA_VERSION);
+    await db.setSettingSilent(SETTING_DATA_VERSION, DATA_VERSION);
     setStatus('ok', vacio ? 'datos descargados de Supabase' : 'datos actualizados de Supabase');
   }
 }

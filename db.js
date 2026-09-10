@@ -589,7 +589,7 @@ export async function restorePerson(id) {
 }
 
 export async function clearPeople() {
-  return commit(STORE_PEOPLE, (store) => reqToPromise(store.clear()));
+  return commitSilent(STORE_PEOPLE, (store) => reqToPromise(store.clear()));
 }
 
 // Reemplaza toda la lista de personas desde un archivo. Acepta dos formatos:
