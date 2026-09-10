@@ -249,6 +249,7 @@ async function mesADocumento(mes, version = 0) {
 // conexión (cola de sincronización offline).
 async function pushStore(store) {
   if (!_enabled) return;
+  if (store === 'departments') return;
   if (_syncing) { await encolarPendienteAsync(store); marcarDirty(); return; }
   if (!navigator.onLine) { await encolarPendienteAsync(store); marcarDirty(); return; }
   const ready = await isSupabaseReady();
@@ -260,10 +261,6 @@ async function pushStore(store) {
       const people = await db.listPeopleAll();
       await batchWrite(people.map(personaADocumento));
       setStatus('ok', `participantes: ${people.length}`);
-    } else if (store === 'departments') {
-      const grupos = await db.listDepartmentsAll();
-      await batchWrite(grupos.map(grupoADocumento));
-      setStatus('ok', `grupos: ${grupos.length}`);
     } else if (store === 'midweeks') {
       const midweeks = await db.listMidweeks();
       await batchWrite(midweeks.map(reunionADocumento));
@@ -495,7 +492,7 @@ export async function sincronizarAhora() {
   if (_syncing) return { error: 'ocupado' };
   if (!_enabled) await iniciarSync();
   setStatus('syncing', 'subiendo cambios…');
-  const stores = ['people', 'departments', 'midweeks', 'talks', 'months', 'assignment_log', 'settings', 'activity', 'attendance', 'arrangements'];
+  const stores = ['people', 'midweeks', 'talks', 'months', 'assignment_log', 'settings', 'activity', 'attendance', 'arrangements'];
   for (const store of stores) await pushStore(store);
   // Si algún store falló por cupo de Supabase, informarlo (no dar éxito).
   if (_lastStatus && _lastStatus.state === 'error') {
