@@ -60,6 +60,7 @@ const state = {
   reportTab: 'actividad',
   reportMonth: null,
   reportGroup: null,
+  reportFilter: null,
   aseoWeeks: [],          // programa de aseo del mes activo (vista previa)
   atencionWeeks: [],      // labores de atención del mes activo (vista previa)
 };
@@ -900,6 +901,9 @@ async function renderActivityTab() {
   if (state.reportRegPersonId) {
     return await renderRegistroAnualView(state.reportRegPersonId);
   }
+  if (state.reportFilter === 'regular') {
+    return await renderRegularPrecursorsView();
+  }
   const me = currentUser();
   if (me && me.rol === 'user') {
     if (me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
@@ -964,6 +968,58 @@ window.forcePullCurrentMonth = async () => {
   }
 };
 
+async function renderRegularPrecursorsView() {
+  const month = state.reportMonth;
+  const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+  const regs = state.people.filter(p => p.precursorRegular === true);
+  const deps = state.departments || [];
+  const rows = [];
+  for (const d of deps) {
+    const members = regs.filter(p => String(p.grupoId) === String(d.id));
+    if (!members.length) continue;
+    const gid = d.id;
+    const report = await db.getActivityGroup(month, gid) || { id: month, people: {} };
+    for (const p of members) {
+      const v = report.people?.[p.id] || {};
+      const horas = Number(v.horas) || 0;
+      const cursos = Number(v.cursos) || 0;
+      const act = horas > 0 || v.actividad === true;
+      rows.push({ name: p.name, groupName: d.name || 'Grupo', horas, cursos, act, notas: v.notas || '' });
+    }
+  }
+  const rowsHtml = rows.map(r => `<tr class="border-b border-outline-variant/30">
+    <td class="p-3 font-medium">${escapeHtml(r.name)}</td>
+    <td class="p-3 text-on-surface-variant">${escapeHtml(r.groupName)}</td>
+    <td class="p-3 text-center">${r.act ? '<span class="text-emerald-600 font-bold">Sí</span>' : '<span class="text-on-surface-variant">No</span>'}</td>
+    <td class="p-3 text-center">${r.horas}</td>
+    <td class="p-3 text-center">${r.cursos}</td>
+    <td class="p-3 text-on-surface-variant">${escapeHtml(r.notas)}</td>
+  </tr>`).join('');
+  const totalHoras = rows.reduce((s, r) => s + r.horas, 0);
+  const totalCursos = rows.reduce((s, r) => s + r.cursos, 0);
+  const activos = rows.filter(r => r.act).length;
+  return `<div class="mb-6">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-headline-lg text-headline-lg md:text-display-lg font-bold text-primary mb-1">Precursores Regulares</h1>
+        <p class="text-on-surface-variant">${monthLabel} · ${rows.length} precursores</p>
+      </div>
+      <button id="regPrecBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant"><span class="material-symbols-outlined text-sm">arrow_back</span> Volver</button>
+    </div>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+    <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Total</p><p class="font-headline-lg text-primary">${rows.length}</p></div>
+    <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Activos</p><p class="font-headline-lg text-primary">${activos}/${rows.length}</p></div>
+    <div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant"><p class="text-xs uppercase text-on-surface-variant">Horas totales</p><p class="font-headline-lg text-primary">${totalHoras} hrs</p></div>
+  </div>
+  <div class="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
+    <table class="w-full text-left">
+      <thead class="bg-surface-container"><tr class="text-xs uppercase text-on-surface-variant"><th class="p-3">Nombre</th><th class="p-3">Grupo</th><th class="p-3 text-center">Actividad</th><th class="p-3 text-center">Horas</th><th class="p-3 text-center">Cursos</th><th class="p-3">Notas</th></tr></thead>
+      <tbody>${rowsHtml || '<tr><td colspan="6" class="p-8 text-center text-on-surface-variant">No hay precursores regulares.</td></tr>'}</tbody>
+    </table>
+  </div>`;
+}
+
 async function renderInformesDashboard(){
   console.log('[Reunión+] renderInformesDashboard: reportGroup=', state.reportGroup, 'reportMonth=', state.reportMonth);
   const month = state.reportMonth;
@@ -1007,8 +1063,8 @@ async function renderInformesDashboard(){
     return members.every(p=>grpPeople[p.id]?.actividad);
   }))).filter(Boolean).length;
 
-  const kpiCard = (title, value, sub, extra, icon, primary=false) => `
-  <div class="bg-surface rounded-xl border border-outline-variant/30 border-l-4 border-l-primary p-5 soft-shadow-lvl1 flex flex-col justify-between ${primary?'bg-primary-container text-white':''}">
+  const kpiCard = (title, value, sub, extra, icon, primary=false, filter='') => `
+  <div ${filter ? `data-kpi-filter="${filter}" class="cursor-pointer hover:border-primary transition-colors"` : ''} class="bg-surface rounded-xl border border-outline-variant/30 border-l-4 border-l-primary p-5 soft-shadow-lvl1 flex flex-col justify-between ${primary?'bg-primary-container text-white':''}">
     <div>
         <div class="flex items-center justify-between">
           <span class="text-xs uppercase font-semibold tracking-wider ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${title}</span>
@@ -1027,7 +1083,7 @@ async function renderInformesDashboard(){
   const kpis = [
     kpiCard('Publicadores', activos, `/ ${totalPub} activos`, `Total neto: ${totalPub} publ. de congregación`, 'group'),
     kpiCard('Prec. Auxiliares', auxs, 'auxiliares', `Horas acumuladas: ${horasAux} hrs`, 'directions_walk'),
-    kpiCard('Prec. Regulares', regs, 'regulares', `Horas totales: ${horasReg} hrs`, 'award_star'),
+    kpiCard('Prec. Regulares', regs, 'regulares', `Horas totales: ${horasReg} hrs`, 'award_star', false, 'regular'),
     kpiCard('Grupos Recibidos', `${gruposRecibidos}`, `/ ${deps.length}`, `${Math.round(deps.length?gruposRecibidos/deps.length*100:0)}% consolidado`, 'inventory_2', true)
   ].join('');
 
@@ -1418,7 +1474,8 @@ async function renderRegistroAnualView(pid) {
 
 function bindActivityTab() {
   const back = $('#activityBack');
-  if (back) back.onclick = () => { console.log('[Reunión+] back click → reportGroup=null'); state.reportGroup = null; renderInformes(); };
+  if (back) back.onclick = () => { console.log('[Reunión+] back click → reportGroup=null'); state.reportGroup = null; state.reportFilter = null; renderInformes(); };
+  document.querySelectorAll('[data-kpi-filter]').forEach(b => b.onclick = () => { state.reportFilter = b.dataset.kpiFilter; renderInformes(); });
   document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { console.log('[Reunión+] group-card click → reportGroup=', b.dataset.groupCard); state.reportGroup = b.dataset.groupCard; renderInformes(); });
   const lock = $('#activityLock');
   if (lock) lock.onclick = async () => {
@@ -1509,6 +1566,8 @@ function bindActivityTab() {
 
   const regBack = $('#regBack');
   if (regBack) regBack.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
+  const regPrecBack = $('#regPrecBack');
+  if (regPrecBack) regPrecBack.onclick = () => { state.reportFilter = null; renderInformes(); };
   const regCancel = $('#regCancel');
   if (regCancel) regCancel.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
   const regSave = $('#regSave');
