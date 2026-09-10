@@ -973,18 +973,25 @@ async function renderInformesDashboard(){
   const deps = state.departments||[];
   const people = state.people||[];
   const totalPub = people.filter(p=>p.activo!==false).length;
-  const activos = Object.keys(report.people||{}).filter(id=>{ const v=report.people[id]; return v.actividad||Number(v.horas)>0; }).length;
+  const allReportPeople = {};
+  for (const d of deps) {
+    const grpReport = await db.getActivityGroup(month, d.id);
+    if (grpReport?.people) Object.assign(allReportPeople, grpReport.people);
+  }
+  const activos = Object.keys(allReportPeople).filter(id=>{ const v=allReportPeople[id]; return v.actividad||Number(v.horas)>0; }).length;
   const regs = people.filter(p=>p.precursorRegular===true).length;
-  const auxs = people.filter(p=>{ const v=report.people[p.id]||{}; return v.auxiliar; }).length;
-  const horasReg = people.filter(p=>p.precursorRegular===true).reduce((s,p)=>s+Number((report.people[p.id]||{}).horas)||0,0);
-  const horasAux = people.filter(p=>{ const v=report.people[p.id]||{}; return v.auxiliar; }).reduce((s,p)=>s+Number((report.people[p.id]||{}).horas)||0,0);
-  const cursosReg = people.filter(p=>p.precursorRegular===true).reduce((s,p)=>s+Number((report.people[p.id]||{}).cursos)||0,0);
-  const cursosAux = people.filter(p=>{ const v=report.people[p.id]||{}; return v.auxiliar; }).reduce((s,p)=>s+Number((report.people[p.id]||{}).cursos)||0,0);
-  const gruposRecibidos = deps.filter(d=>{
+  const auxs = people.filter(p=>{ const v=allReportPeople[p.id]||{}; return v.auxiliar; }).length;
+  const horasReg = people.filter(p=>p.precursorRegular===true).reduce((s,p)=>s+Number((allReportPeople[p.id]||{}).horas)||0,0);
+  const horasAux = people.filter(p=>{ const v=allReportPeople[p.id]||{}; return v.auxiliar; }).reduce((s,p)=>s+Number((allReportPeople[p.id]||{}).horas)||0,0);
+  const cursosReg = people.filter(p=>p.precursorRegular===true).reduce((s,p)=>s+Number((allReportPeople[p.id]||{}).cursos)||0,0);
+  const cursosAux = people.filter(p=>{ const v=allReportPeople[p.id]||{}; return v.auxiliar; }).reduce((s,p)=>s+Number((allReportPeople[p.id]||{}).cursos)||0,0);
+  const gruposRecibidos = (await Promise.all(deps.map(async d=>{
     const members = people.filter(p=>String(p.grupoId)===String(d.id));
     if(!members.length) return false;
-    return members.every(p=>report.people[p.id]?.actividad);
-  }).length;
+    const grpReport = await db.getActivityGroup(month, d.id);
+    const grpPeople = grpReport?.people || {};
+    return members.every(p=>grpPeople[p.id]?.actividad);
+  }))).filter(Boolean).length;
 
   const kpiCard = (title, value, sub, extra, icon, primary=false) => `
   <div class="bg-surface rounded-xl border border-outline-variant/30 border-l-4 border-l-primary p-5 soft-shadow-lvl1 flex flex-col justify-between ${primary?'bg-primary-container text-white':''}">
