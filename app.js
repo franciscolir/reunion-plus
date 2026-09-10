@@ -1035,6 +1035,7 @@ async function renderRegularPrecursorsView() {
             <button data-prec-reg-view="mensual" class="px-3 py-1 rounded text-xs font-semibold ${precRegView==='mensual'?'bg-primary text-on-primary':'text-on-surface-variant'}">Mensual</button>
             <button data-prec-reg-view="anual" class="px-3 py-1 rounded text-xs font-semibold ${precRegView==='anual'?'bg-primary text-on-primary':'text-on-surface-variant'}">Anual</button>
           </div>
+          <button id="precRegDownloadImg" class="flex items-center gap-1 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant text-xs font-semibold hover:bg-surface-container"><span class="material-symbols-outlined text-[16px]">image</span> Descargar imagen</button>
           <button id="regPrecBack" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant text-on-surface-variant font-label-md text-label-md hover:bg-surface-variant"><span class="material-symbols-outlined text-sm">arrow_back</span> Volver</button>
         </div>
       </div>
@@ -1634,6 +1635,34 @@ function bindActivityTab() {
   if (regBack) regBack.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
   const regPrecBack = $('#regPrecBack');
   if (regPrecBack) regPrecBack.onclick = () => { state.reportFilter = null; state.precRegView = 'mensual'; renderInformes(); };
+  const precRegDlImg = $('#precRegDownloadImg');
+  if (precRegDlImg) precRegDlImg.onclick = async () => {
+    const month = state.reportMonth;
+    const year = new Date(month + '-01').getFullYear();
+    const monthsSvc = serviceYearMonths(year);
+    const nowMonth = isoDate(new Date()).slice(0, 7);
+    const monthsPassed = monthsSvc.filter(m => m <= nowMonth).length || 1;
+    const regs = state.people.filter(p => p.precursorRegular === true);
+    const deps = state.departments || [];
+    const annualRows = [];
+    for (const p of regs) {
+      const gid = p.grupoId || 1;
+      let totalHoras = 0;
+      for (const m of monthsSvc) {
+        if (m > nowMonth) break;
+        const rep = await db.getActivityGroup(m, gid) || { id: m, people: {} };
+        const v = rep.people?.[p.id] || {};
+        totalHoras += Number(v.horas) || 0;
+      }
+      const promedio = totalHoras / monthsPassed;
+      const diff = totalHoras - (50 * monthsPassed);
+      annualRows.push({ name: p.name, totalHoras, promedio, diff });
+    }
+    const svg = buildPrecRegAnualSvg(annualRows, year, monthsPassed);
+    const blob = await svgToPngBlob(svg);
+    downloadBlob(blob, `precursores-regulares-${year}.png`);
+    toast('Imagen descargada', 'success');
+  };
   document.querySelectorAll('[data-prec-reg-view]').forEach(b => b.onclick = () => { state.precRegView = b.dataset.precRegView; renderInformes(); });
   const regCancel = $('#regCancel');
   if (regCancel) regCancel.onclick = () => { state.reportRegPersonId = null; renderInformes(); };
@@ -2894,6 +2923,36 @@ function buildPubRegHtml(person, year, d) {
 </section>
 </main>
 </body></html>`;
+}
+
+function buildPrecRegAnualSvg(annualRows, year, monthsPassed) {
+  const nowMonth = isoDate(new Date()).slice(0, 7);
+  const monthLabel = `${MONTHS_ES[Number(nowMonth.slice(5)) - 1]} ${nowMonth.slice(0, 4)}`;
+  const W = 600;
+  const rowH = 28;
+  const headerH = 50;
+  const tableH = annualRows.length * rowH + 36;
+  const H = headerH + tableH + 20;
+  const P = [];
+  P.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  P.push(`<rect width="${W}" height="${H}" fill="#fff"/>`);
+  P.push(`<text x="${W/2}" y="22" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="bold" fill="#1a1a2e">Precursores Regulares — Año de servicio ${year}</text>`);
+  P.push(`<text x="${W/2}" y="38" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" fill="#555">${monthLabel} · ${monthsPassed} meses en marcha</text>`);
+  const cols = [{ label: 'Nombre', x: 10, w: 200 }, { label: 'Total Horas', x: 220, w: 100 }, { label: 'Promedio /mes', x: 330, w: 110 }, { label: 'Diferencia', x: 450, w: 100 }];
+  P.push(`<rect x="0" y="${headerH - 4}" width="${W}" height="30" fill="#e8e0f0"/>`);
+  cols.forEach(c => { P.push(`<text x="${c.x + c.w/2}" y="${headerH + 14}" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" font-weight="bold" fill="#333">${c.label}</text>`); });
+  annualRows.forEach((r, i) => {
+    const y = headerH + 30 + i * rowH;
+    if (i % 2 === 0) P.push(`<rect x="0" y="${y}" width="${W}" height="${rowH}" fill="#f9f9f9"/>`);
+    P.push(`<text x="${cols[0].x + 4}" y="${y + 18}" font-family="Arial,sans-serif" font-size="11" fill="#1a1a2e">${escapeHtml(r.name)}</text>`);
+    P.push(`<text x="${cols[1].x + cols[1].w/2}" y="${y + 18}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="#1a1a2e">${r.totalHoras}</text>`);
+    P.push(`<text x="${cols[2].x + cols[2].w/2}" y="${y + 18}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" fill="#555">${r.promedio.toFixed(1)}</text>`);
+    const diffColor = r.diff >= 0 ? '#16a34a' : '#dc2626';
+    const diffSign = r.diff >= 0 ? '+' : '';
+    P.push(`<text x="${cols[3].x + cols[3].w/2}" y="${y + 18}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="${diffColor}">${diffSign}${r.diff}</text>`);
+  });
+  P.push(`</svg>`);
+  return P.join('');
 }
 
 function buildPubRegSvg(person, year, d) {
