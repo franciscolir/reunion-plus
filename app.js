@@ -945,9 +945,23 @@ window.closeCurrentMonth = async () => {
   }
 };
 window.forcePullCurrentMonth = async () => {
-  await sync.pullAll();
-  toast('Informes actualizados', 'success');
-  renderInformes();
+  const month = state.reportMonth;
+  try {
+    const f = await import('./supabase.js?v=219');
+    for (let gid = 1; gid <= 7; gid++) {
+      const docs = await f.obtenerActividadGrupo(gid);
+      const match = docs.find(d => d.id === month);
+      if (match) {
+        const report = { id: month, people: match.people || {}, locked: match.locked || false };
+        await db.putActivityGroupSilent(report, gid);
+      }
+    }
+    toast('Informes actualizados', 'success');
+    renderInformes();
+  } catch (e) {
+    console.error('[Reunión+] forcePullCurrentMonth error', e);
+    toast('Error al descargar', 'error');
+  }
 };
 
 async function renderInformesDashboard(){
