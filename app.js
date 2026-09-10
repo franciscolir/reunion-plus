@@ -1402,15 +1402,16 @@ function bindActivityTab() {
   const lock = $('#activityLock');
   if (lock) lock.onclick = async () => {
     const month = state.reportMonth;
-    const report = await db.getActivity(month) || { id: month, people: {} };
-    await db.putActivity({ ...report, locked: !report.locked });
+    const gid = state.reportGroup;
+    const report = await db.getActivityGroup(month, gid) || { id: month, people: {} };
+    await db.putActivityGroup({ ...report, locked: !report.locked }, gid);
     renderInformes();
   };
   const saveData = async () => {
     const month = state.reportMonth;
-    const report = await db.getActivity(month) || { id: month, people: {}, locked: false };
-    const people = { ...(report.people || {}) };
     const gid = state.reportGroup;
+    const existing = await db.getActivityGroup(month, gid) || { id: month, people: {}, locked: false };
+    const people = {};
     state.people.forEach(p => {
       if (gid && String(p.grupoId) !== String(gid)) return;
       const get = k => document.querySelector(`[data-act="${k}"][data-pid="${p.id}"]`);
@@ -1421,7 +1422,7 @@ function bindActivityTab() {
       const horas = isNumber ? (parseInt(get('horas')?.value, 10) || 0) : 0;
       const actividad = isNumber ? horas > 0 : !!get('actividad')?.checked;
       const sinAct = !!get('sinactividad')?.checked;
-      const prev = people[p.id] || {};
+      const prev = existing.people?.[p.id] || {};
       const joined = prev.joined === true;
       const nextJoined = joined || sinAct;
       const nextActividad = sinAct ? false : actividad;
@@ -1435,8 +1436,8 @@ function bindActivityTab() {
         joined: nextJoined,
       };
     });
-    await db.putActivity({ ...report, people });
-    return report;
+    await db.putActivityGroup({ ...existing, people }, gid);
+    return existing;
   };
   const save = $('#activitySave');
   if (save) save.onclick = async () => {
@@ -1477,10 +1478,11 @@ function bindActivityTab() {
     b.onclick = async () => {
       const pid = b.dataset.unjoin;
       const month = state.reportMonth;
-      const report = await db.getActivity(month) || { id: month, people: {} };
+      const gid = state.reportGroup;
+      const report = await db.getActivityGroup(month, gid) || { id: month, people: {} };
       const people = { ...(report.people || {}) };
       if (people[pid]) delete people[pid].joined;
-      await db.putActivity({ ...report, people });
+      await db.putActivityGroup({ ...report, people }, gid);
       renderInformes();
     };
   });
@@ -1493,6 +1495,7 @@ function bindActivityTab() {
   if (regSave) regSave.onclick = async () => {
     const pid = state.reportRegPersonId;
     if (!pid) return;
+    const gid = state.reportGroup;
     const year = new Date(state.reportMonth+'-01').getFullYear();
     for (let m=1; m<=12; m++) {
       const mid = `${year}-${String(m).padStart(2,'0')}`;
@@ -1502,13 +1505,12 @@ function bindActivityTab() {
       const horas = Number(document.querySelector(`[data-m="${mid}"][data-k="horas"]`)?.value||0);
       const notas = document.querySelector(`[data-m="${mid}"][data-k="notas"]`)?.value||'';
       const actividad = !!act || horas>0;
-      const report = await db.getActivity(mid) || { id: mid, people: {}, locked:false };
+      const report = await db.getActivityGroup(mid, gid) || { id: mid, people: {}, locked:false };
       const people = { ...(report.people||{}) };
       people[pid] = { actividad, auxiliar: !!aux, cursos, horas, notas };
-      await db.putActivity({ ...report, people });
+      await db.putActivityGroup({ ...report, people }, gid);
     }
     toast('Registro anual guardado', 'success');
-    const gid = state.reportGroup || 1;
     try { await subirStores([`activity_g${gid}`]); } catch(e){}
     state.reportRegPersonId = null;
     renderInformes();
