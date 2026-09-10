@@ -977,7 +977,9 @@ async function renderRegularPrecursorsView() {
   const precRegView = state.precRegView || 'mensual';
   const year = new Date(month + '-01').getFullYear();
   const monthsSvc = serviceYearMonths(year);
-  const nowMonth = isoDate(new Date()).slice(0, 7);
+  const prev = new Date();
+  prev.setMonth(prev.getMonth() - 1);
+  const nowMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
   const monthsPassed = monthsSvc.filter(m => m <= nowMonth).length || 1;
 
   const allRows = [];
@@ -1640,7 +1642,9 @@ function bindActivityTab() {
     const month = state.reportMonth;
     const year = new Date(month + '-01').getFullYear();
     const monthsSvc = serviceYearMonths(year);
-    const nowMonth = isoDate(new Date()).slice(0, 7);
+    const prev = new Date();
+    prev.setMonth(prev.getMonth() - 1);
+    const nowMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
     const monthsPassed = monthsSvc.filter(m => m <= nowMonth).length || 1;
     const regs = state.people.filter(p => p.precursorRegular === true);
     const deps = state.departments || [];
@@ -2926,7 +2930,9 @@ function buildPubRegHtml(person, year, d) {
 }
 
 function buildPrecRegAnualSvg(annualRows, year, monthsPassed) {
-  const nowMonth = isoDate(new Date()).slice(0, 7);
+  const prev = new Date();
+  prev.setMonth(prev.getMonth() - 1);
+  const nowMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
   const monthLabel = `${MONTHS_ES[Number(nowMonth.slice(5)) - 1]} ${nowMonth.slice(0, 4)}`;
   const W = 600;
   const rowH = 28;
