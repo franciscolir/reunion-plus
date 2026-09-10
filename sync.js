@@ -515,6 +515,7 @@ export async function sincronizarAhora() {
 // Sobrescribe local con lo de la nube. Solo se invoca si no hay datos locales
 // (primer uso en otro dispositivo) o al pulsar "Descargar desde Supabase".
 export async function pullAll() {
+  console.log('[Reunión+] pullAll: start');
   if (!(await isSupabaseReady())) return { error: 'supabase-no-disponible' };
   // Desactivar sync durante la escritura local para evitar bucles.
   const estaba = _enabled;
@@ -523,6 +524,7 @@ export async function pullAll() {
     const f = await import('./supabase.js?v=219');
     const participantes = await f.obtenerParticipantes();
     const grupos = await f.obtenerGrupos();
+    console.log('[Reunión+] pullAll: Supabase participantes=', participantes?.length, 'grupos=', grupos?.length, 'grupoIds=', grupos?.map(g=>g.id));
     const reuniones = await f.obtenerReuniones();
     const programas = await f.obtenerProgramas();
     const asignaciones = await f.obtenerAsignaciones();
@@ -551,6 +553,7 @@ export async function pullAll() {
       createdAt: p.createdAt || Date.now(),
     }));
     await db.replaceAllPeopleSilent(personasDesdeCloud);
+    console.log('[Reunión+] pullAll: replaceAllPeopleSilent done, people=', personasDesdeCloud.length, 'grupoIds=', [...new Set(personasDesdeCloud.map(p=>p.grupoId))]);
 
     // grupos
     await db.replaceAllDepartmentsSilent(grupos.map(g => ({
@@ -654,12 +657,14 @@ async function desplegarPrograma(prog) {
 // Activa la sincronización: registra el hook y arranca el pull inicial si el
 // store local está vacío (primer uso en el dispositivo). Reintenta pendientes.
 export async function iniciarSync() {
+  console.log('[Reunión+] iniciarSync: start, _enabled=', _enabled);
   if (_enabled) return;
-  if (!isSupabaseConfigured()) { setStatus('inactivo', 'Supabase no configurado'); return; }
+  if (!isSupabaseConfigured()) { console.warn('[Reunión+] iniciarSync: Supabase not configured'); setStatus('inactivo', 'Supabase no configurado'); return; }
   const ready = await isSupabaseReady();
-  if (!ready) { setStatus('inactivo', 'Supabase no disponible'); return; }
+  if (!ready) { console.warn('[Reunión+] iniciarSync: Supabase not ready'); setStatus('inactivo', 'Supabase no disponible'); return; }
   // Limpiar cola de pendientes antes de sincronizar para evitar reescribir datos corregidos en Supabase
   try { await descartarLocal(); } catch(e){}
+  console.log('[Reunión+] iniciarSync: _enabled = true');
   _enabled = true;
   db.onSync(marcarLocal);
   const saved = await db.getSetting('lastSavedAt', null).catch(() => null);
@@ -668,11 +673,14 @@ export async function iniciarSync() {
   window.addEventListener('online', () => drenarPendientes().catch(() => {}));
   setStatus('conectado', 'sincronización activa');
   await drenarPendientes().catch(() => {});
+  console.log('[Reunión+] iniciarSync: calling pullSiVacio');
   await pullSiVacio();
   // Concilia ambos lados: sube lo local que falta en la nube y baja lo de la
   // nube que falta en local.
+  console.log('[Reunión+] iniciarSync: calling reconciliar');
   await reconciliar().catch(() => {});
   await marcarSegunPendientes().catch(() => {});
+  console.log('[Reunión+] iniciarSync: DONE');
 }
 
 // Conciliación bidireccional IndexedDB ↔ Supabase.

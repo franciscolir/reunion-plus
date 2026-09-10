@@ -896,6 +896,7 @@ async function renderInformes() {
 }
 
 async function renderActivityTab() {
+  console.log('[Reunión+] renderActivityTab reportGroup=', state.reportGroup, 'reportMonth=', state.reportMonth, 'people count=', state.people?.length);
   if (state.reportRegPersonId) {
     return await renderRegistroAnualView(state.reportRegPersonId);
   }
@@ -904,10 +905,15 @@ async function renderActivityTab() {
     if (me.grupos && me.grupos.length) state.reportGroup = me.grupos[0];
     const grupos = (me.grupos && me.grupos.length) ? me.grupos : [];
     const gid = (state.reportGroup && grupos.includes(state.reportGroup)) ? state.reportGroup : grupos[0];
+    console.log('[Reunión+] renderActivityTab user gid=', gid, 'grupos=', grupos);
     if (!gid) return `<div class="bg-surface-container-lowest rounded-xl border border-outline-variant p-8 text-center text-on-surface-variant">No tienes un grupo asignado.</div>`;
     return await renderActivityGroupView(gid, false);
   }
-  if (state.reportGroup) return await renderActivityGroupView(state.reportGroup, true);
+  if (state.reportGroup) {
+    console.log('[Reunión+] renderActivityTab → renderActivityGroupView gid=', state.reportGroup);
+    return await renderActivityGroupView(state.reportGroup, true);
+  }
+  console.log('[Reunión+] renderActivityTab → renderInformesDashboard (sin grupo seleccionado)');
   return await renderInformesDashboard();
 }
 
@@ -945,15 +951,22 @@ window.forcePullCurrentMonth = async () => {
 };
 
 async function renderInformesDashboard(){
+  console.log('[Reunión+] renderInformesDashboard: reportGroup=', state.reportGroup, 'reportMonth=', state.reportMonth);
   const month = state.reportMonth;
   const monthLabel = `${MONTHS_ES[Number(month.slice(5))-1]} ${month.slice(0,4)}`;
-  let report = await db.getActivity(month) || {people:{}};
+  const localReport = await db.getActivity(month);
+  console.log('[Reunión+] renderInformesDashboard: db.getActivity(' + month + ') → reportGroup=', state.reportGroup || '1(default)', 'report=', localReport ? 'FOUND (people:' + Object.keys(localReport.people||{}).length + ')' : 'NULL');
+  let report = localReport || {people:{}};
   try {
     const f = await import('./supabase.js?v=219');
     if (f.isAuthenticated && f.isAuthenticated()) {
       const acts = await f.obtenerActividadTodas();
+      console.log('[Reunión+] renderInformesDashboard: Supabase obtenerActividadTodas =', acts?.length, 'records');
       const rem = acts.find(a => String(a.id) === String(month));
-      if (rem) report = rem;
+      if (rem) {
+        console.log('[Reunión+] renderInformesDashboard: Supabase overwriting with month', month, 'people:', Object.keys(rem.people||{}).length);
+        report = rem;
+      }
     }
   } catch(e) {}
 
@@ -1052,8 +1065,10 @@ async function renderInformesDashboard(){
 }
 
 async function renderActivityCards() {
+  console.log('[Reunión+] renderActivityCards: people=', state.people?.length, 'departments=', state.departments?.map(d=>({id:d.id,name:d.name})), 'reportGroup=', state.reportGroup);
   const deps = state.departments || [];
   const allActivity = await db.listActivity();
+  console.log('[Reunión+] renderActivityCards: db.listActivity() returned', allActivity?.length, 'records', 'store used:', 'activity_g' + (state.reportGroup || 1));
   const lastActiveMap = {};
   allActivity.forEach(a => {
     const people = a.people || {};
@@ -1122,7 +1137,9 @@ async function renderActivityCards() {
 async function renderActivityMetrics() {
   const month = state.reportMonth;
   if (!month) return '';
+  console.log('[Reunión+] renderActivityMetrics: reportGroup=', state.reportGroup || '1(default)');
   const report = await db.getActivity(month) || { id: month, people: {} };
+  console.log('[Reunión+] renderActivityMetrics: report people=', Object.keys(report.people||{}).length);
   const months6 = lastMonths(month, 6);
   const allActivity = await db.listActivity();
   const activityMap = {};
@@ -1212,23 +1229,32 @@ function auxCellHtml(regular, aux, disabled, pid) {
 
 
 async function renderActivityGroupView(gid, withBack) {
+  console.log('[Reunión+] renderActivityGroupView gid=', gid, 'month=', state.reportMonth, 'withBack=', withBack);
   const dep = (state.departments || []).find(d => String(d.id) === String(gid));
   const groupName = dep ? (dep.name || 'Grupo') : 'Grupo';
+  console.log('[Reunión+]   dep found:', dep ? dep.name : 'NONE', 'gid match:', dep ? String(dep.id) === String(gid) : false);
   const month = state.reportMonth;
   const monthLabel = `${MONTHS_ES[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
   const me = currentUser();
   const isUser = me && me.rol === 'user';
-  let report = await db.getActivityGroup(month, gid) || { id: month, people: {}, locked: false };
+  const localReport = await db.getActivityGroup(month, gid);
+  console.log('[Reunión+]   db.getActivityGroup(' + month + ', ' + gid + ') =', localReport ? 'FOUND (people:' + Object.keys(localReport.people||{}).length + ')' : 'NULL');
+  let report = localReport || { id: month, people: {}, locked: false };
   try {
     const f = await import('./supabase.js?v=219');
     if (f.isAuthenticated && f.isAuthenticated()) {
       const acts = await f.obtenerActividadGrupo(gid);
+      console.log('[Reunión+]   Supabase obtenerActividadGrupo(' + gid + ') =', acts?.length, 'records');
       const rem = acts.find(a => String(a.id) === String(month));
-      if (rem) report = rem;
+      if (rem) {
+        console.log('[Reunión+]   Supabase overwriting local report for month', month, 'people:', Object.keys(rem.people||{}).length);
+        report = rem;
+      }
     }
-  } catch (e) { /* fallback local */ }
+  } catch (e) { console.warn('[Reunión+]   Supabase fetch error:', e.message); }
 
   const members = state.people.filter(p => String(p.grupoId) === String(gid));
+  console.log('[Reunión+]   members for gid', gid, ':', members.length, 'of total', state.people?.length);
 
   const nowMonth = isoDate(new Date()).slice(0,7);
   const reportDate = new Date(month+'-01');
@@ -1369,8 +1395,8 @@ async function renderRegistroAnualView(pid) {
 
 function bindActivityTab() {
   const back = $('#activityBack');
-  if (back) back.onclick = () => { state.reportGroup = null; renderInformes(); };
-  document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { state.reportGroup = b.dataset.groupCard; renderInformes(); });
+  if (back) back.onclick = () => { console.log('[Reunión+] back click → reportGroup=null'); state.reportGroup = null; renderInformes(); };
+  document.querySelectorAll('[data-group-card]').forEach(b => b.onclick = () => { console.log('[Reunión+] group-card click → reportGroup=', b.dataset.groupCard); state.reportGroup = b.dataset.groupCard; renderInformes(); });
   const lock = $('#activityLock');
   if (lock) lock.onclick = async () => {
     const month = state.reportMonth;

@@ -1257,14 +1257,17 @@ export async function borrarSoloProgramasLocal() {
 
 export async function getActivity(id) {
   const gid = (typeof window !== 'undefined' && window.state && window.state.reportGroup) ? window.state.reportGroup : 1;
+  console.log('[Reunión+] getActivity(' + id + ') → delegating to getActivityGroup with gid=' + gid);
   return await getActivityGroup(id, gid);
 }
 
 export async function getActivityGroup(month, gid) {
   const store = `activity_g${gid}`;
   const db = await openDB();
-  if (!db.objectStoreNames.contains(store)) return null;
-  return reqToPromise(tx(db, store).get(String(month)));
+  if (!db.objectStoreNames.contains(store)) { console.warn('[Reunión+] getActivityGroup: store', store, 'NOT FOUND'); return null; }
+  const result = await reqToPromise(tx(db, store).get(String(month)));
+  console.log('[Reunión+] getActivityGroup(' + month + ', ' + gid + ') → store=' + store, result ? 'FOUND (people:' + Object.keys(result.people||{}).length + ')' : 'NULL');
+  return result;
 }
 
 export async function putActivityGroup(report, gid) {
@@ -1279,6 +1282,7 @@ export async function putActivityGroupSilent(report, gid) {
 
 export async function putActivity(report) {
   const gid = (typeof window !== 'undefined' && window.state && window.state.reportGroup) ? window.state.reportGroup : 1;
+  console.log('[Reunión+] putActivity → store activity_g' + gid, 'reportMonth=', report?.id, 'people keys=', Object.keys(report?.people||{}).length);
   return await putActivityGroup(report, gid);
 }
 
@@ -1292,7 +1296,9 @@ export async function listActivity() {
   const db = await openDB();
   const store = `activity_g${gid}`;
   if (!db.objectStoreNames.contains(store)) return [];
-  return reqToPromise(tx(db, store).getAll());
+  const results = await reqToPromise(tx(db, store).getAll());
+  console.log('[Reunión+] listActivity → store=' + store + ', results=', results?.length);
+  return results;
 }
 
 export async function listActivityGroup(gid) {
