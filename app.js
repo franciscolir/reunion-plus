@@ -1430,8 +1430,7 @@ function bindActivityTab() {
       const actividad = isNumber ? horas > 0 : !!get('actividad')?.checked;
       const sinAct = !!get('sinactividad')?.checked;
       const prev = existing.people?.[p.id] || {};
-      const joined = prev.joined === true;
-      const nextJoined = joined || sinAct;
+      const nextJoined = sinAct || actividad;
       const nextActividad = sinAct ? false : actividad;
       const nextHoras = sinAct ? 0 : horas;
       people[p.id] = {
