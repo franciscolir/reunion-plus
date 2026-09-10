@@ -1131,7 +1131,7 @@ async function renderInformesDashboard(){
   }))).filter(Boolean).length;
 
   const kpiCard = (title, value, sub, extra, icon, primary=false, filter='') => `
-  <div ${filter ? `data-kpi-filter="${filter}" class="cursor-pointer hover:border-primary transition-colors"` : ''} class="bg-surface rounded-xl border border-outline-variant/30 border-l-4 border-l-primary p-5 soft-shadow-lvl1 flex flex-col justify-between ${primary?'bg-primary-container text-white':''}">
+  <div ${filter ? `data-kpi-filter="${filter}"` : ''} class="bg-surface rounded-xl border border-outline-variant/30 border-l-4 border-l-primary p-5 soft-shadow-lvl1 flex flex-col justify-between ${filter ? 'cursor-pointer hover:border-primary transition-colors' : ''} ${primary?'bg-primary-container text-white':''}">
     <div>
         <div class="flex items-center justify-between">
           <span class="text-xs uppercase font-semibold tracking-wider ${primary?'text-primary-fixed-dim':'text-on-surface-variant'}">${title}</span>
@@ -1158,7 +1158,7 @@ async function renderInformesDashboard(){
     const members = people.filter(p=>String(p.grupoId)===String(d.id));
     const groupReport = await db.getActivityGroup(month, d.id);
     const groupPeople = groupReport?.people || {};
-    const entregados = members.filter(p=>groupPeople[p.id]?.actividad).length;
+    const entregados = members.filter(p=>groupPeople[p.id]?.joined).length;
     const pct = members.length?Math.round(entregados/members.length*100):0;
     const status = pct===100?'Completado':pct===0?'Pendiente':'En revisión';
     const statusCls = pct===100?'bg-emerald-100 text-emerald-800':pct===0?'bg-amber-100 text-amber-900 border border-amber-300':'bg-primary-fixed text-on-primary-fixed';
